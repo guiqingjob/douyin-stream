@@ -65,8 +65,6 @@ def fetch_user_info_via_f2(url: str) -> dict:
     """
     logger.info("  📥 通过 F2 获取用户信息...")
 
-    CONFIG_PATH = SKILL_DIR / "config" / "config.yaml"
-
     # 先解析 URL 获取 sec_user_id 或 uid
     uid_from_url, sec_id_from_url = extract_uid_from_url(url)
 
@@ -81,19 +79,28 @@ def fetch_user_info_via_f2(url: str) -> dict:
     f2_env = os.environ.copy()
     f2_env["PWD"] = str(SKILL_DIR)
 
+    from utils.config import load_config
+    config = load_config()
+    cookie = config.get("cookie", config.get("douyin", {}).get("cookie", ""))
+
+    f2_args = [
+        sys.executable,
+        "-m",
+        "f2",
+        "dy",
+        "-u",
+        url,
+        "-M",
+        "post",
+        "--max-counts",
+        "1",
+    ]
+    
+    if cookie:
+        f2_args.extend(["-k", cookie])
+
     result = subprocess.run(
-        [
-            "f2",
-            "dy",
-            "-c",
-            str(CONFIG_PATH),
-            "-u",
-            url,
-            "-M",
-            "post",
-            "--max-counts",
-            "1",
-        ],
+        f2_args,
         env=f2_env,
         capture_output=True,
         text=True,
@@ -239,7 +246,7 @@ def list_users_cmd():
 
         logger.info(f"\n👤 {name}")
         logger.info(f"   UID: {uid}")
-        print(
+        logger.info(
             f"   粉丝: {followers:,}  |  视频: {videos}  |  本地: {local_video_count} 个"
         )
         logger.info(f"   最后获取: {last_fetch or '未获取'}")
@@ -291,7 +298,7 @@ def remove_user_cmd(uid: str):
             conn.close()
 
             if user_deleted > 0 or video_deleted > 0:
-                print(
+                logger.info(
                     f"🗑️ 已清理数据库: 用户记录 {user_deleted} 条, 视频记录 {video_deleted} 条"
                 )
                 db_cleaned = True

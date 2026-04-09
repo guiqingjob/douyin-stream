@@ -78,6 +78,11 @@ def get_f2_kwargs() -> dict:
     # 设置路径 - 使用统一配置模块
     kwargs["path"] = str(get_download_path())
 
+    # 映射命名模板
+    naming_tpl = custom_conf.get("naming_template") or douyin_custom.get("naming_template") or douyin_custom.get("naming")
+    if naming_tpl:
+        kwargs["naming"] = naming_tpl
+
     # 确保 cookie 存在
     cookie_str = kwargs.get("cookie")
     if not cookie_str:

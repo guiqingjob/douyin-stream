@@ -10,7 +10,7 @@ cookie:
 # macOS: ~/Downloads/抖音视频下载
 # Windows: C:\Users\<用户名>\Downloads\抖音视频下载
 download_path: ""
-naming_template: "{create}_{desc}_{aweme_id}"
+naming: "{desc}_{aweme_id}"
 
 # 增量模式
 incremental:
