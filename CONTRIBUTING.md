@@ -1,6 +1,6 @@
 # 🤝 参与贡献指南 (Contributing)
 
-欢迎参与 `douyin-download-renew` 的开发！我们非常期待您的加入，共同打造这个强大、易用的短视频自动下载与数据分析管家。
+欢迎参与 `douyin-stream` 的开发！我们非常期待您的加入，共同打造这个强大、易用的短视频自动下载与数据分析管家。
 
 为了保持代码库的整洁和高质量，请在提交代码前仔细阅读以下指南。
 
@@ -25,8 +25,8 @@
 ### 第一步：Fork 并克隆项目
 点击项目主页右上角的 `Fork` 按钮，将项目 Fork 到您的个人账号下，然后克隆到本地：
 ```bash
-git clone https://github.com/<您的用户名>/douyin-download-renew.git
-cd douyin-download-renew
+git clone https://github.com/<您的用户名>/douyin-stream.git
+cd douyin-stream
 ```
 
 ### 第二步：配置开发环境

@@ -1,6 +1,6 @@
 # 🔌 API 与架构开发指南 (API & Architecture Docs)
 
-本项目 `douyin-download-renew` 在设计之初，就充分考虑了模块化与二次开发的可能。如果你希望将本项目接入你自己的 SaaS 服务、Web 后端（如 FastAPI / Django）或替换存储引擎，这份文档将为你提供关键的架构信息。
+本项目 `douyin-stream` 在设计之初，就充分考虑了模块化与二次开发的可能。如果你希望将本项目接入你自己的 SaaS 服务、Web 后端（如 FastAPI / Django）或替换存储引擎，这份文档将为你提供关键的架构信息。
 
 ---
 
