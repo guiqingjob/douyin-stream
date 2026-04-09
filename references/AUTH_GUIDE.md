@@ -70,6 +70,22 @@ rules:
       check_expiry: false
 ```
 
+### 4. 常见网页抓取指南：抖音 Web
+如果您无法运行自动化扫码工具，可以按以下步骤手动提取抖音登录凭证：
+1. 使用任意浏览器（如 Chrome、Edge）打开 [抖音网页版 (douyin.com)](https://www.douyin.com/) 并完成扫码登录。
+2. 按 `F12` 键打开 **开发者工具 (Developer Tools)**。
+3. 切换到 **Application (应用)** 或 **Storage (存储)** 选项卡。
+4. 展开左侧的 **Cookies** 树，点击 `https://www.douyin.com`。
+5. 在右侧的表格中，寻找并复制以下核心 Cookie 的 `Value` 值：
+   - **`sessionid`** (必需！此为账户核心会话凭证，长度通常较长)
+   - **`passport_csrf_token`** (重要！防 CSRF 攻击的 Token)
+   - **`sid_guard`** / **`ttwid`** (辅助风控校验)
+6. 将它们拼接为标准的 Cookie 字符串（键值对之间用分号和空格隔开）：
+   ```text
+   sessionid=YOUR_SESSION_ID; passport_csrf_token=YOUR_TOKEN; sid_guard=YOUR_GUARD; ttwid=YOUR_TTWID;
+   ```
+7. 把这串内容直接复制到我们的 **可视化数据解析器** 中校验，或手动写入 `config/config.yaml` 文件的 `cookie` 字段。
+
 ---
 
 ## 三、异常处理与错误代码对照

@@ -36,12 +36,21 @@ python scripts/check_env.py
 ```
 > **提示**：如未安装，请查阅 [安装指南](references/INSTALLATION.md)。
 
-### 2. 扫码登录 (获取 Cookie)
+### 2. 获取 Cookie 登录态
+**方式一：扫码登录 (推荐)**
 首次使用需获取登录态：
 ```bash
 python scripts/login.py --persist
 ```
 > **提示**：使用 `--persist` 参数可持久化保存登录状态，下次无需重新扫码。
+
+**方式二：手动抓取网页 Cookie**
+如果无法使用扫码脚本，你也可以在浏览器中登录 [抖音网页版](https://www.douyin.com/)，按 `F12` 打开开发者工具 -> `Application (应用)` -> `Cookies`，提取以下核心 Cookie 字段并拼接：
+- `sessionid` (必须，核心身份凭证)
+- `passport_csrf_token` (重要，防跨站伪造请求)
+- `sid_guard` / `ttwid` (辅助验证)
+
+然后将拼接好的字符串（格式如 `sessionid=xxx; passport_csrf_token=yyy;`）写入 `config/config.yaml` 或使用内置的**可视化解析器**处理。
 
 ### 3. 一键下载
 推荐的下载方式，自动保存视频及统计数据：
