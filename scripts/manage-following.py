@@ -96,7 +96,7 @@ def fetch_user_info_via_f2(url: str) -> dict:
     ], env=f2_env, capture_output=True, text=True)
 
     if result.returncode != 0:
-        print(f"     ❌ F2 下载失败: {result.stderr[:100]}")
+        print(f"     ❌ F2 下载失败: {result.stderr}")
         return None
 
     # 3. 从数据库读取用户信息（根据 sec_user_id 或 uid 查询）
@@ -192,7 +192,7 @@ def extract_uid_from_url(url: str) -> tuple:
         return (uid_match.group(1), "")
 
     # 匹配 sec_user_id (MS4wLjABAAAA...)
-    sec_match = re.search(r'/user/(MS4wLjABAAAA[^/"\s]+)', url)
+    sec_match = re.search(r'/user/(MS4wLjABAAAA[^/"\s?]+)', url)
     if sec_match:
         sec_id = sec_match.group(1)
         # 返回 (None, sec_id)，等 F2 下载后从数据库获取真正的数字 UID
@@ -242,6 +242,7 @@ def remove_user_cmd(uid: str):
 
     name = user.get("nickname", user.get("name", "未知"))
     sec_user_id = user.get("sec_user_id", "")
+    folder = user.get("folder", name or uid)
 
     # 1. 从 following.json 删除
     remove_user(uid)
@@ -264,7 +265,7 @@ def remove_user_cmd(uid: str):
                 user_deleted += cursor.rowcount
 
             # 删除 video_metadata 中的记录
-            cursor.execute("DELETE FROM video_metadata WHERE uid = ?", (uid,))
+            cursor.execute("DELETE FROM video_metadata WHERE uid = ? OR nickname = ?", (uid, name))
             video_deleted = cursor.rowcount
 
             conn.commit()
@@ -279,40 +280,78 @@ def remove_user_cmd(uid: str):
     if not db_cleaned and DB_PATH.exists():
         print(f"📋 数据库中无该用户记录")
 
-    # 3. 检查视频目录（保留）
-    user_dir = DOWNLOADS_PATH / uid
+    # 3. 检查视频目录（询问是否删除本地文件）
+    user_dir = DOWNLOADS_PATH / folder
+    if not user_dir.exists():
+        # 兼容旧版本的纯数字目录
+        user_dir = DOWNLOADS_PATH / str(uid)
+
     if user_dir.exists():
         video_count = len(list(user_dir.glob("*.mp4")))
-        print(f"📁 视频文件保留在: {user_dir}")
-        print(f"   共 {video_count} 个视频文件未被删除")
+        print(f"\n📁 发现本地视频文件在: {user_dir}")
+        print(f"   共 {video_count} 个视频文件")
+        
+        confirm = input("❓ 是否同时删除本地的所有视频文件？(y/N): ").strip().lower()
+        if confirm == 'y':
+            import shutil
+            try:
+                shutil.rmtree(user_dir)
+                print(f"✅ 已彻底删除该博主的所有本地视频文件")
+            except Exception as e:
+                print(f"❌ 删除本地文件夹失败: {e}")
+        else:
+            print(f"📁 视频文件保留在: {user_dir}")
     else:
         print(f"📁 本地无该用户视频目录")
 
+    # 重新生成 Web 看板数据
+    print(f"🔄 正在更新数据看板...")
+    import subprocess
+    subprocess.run([sys.executable, str(SKILL_DIR / "scripts" / "generate-data.py")])
+    print(f"✅ 更新完成")
+
 
 def add_user_cmd(url: str):
-    """通过主页链接添加用户（仅添加到 following.json）"""
+    """通过主页链接添加用户"""
     uid, sec_user_id = extract_uid_from_url(url)
 
-    if not uid:
-        print(f"❌ 无法从 URL 提取 UID: {url}")
+    if not uid and not sec_user_id:
+        print(f"❌ 无法从 URL 提取用户标识: {url}")
         print("   请使用抖音主页链接，格式如:")
         print("   https://www.douyin.com/user/MS4wLjABAAAA...")
         return
 
     # 检查是否已存在
-    existing = get_user(uid)
-    if existing:
-        name = existing.get("nickname", existing.get("name", "未知"))
-        print(f"⚠️ 用户已在关注列表: {name} (UID: {uid})")
-        return
+    if sec_user_id:
+        for u in list_users():
+            if u.get("sec_user_id") == sec_user_id:
+                name = u.get("nickname", u.get("name", "未知"))
+                print(f"⚠️ 用户已在关注列表: {name} (UID: {u.get('uid')})")
+                return
+    elif uid:
+        existing = get_user(uid)
+        if existing:
+            name = existing.get("nickname", existing.get("name", "未知"))
+            print(f"⚠️ 用户已在关注列表: {name} (UID: {uid})")
+            return
 
-    # 创建基础用户信息（详细信息需后续下载时更新）
-    user_info = create_empty_user(uid, sec_user_id)
+    # 如果只有 sec_user_id 没有 uid，需要通过 F2 获取
+    if not uid:
+        print("  📥 正在通过 F2 获取用户详细信息...")
+        info = fetch_user_info_via_f2(url)
+        if info and info.get("uid"):
+            uid = str(info["uid"])
+            user_info = info
+        else:
+            print("❌ 获取用户信息失败，无法添加到关注列表")
+            return
+    else:
+        user_info = create_empty_user(uid, sec_user_id)
 
     # 添加到关注列表
     add_user(uid, user_info)
 
-    print(f"✅ 已添加用户 (UID: {uid})")
+    print(f"✅ 已添加用户: {user_info.get('nickname', '未知')} (UID: {uid})")
     print(f"   提示: 运行下载脚本可获取完整用户信息和视频")
 
 
