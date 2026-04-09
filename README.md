@@ -2,7 +2,7 @@
 
 [![License](https://img.shields.io/badge/license-MIT-blue.svg)](LICENSE.txt)
 [![Python Version](https://img.shields.io/badge/python-3.9%2B-brightgreen.svg)](https://www.python.org/)
-[![CI Status](https://github.com/GQ-Studio/douyin-stream/actions/workflows/ci.yml/badge.svg)](https://github.com/GQ-Studio/douyin-stream/actions)
+[![CI Status](https://github.com/guiqingjob/douyin-stream/actions/workflows/ci.yml/badge.svg)](https://github.com/guiqingjob/douyin-stream/actions)
 
 一款专为自媒体创作者、运营人员和数据分析师打造的**全自动抖音无水印视频下载与数据分析管家**。
 
