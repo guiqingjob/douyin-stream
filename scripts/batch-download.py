@@ -22,12 +22,11 @@
     - 使用博主昵称作为文件夹名
 """
 
+import os
 import subprocess
 import sys
-import uuid
 import time
 from pathlib import Path
-import os
 
 # 强制使用脚本所在目录作为工作目录
 SKILL_DIR = Path(__file__).parent.parent.resolve()
@@ -35,16 +34,9 @@ SKILL_DIR = Path(__file__).parent.parent.resolve()
 os.chdir(SKILL_DIR)
 
 # 导入统一配置模块
-from utils.config import (
-    get_download_path,
-    get_user_folder_name,
-)
-
-from utils.following import (
-    list_users,
-    get_user,
-    update_fetch_time,
-)
+from utils.logger import logger
+from utils.config import get_download_path, get_user_folder_name
+from utils.following import get_user, list_users, update_fetch_time
 
 DOWNLOAD_SCRIPT = SKILL_DIR / "scripts" / "download.py"
 DOWNLOADS_PATH = get_download_path()
@@ -58,7 +50,13 @@ def get_local_video_count(folder: str) -> int:
     return 0
 
 
-def download_user(uid: str, sec_user_id: str = None, nickname: str = "", max_counts: int = None, daemon: bool = False):
+def download_user(
+    uid: str,
+    sec_user_id: str = None,
+    nickname: str = "",
+    max_counts: int = None,
+    daemon: bool = False,
+):
     """下载单个用户的视频
 
     Args:
@@ -83,7 +81,13 @@ def download_user(uid: str, sec_user_id: str = None, nickname: str = "", max_cou
         log_dir.mkdir(parents=True, exist_ok=True)
         log_file = log_dir / f"{task_id}.log"
 
-        cmd = [sys.executable, str(DOWNLOAD_SCRIPT), url, "--daemon", f"--task-id={task_id}"]
+        cmd = [
+            sys.executable,
+            str(DOWNLOAD_SCRIPT),
+            url,
+            "--daemon",
+            f"--task-id={task_id}",
+        ]
         if max_counts is not None:
             cmd.append(f"--max-counts={max_counts}")
 
@@ -105,16 +109,19 @@ def download_user(uid: str, sec_user_id: str = None, nickname: str = "", max_cou
             start_new_session=True,  # 脱离父进程
         )
 
-        print(f"✅ 已启动后台任务: {task_id}")
-        print(f"   📋 任务ID: {task_id}")
-        print(f"   📁 日志: {log_file}")
-        print(f"   🔍 查看进度: tail -f {log_file}")
+        logger.info(f"✅ 已启动后台任务: {task_id}")
+        logger.info(f"   📋 任务ID: {task_id}")
+        logger.info(f"   📁 日志: {log_file}")
+        logger.info(f"   🔍 查看进度: tail -f {log_file}")
         return task_id
     else:
         # 同步运行模式
-        print(f"\n{'='*60}")
-        print(f"📥 开始下载: {nickname or uid}" + (f" (最多 {max_counts} 个)" if max_counts else ""))
-        print(f"{'='*60}")
+        logger.info(f"\n{'='*60}")
+        print(
+            f"📥 开始下载: {nickname or uid}"
+            + (f" (最多 {max_counts} 个)" if max_counts else "")
+        )
+        logger.info(f"{'='*60}")
 
         cmd = [sys.executable, str(DOWNLOAD_SCRIPT), url]
         if max_counts is not None:
@@ -125,10 +132,10 @@ def download_user(uid: str, sec_user_id: str = None, nickname: str = "", max_cou
         if result.returncode == 0:
             # 更新 last_fetch_time
             update_fetch_time(uid, nickname)
-            print(f"✅ 下载完成: {nickname or uid}")
+            logger.info(f"✅ 下载完成: {nickname or uid}")
             return True
         else:
-            print(f"❌ 下载失败: {nickname or uid}")
+            logger.error(f"❌ 下载失败: {nickname or uid}")
             return False
 
 
@@ -137,12 +144,12 @@ def interactive_select():
     users = list_users()
 
     if not users:
-        print("📋 关注列表为空，请先添加用户")
-        print("   用法: python scripts/manage-following.py --batch")
+        logger.info("📋 关注列表为空，请先添加用户")
+        logger.info("   用法: python scripts/manage-following.py --batch")
         return
 
-    print("\n📋 选择要下载的博主")
-    print("=" * 60)
+    logger.info("\n📋 选择要下载的博主")
+    logger.info("=" * 60)
 
     for i, user in enumerate(users, 1):
         uid = user.get("uid", "未知")
@@ -157,21 +164,21 @@ def interactive_select():
         else:
             status = "🆕 未下载"
 
-        print(f"  {i:2}. {name}")
-        print(f"      UID: {uid}")
-        print(f"      文件夹: {folder}")
-        print(f"      状态: {status} | 最后获取: {last_fetch or '未获取'}")
-        print()
+        logger.info(f"  {i:2}. {name}")
+        logger.info(f"      UID: {uid}")
+        logger.info(f"      文件夹: {folder}")
+        logger.info(f"      状态: {status} | 最后获取: {last_fetch or '未获取'}")
+        logger.info("")
 
-    print("=" * 60)
-    print("输入数字选择博主（支持多选，用逗号分隔）")
-    print("输入 'all' 下载全部，'q' 退出")
-    print("-" * 60)
+    logger.info("=" * 60)
+    logger.info("输入数字选择博主（支持多选，用逗号分隔）")
+    logger.info("输入 'all' 下载全部，'q' 退出")
+    logger.info("-" * 60)
 
     choice = input("请选择: ").strip().lower()
 
     if choice == "q" or choice == "":
-        print("❌ 已取消")
+        logger.error("❌ 已取消")
         return
 
     if choice == "all":
@@ -186,17 +193,17 @@ def interactive_select():
             if 1 <= idx <= len(users):
                 selected.append(users[idx - 1])
             else:
-                print(f"⚠️ 无效的序号: {idx}")
+                logger.warning(f"⚠️ 无效的序号: {idx}")
 
         if not selected:
-            print("❌ 没有有效的选择")
+            logger.error("❌ 没有有效的选择")
             return
 
-        print(f"\n📝 已选择 {len(selected)} 个博主")
+        logger.info(f"\n📝 已选择 {len(selected)} 个博主")
         download_selected_users(selected)
 
     except ValueError:
-        print("❌ 无效的输入，请输入数字")
+        logger.error("❌ 无效的输入，请输入数字")
 
 
 def download_selected_users(users: list):
@@ -210,20 +217,22 @@ def download_selected_users(users: list):
         sec_user_id = user.get("sec_user_id", "")
         name = user.get("nickname", user.get("name", "未知"))
 
-        print(f"\n[{i}/{total}] 处理: {name}")
+        logger.info(f"\n[{i}/{total}] 处理: {name}")
 
         if download_user(uid, sec_user_id, name):
             success += 1
         else:
             failed += 1
 
-    print("\n" + "=" * 60)
-    print(f"✨ 批量下载完成: 成功 {success}，失败 {failed}")
-    print(f"📁 下载目录: {DOWNLOADS_PATH}")
-    print("=" * 60)
+    logger.info("\n" + "=" * 60)
+    logger.info(f"✨ 批量下载完成: 成功 {success}，失败 {failed}")
+    logger.info(f"📁 下载目录: {DOWNLOADS_PATH}")
+    logger.info("=" * 60)
 
 
-def download_all_users(users: list = None, auto_confirm: bool = False, daemon: bool = False):
+def download_all_users(
+    users: list = None, auto_confirm: bool = False, daemon: bool = False
+):
     """下载全部用户
 
     Args:
@@ -235,16 +244,16 @@ def download_all_users(users: list = None, auto_confirm: bool = False, daemon: b
         users = list_users()
 
     if not users:
-        print("📋 关注列表为空，请先添加用户")
+        logger.info("📋 关注列表为空，请先添加用户")
         return
 
     total = len(users)
 
     if daemon:
         # 后台模式：直接启动所有任务
-        print(f"\n🚀 后台模式：准备启动全部 {total} 个下载任务")
-        print(f"📁 下载目录: {DOWNLOADS_PATH}")
-        print("-" * 60)
+        logger.info(f"\n🚀 后台模式：准备启动全部 {total} 个下载任务")
+        logger.info(f"📁 下载目录: {DOWNLOADS_PATH}")
+        logger.info("-" * 60)
 
         task_ids = []
         for user in users:
@@ -255,24 +264,24 @@ def download_all_users(users: list = None, auto_confirm: bool = False, daemon: b
             if task_id:
                 task_ids.append((name, task_id))
 
-        print("\n" + "=" * 60)
-        print(f"✅ 已启动 {len(task_ids)} 个后台任务")
-        print("-" * 60)
+        logger.info("\n" + "=" * 60)
+        logger.info(f"✅ 已启动 {len(task_ids)} 个后台任务")
+        logger.info("-" * 60)
         for name, task_id in task_ids:
-            print(f"   📺 {name}: {task_id}")
-        print("-" * 60)
-        print("🔍 查看所有日志: ls {}/logs/")
-        print("=" * 60)
+            logger.info(f"   📺 {name}: {task_id}")
+        logger.info("-" * 60)
+        logger.info("🔍 查看所有日志: ls {}/logs/")
+        logger.info("=" * 60)
     else:
         # 同步模式
-        print(f"\n📥 准备下载全部 {total} 个博主")
-        print(f"📁 下载目录: {DOWNLOADS_PATH}")
-        print("-" * 60)
+        logger.info(f"\n📥 准备下载全部 {total} 个博主")
+        logger.info(f"📁 下载目录: {DOWNLOADS_PATH}")
+        logger.info("-" * 60)
 
         if not auto_confirm:
             confirm = input("确认开始？(y/N): ").strip().lower()
             if confirm != "y":
-                print("❌ 已取消")
+                logger.error("❌ 已取消")
                 return
 
         download_selected_users(users)
@@ -289,27 +298,27 @@ def download_by_uid(uid: str, max_counts: int = None, daemon: bool = False):
     user = get_user(uid)
 
     if not user:
-        print(f"❌ 用户 {uid} 不在关注列表中")
-        print("   请先添加: python scripts/manage-following.py --add <URL>")
+        logger.error(f"❌ 用户 {uid} 不在关注列表中")
+        logger.info("   请先添加: python scripts/manage-following.py --add <URL>")
         return
 
     name = user.get("nickname", user.get("name", "未知"))
     sec_user_id = user.get("sec_user_id", "")
 
     if daemon:
-        print(f"\n🚀 后台模式：准备启动下载任务")
-        print(f"   📺 博主: {name} (UID: {uid})")
-        print(f"   📁 下载目录: {DOWNLOADS_PATH}")
-        print("-" * 60)
+        logger.info("\n🚀 后台模式：准备启动下载任务")
+        logger.info(f"   📺 博主: {name} (UID: {uid})")
+        logger.info(f"   📁 下载目录: {DOWNLOADS_PATH}")
+        logger.info("-" * 60)
         task_id = download_user(uid, sec_user_id, name, max_counts, daemon=True)
-        print("\n" + "=" * 60)
+        logger.info("\n" + "=" * 60)
         if task_id:
-            print(f"✅ 后台任务已启动")
-            print(f"   📋 任务ID: {task_id}")
-        print("=" * 60)
+            logger.info("✅ 后台任务已启动")
+            logger.info(f"   📋 任务ID: {task_id}")
+        logger.info("=" * 60)
     else:
-        print(f"\n📥 下载博主: {name} (UID: {uid})")
-        print(f"📁 下载目录: {DOWNLOADS_PATH}")
+        logger.info(f"\n📥 下载博主: {name} (UID: {uid})")
+        logger.info(f"📁 下载目录: {DOWNLOADS_PATH}")
         download_user(uid, sec_user_id, name, max_counts)
 
 
@@ -323,16 +332,16 @@ def download_sample(auto_confirm: bool = False, daemon: bool = False):
     users = list_users()
 
     if not users:
-        print("📋 关注列表为空，请先添加用户")
+        logger.info("📋 关注列表为空，请先添加用户")
         return
 
     total = len(users)
 
     if daemon:
         # 后台模式：直接启动所有任务
-        print(f"\n🚀 后台模式：准备启动 {total} 个采样下载任务")
-        print(f"📁 下载目录: {DOWNLOADS_PATH}")
-        print("-" * 60)
+        logger.info(f"\n🚀 后台模式：准备启动 {total} 个采样下载任务")
+        logger.info(f"📁 下载目录: {DOWNLOADS_PATH}")
+        logger.info("-" * 60)
 
         task_ids = []
         for user in users:
@@ -343,25 +352,25 @@ def download_sample(auto_confirm: bool = False, daemon: bool = False):
             if task_id:
                 task_ids.append((name, task_id))
 
-        print("\n" + "=" * 60)
-        print(f"✅ 已启动 {len(task_ids)} 个后台任务")
-        print("-" * 60)
+        logger.info("\n" + "=" * 60)
+        logger.info(f"✅ 已启动 {len(task_ids)} 个后台任务")
+        logger.info("-" * 60)
         for name, task_id in task_ids:
-            print(f"   📺 {name}: {task_id}")
-        print("-" * 60)
-        print("🔍 查看所有日志: ls {}/logs/")
-        print("=" * 60)
+            logger.info(f"   📺 {name}: {task_id}")
+        logger.info("-" * 60)
+        logger.info("🔍 查看所有日志: ls {}/logs/")
+        logger.info("=" * 60)
     else:
         # 同步模式
-        print(f"\n📥 采样下载：每个博主只下载 1 个视频")
-        print(f"   共 {total} 个博主")
-        print(f"📁 下载目录: {DOWNLOADS_PATH}")
-        print("-" * 60)
+        logger.info("\n📥 采样下载：每个博主只下载 1 个视频")
+        logger.info(f"   共 {total} 个博主")
+        logger.info(f"📁 下载目录: {DOWNLOADS_PATH}")
+        logger.info("-" * 60)
 
         if not auto_confirm:
             confirm = input("确认开始？(y/N): ").strip().lower()
             if confirm != "y":
-                print("❌ 已取消")
+                logger.error("❌ 已取消")
                 return
 
         success = 0
@@ -372,16 +381,16 @@ def download_sample(auto_confirm: bool = False, daemon: bool = False):
             sec_user_id = user.get("sec_user_id", "")
             name = user.get("nickname", user.get("name", "未知"))
 
-            print(f"\n[{i}/{total}] 采样下载: {name}")
+            logger.info(f"\n[{i}/{total}] 采样下载: {name}")
 
             if download_user(uid, sec_user_id, name, max_counts=1):
                 success += 1
             else:
                 failed += 1
 
-        print("\n" + "=" * 60)
-    print(f"✨ 采样下载完成: 成功 {success}，失败 {failed}")
-    print("=" * 60)
+        logger.info("\n" + "=" * 60)
+    logger.info(f"✨ 采样下载完成: 成功 {success}，失败 {failed}")
+    logger.info("=" * 60)
 
 
 def main():
@@ -408,18 +417,18 @@ def main():
         download_sample(auto_confirm=auto_confirm, daemon=daemon_mode)
     elif action == "--uid":
         if len(sys.argv) < 3:
-            print("用法: python scripts/batch-download.py --uid <UID>")
+            logger.info("用法: python scripts/batch-download.py --uid <UID>")
             return
         download_by_uid(sys.argv[2], daemon=daemon_mode)
     else:
-        print(f"❌ 未知参数: {action}")
-        print("用法:")
-        print("  python scripts/batch-download.py           # 交互选择")
-        print("  python scripts/batch-download.py --all      # 全量下载")
-        print("  python scripts/batch-download.py --sample   # 采样下载（每个1个视频）")
-        print("  python scripts/batch-download.py --uid <UID> # 指定博主")
-        print("  --daemon                                # 后台运行模式")
-        print("  --yes                                   # 跳过确认直接执行")
+        logger.error(f"❌ 未知参数: {action}")
+        logger.info("用法:")
+        logger.info("  python scripts/batch-download.py           # 交互选择")
+        logger.info("  python scripts/batch-download.py --all      # 全量下载")
+        logger.info("  python scripts/batch-download.py --sample   # 采样下载（每个1个视频）")
+        logger.info("  python scripts/batch-download.py --uid <UID> # 指定博主")
+        logger.info("  --daemon                                # 后台运行模式")
+        logger.info("  --yes                                   # 跳过确认直接执行")
 
 
 if __name__ == "__main__":

@@ -1,12 +1,14 @@
+from utils.logger import logger
 import json
 import re
-import yaml
 from pathlib import Path
-from datetime import datetime, timezone
-from typing import Dict, Any, Tuple
+from typing import Any, Dict, Tuple
+
+import yaml
 
 SKILL_DIR = Path(__file__).parent.parent.parent.resolve()
 RULES_PATH = SKILL_DIR / "config" / "auth_rules.yaml"
+
 
 class AuthParser:
     def __init__(self):
@@ -22,7 +24,9 @@ class AuthParser:
         except Exception:
             return {}
 
-    def parse_cookie(self, raw_data: str, rule_name: str = "douyin") -> Tuple[bool, str, Dict[str, str]]:
+    def parse_cookie(
+        self, raw_data: str, rule_name: str = "douyin"
+    ) -> Tuple[bool, str, Dict[str, str]]:
         """解析 Cookie 字符串并验证"""
         rule = self.rules.get(rule_name, {})
         if not rule or rule.get("type") != "cookie":
@@ -58,7 +62,9 @@ class AuthParser:
                 return None
         return val
 
-    def parse_json(self, raw_data: str, rule_name: str = "custom_json") -> Tuple[bool, str, Dict[str, str]]:
+    def parse_json(
+        self, raw_data: str, rule_name: str = "custom_json"
+    ) -> Tuple[bool, str, Dict[str, str]]:
         """解析 JSON 并提取映射字段"""
         rule = self.rules.get(rule_name, {})
         if not rule or rule.get("type") != "json":
@@ -81,7 +87,9 @@ class AuthParser:
 
         return True, "解析成功", result
 
-    def parse_text(self, raw_data: str, rule_name: str = "custom_text") -> Tuple[bool, str, Dict[str, str]]:
+    def parse_text(
+        self, raw_data: str, rule_name: str = "custom_text"
+    ) -> Tuple[bool, str, Dict[str, str]]:
         """解析纯文本并提取正则字段"""
         rule = self.rules.get(rule_name, {})
         if not rule or rule.get("type") != "text":
@@ -99,7 +107,9 @@ class AuthParser:
 
         return True, "解析成功", result
 
-    def validate_data(self, raw_data: str, data_type: str = "cookie", rule_name: str = None) -> Tuple[bool, str, Dict]:
+    def validate_data(
+        self, raw_data: str, data_type: str = "cookie", rule_name: str = None
+    ) -> Tuple[bool, str, Dict]:
         """统一入口：验证与解析"""
         if data_type == "cookie":
             return self.parse_cookie(raw_data, rule_name or "douyin")
@@ -110,8 +120,11 @@ class AuthParser:
         else:
             return False, "不支持的数据类型", {}
 
+
 # 测试用例
 if __name__ == "__main__":
     parser = AuthParser()
-    success, msg, data = parser.validate_data("sessionid=12345; passport_csrf_token=abc", "cookie", "douyin")
-    print(f"Cookie 解析: {success}, {msg}, {data}")
+    success, msg, data = parser.validate_data(
+        "sessionid=12345; passport_csrf_token=abc", "cookie", "douyin"
+    )
+    logger.info(f"Cookie 解析: {success}, {msg}, {data}")

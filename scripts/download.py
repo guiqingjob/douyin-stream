@@ -19,35 +19,28 @@
 - 使用博主昵称作为文件夹名（更易识别）
 """
 
+import asyncio
+import os
 import shutil
 import sqlite3
-import asyncio
 import sys
-import yaml
-import os
-import re
-from pathlib import Path
 from datetime import datetime
-from typing import Dict, List
+from pathlib import Path
+
 
 # 强制使用脚本所在目录作为工作目录
 SKILL_DIR = Path(__file__).parent.parent.resolve()
 os.chdir(SKILL_DIR)
 
-# 导入统一配置模块
-from utils.config import (
-    get_download_path,
-    get_db_path,
-    get_user_folder_name,
-    sanitize_folder_name,
-    load_config,
-)
-
+import f2
+from f2.apps.douyin.db import AsyncUserDB, AsyncVideoDB
 # 导入 F2 模块
 from f2.apps.douyin.handler import DouyinHandler
-from f2.apps.douyin.db import AsyncUserDB, AsyncVideoDB
 from f2.utils.conf_manager import ConfigManager
-import f2
+# 导入统一配置模块
+from utils.logger import logger
+from utils.config import (get_db_path, get_download_path, get_user_folder_name,
+                          load_config, sanitize_folder_name)
 
 
 def merge_config(main_conf: dict, custom_conf: dict) -> dict:
@@ -93,11 +86,12 @@ def get_f2_kwargs() -> dict:
     # 调用解析引擎验证 Cookie 有效性
     try:
         from utils.auth_parser import AuthParser
+
         parser = AuthParser()
         success, msg, _ = parser.validate_data(cookie_str, "cookie", "douyin")
         if not success:
-            print(f"⚠️ 警告: 当前配置的 Cookie 验证未通过 ({msg})")
-            print("如果下载失败，请运行 `python scripts/login.py` 重新获取 Cookie。")
+            logger.warning(f"⚠️ 警告: 当前配置的 Cookie 验证未通过 ({msg})")
+            logger.info("如果下载失败，请运行 `python scripts/login.py` 重新获取 Cookie。")
     except ImportError:
         pass
 
@@ -117,7 +111,8 @@ def create_video_metadata_table():
     conn = sqlite3.connect(str(db_path))
     cursor = conn.cursor()
 
-    cursor.execute("""
+    cursor.execute(
+        """
         CREATE TABLE IF NOT EXISTS video_metadata (
             aweme_id TEXT PRIMARY KEY,
             uid TEXT NOT NULL,
@@ -134,11 +129,14 @@ def create_video_metadata_table():
             file_size INTEGER,
             fetch_time INTEGER
         )
-    """)
+    """
+    )
 
-    cursor.execute("""
+    cursor.execute(
+        """
         CREATE INDEX IF NOT EXISTS idx_video_uid ON video_metadata(uid)
-    """)
+    """
+    )
 
     # 添加 nickname 列（如果不存在）
     try:
@@ -173,26 +171,29 @@ def save_video_metadata_from_raw(raw_data: dict, nickname: str = ""):
         author = video.get("author", {}) or {}
         video_nickname = author.get("nickname", nickname)
 
-        cursor.execute("""
+        cursor.execute(
+            """
             INSERT OR REPLACE INTO video_metadata
             (aweme_id, uid, nickname, desc, create_time, duration,
              digg_count, comment_count, collect_count, share_count, play_count,
              fetch_time)
             VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-        """, (
-            aweme_id,
-            author.get("uid", ""),
-            video_nickname,
-            video.get("desc", ""),
-            video.get("create_time", 0),
-            video.get("video", {}).get("duration", 0) if video.get("video") else 0,
-            stats.get("digg_count", 0),
-            stats.get("comment_count", 0),
-            stats.get("collect_count", 0),
-            stats.get("share_count", 0),
-            stats.get("play_count", 0),
-            fetch_time
-        ))
+        """,
+            (
+                aweme_id,
+                author.get("uid", ""),
+                video_nickname,
+                video.get("desc", ""),
+                video.get("create_time", 0),
+                video.get("video", {}).get("duration", 0) if video.get("video") else 0,
+                stats.get("digg_count", 0),
+                stats.get("comment_count", 0),
+                stats.get("collect_count", 0),
+                stats.get("share_count", 0),
+                stats.get("play_count", 0),
+                fetch_time,
+            ),
+        )
         saved_count += 1
 
     conn.commit()
@@ -226,11 +227,11 @@ def reorganize_files(nickname: str, uid: str) -> str:
     if old_path.exists():
         try:
             shutil.rmtree(old_path)
-        except:
+        except Exception as e:
             pass
 
     if moved_count > 0:
-        print(f"  [移动] {nickname} -> {folder_name} ({moved_count} 文件)")
+        logger.info(f"  [移动] {nickname} -> {folder_name} ({moved_count} 文件)")
 
     return folder_name
 
@@ -239,8 +240,9 @@ def update_last_fetch_time(uid: str, nickname: str = ""):
     """更新 following.json 中的 last_fetch_time"""
     try:
         from utils.following import update_fetch_time
+
         update_fetch_time(uid, nickname)
-        print(f"  [更新] last_fetch_time for {nickname or uid}")
+        logger.info(f"  [更新] last_fetch_time for {nickname or uid}")
     except ImportError:
         pass
 
@@ -248,11 +250,14 @@ def update_last_fetch_time(uid: str, nickname: str = ""):
 def run_sync():
     """运行 sync-following.py"""
     import subprocess
+
     subprocess.run([sys.executable, str(SKILL_DIR / "scripts" / "sync-following.py")])
+
 
 def run_generate_data():
     """运行 generate-data.py"""
     import subprocess
+
     subprocess.run([sys.executable, str(SKILL_DIR / "scripts" / "generate-data.py")])
 
 
@@ -277,10 +282,10 @@ async def download_with_stats(url: str, max_counts: int = None):
     f2_temp_path = downloads_path / "douyin"
     if f2_temp_path.exists():
         shutil.rmtree(f2_temp_path)
-        print("[清理] F2 临时目录")
+        logger.info("[清理] F2 临时目录")
 
-    print(f"[下载] 开始下载...")
-    print(f"[路径] {downloads_path}")
+    logger.info("[下载] 开始下载...")
+    logger.info(f"[路径] {downloads_path}")
 
     # 创建元数据表
     create_video_metadata_table()
@@ -290,13 +295,14 @@ async def download_with_stats(url: str, max_counts: int = None):
 
     # 解析 sec_user_id
     from f2.apps.douyin.utils import SecUserIdFetcher
+
     sec_user_id = await SecUserIdFetcher.get_sec_user_id(url)
 
     if not sec_user_id:
-        print("[错误] 无法解析用户 ID")
+        logger.info("[错误] 无法解析用户 ID")
         return
 
-    print(f"[信息] sec_user_id: {sec_user_id[:30]}...")
+    logger.info(f"[信息] sec_user_id: {sec_user_id[:30]}...")
 
     # 获取用户信息并保存
     async with AsyncUserDB(str(get_db_path())) as db:
@@ -305,7 +311,9 @@ async def download_with_stats(url: str, max_counts: int = None):
     # 从数据库获取用户信息（昵称）
     conn = sqlite3.connect(str(get_db_path()))
     cursor = conn.cursor()
-    cursor.execute("SELECT uid, nickname FROM user_info_web ORDER BY ROWID DESC LIMIT 1")
+    cursor.execute(
+        "SELECT uid, nickname FROM user_info_web ORDER BY ROWID DESC LIMIT 1"
+    )
     user_info = cursor.fetchone()
     conn.close()
 
@@ -313,18 +321,17 @@ async def download_with_stats(url: str, max_counts: int = None):
     nickname = user_info[1] if user_info else ""
 
     if nickname:
-        print(f"[博主] {nickname} (UID: {uid})")
+        logger.info(f"[博主] {nickname} (UID: {uid})")
 
     # 收集所有视频数据
     all_videos = []
     total_downloaded = 0
     total_stats_saved = 0
 
-    print("[下载] 正在获取视频列表...")
+    logger.info("[下载] 正在获取视频列表...")
 
     async for aweme_data_list in handler.fetch_user_post_videos(
-        sec_user_id,
-        max_counts=max_counts or float("inf")
+        sec_user_id, max_counts=max_counts or float("in")
     ):
         # 获取视频数据列表（用于下载）
         video_list = aweme_data_list._to_list()
@@ -343,13 +350,13 @@ async def download_with_stats(url: str, max_counts: int = None):
             )
 
             total_downloaded += len(video_list)
-            print(f"[下载] 已处理 {total_downloaded} 个视频...")
+            logger.info(f"[下载] 已处理 {total_downloaded} 个视频...")
 
     # 显示统计结果
-    print(f"[统计] 保存了 {total_stats_saved} 条视频元数据（含点赞/评论等数据）")
+    logger.info(f"[统计] 保存了 {total_stats_saved} 条视频元数据（含点赞/评论等数据）")
 
     # 整理文件
-    print("[整理] 重新组织文件...")
+    logger.info("[整理] 重新组织文件...")
     post_path = downloads_path / "douyin" / "post"
     folder_name = None
     if post_path.exists():
@@ -362,16 +369,16 @@ async def download_with_stats(url: str, max_counts: int = None):
         update_last_fetch_time(uid, nickname or folder_name)
 
     # 同步 following.json
-    print("[同步] 更新 following.json...")
+    logger.info("[同步] 更新 following.json...")
     run_sync()
 
     # 生成 Web 数据文件
-    print("[数据] 生成 Web 数据文件...")
+    logger.info("[数据] 生成 Web 数据文件...")
     run_generate_data()
 
-    print(f"\n[完成] 共下载 {total_downloaded} 个视频")
+    logger.info(f"\n[完成] 共下载 {total_downloaded} 个视频")
     if folder_name:
-        print(f"[位置] {downloads_path / folder_name}")
+        logger.info(f"[位置] {downloads_path / folder_name}")
 
 
 async def main():
@@ -381,10 +388,10 @@ async def main():
         sys.argv.remove("--daemon")
 
     if len(sys.argv) < 2:
-        print("用法: python scripts/download.py <主页URL>")
-        print("  示例: python scripts/download.py https://www.douyin.com/user/xxx")
-        print("  限制数量: python scripts/download.py <URL> --max-counts=10")
-        print("  后台运行: python scripts/download.py <URL> --daemon")
+        logger.info("用法: python scripts/download.py <主页URL>")
+        logger.info("  示例: python scripts/download.py https://www.douyin.com/user/xxx")
+        logger.info("  限制数量: python scripts/download.py <URL> --max-counts=10")
+        logger.info("  后台运行: python scripts/download.py <URL> --daemon")
         return
 
     url = sys.argv[1]
@@ -417,8 +424,8 @@ async def main():
         sys.stdout = log_handle
         sys.stderr = log_handle
 
-        print(f"[守护模式] 任务 {task_id} 已启动")
-        print(f"[日志] {log_file}")
+        logger.info(f"[守护模式] 任务 {task_id} 已启动")
+        logger.info(f"[日志] {log_file}")
 
     await download_with_stats(url, max_counts)
 

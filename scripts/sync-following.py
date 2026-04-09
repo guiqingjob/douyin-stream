@@ -11,25 +11,19 @@
 用法：python scripts/sync-following.py
 """
 
-import sqlite3
-from pathlib import Path
-from datetime import datetime
 import os
-import sys
+import sqlite3
+from datetime import datetime
+from pathlib import Path
 
 # 强制使用脚本所在目录作为工作目录
 SKILL_DIR = Path(__file__).parent.parent.resolve()
 # 切换到脚本目录（确保相对路径正确）
 os.chdir(SKILL_DIR)
 
-from utils.following import (
-    load_following,
-    save_following,
-    add_user,
-    list_users,
-    get_user,
-    FOLLOWING_PATH,
-)
+from utils.logger import logger
+from utils.following import (FOLLOWING_PATH, add_user, get_user, list_users,
+                             load_following, save_following)
 
 DB_PATH = SKILL_DIR / "douyin_users.db"
 HTML_PATH = SKILL_DIR / "downloads" / "index.html"
@@ -41,10 +35,13 @@ def get_user_info_from_db(uid):
     try:
         conn = sqlite3.connect(str(DB_PATH))
         cursor = conn.cursor()
-        cursor.execute("""
+        cursor.execute(
+            """
             SELECT uid, sec_user_id, nickname, avatar_url, signature, follower_count, following_count
             FROM user_info_web WHERE uid = ?
-        """, (uid,))
+        """,
+            (uid,),
+        )
         result = cursor.fetchone()
         conn.close()
         return result
@@ -60,7 +57,7 @@ def get_video_count(user_path):
 def generate_html(users):
     """生成 index.html"""
     if not HTML_PATH.exists():
-        print(f"  [跳过] 未找到 HTML 模板")
+        logger.info("  [跳过] 未找到 HTML 模板")
         return
 
     import json
@@ -76,15 +73,15 @@ def generate_html(users):
     html = html.replace("PLACEHOLDER_JSON", json_str)
 
     HTML_PATH.write_text(html, encoding="utf-8")
-    print(f"  [更新] index.html")
+    logger.info("  [更新] index.html")
 
 
 def main():
-    print("同步 following.json")
-    print("=" * 50)
+    logger.info("同步 following.json")
+    logger.info("=" * 50)
 
     if not DOWNLOADS_PATH.exists():
-        print("未找到 downloads 目录")
+        logger.info("未找到 downloads 目录")
         return
 
     # 加载旧数据（保留 last_fetch_time）
@@ -98,14 +95,22 @@ def main():
         if not folder.is_dir():
             continue
 
-        uid = folder.name
-        if not uid.isdigit():
-            continue
+        uid_or_name = folder.name
 
-        # 从 F2 数据库获取用户信息
-        user_data = get_user_info_from_db(uid)
+        # 因为现在目录名是博主昵称，所以我们需要根据昵称去找 UID
+        conn = sqlite3.connect(str(DB_PATH))
+        cursor = conn.cursor()
+        cursor.execute(
+            "SELECT uid, sec_user_id, nickname, avatar_url, signature, follower_count, following_count FROM user_info_web WHERE nickname = ? OR uid = ?",
+            (uid_or_name, uid_or_name),
+        )
+        user_data = cursor.fetchone()
+        conn.close()
+
         if not user_data:
             continue
+
+        uid = str(user_data[0])
 
         video_count = get_video_count(folder)
 
@@ -127,7 +132,7 @@ def main():
             "last_fetch_time": last_fetch,  # 保留上次抓取时间
         }
         new_users.append(user_info)
-        print(f"  [OK] {user_data[2]} ({video_count} 视频)")
+        logger.info(f"  [OK] {user_data[2]} ({video_count} 视频)")
 
     # 同时保留 downloads 目录中没有但 following.json 中有的用户
     for uid, old_user in old_users.items():
@@ -149,17 +154,14 @@ def main():
                     "last_fetch_time": old_user.get("last_fetch_time"),
                 }
                 new_users.append(user_info)
-                print(f"  [保留] {user_data[2]} (无本地视频)")
+                logger.info(f"  [保留] {user_data[2]} (无本地视频)")
 
     if new_users:
-        # 生成 HTML
-        generate_html(new_users)
-
         # 保存 following.json
         save_following({"users": new_users})
 
-    print(f"\n保存到: {FOLLOWING_PATH}")
-    print(f"共 {len(new_users)} 个博主")
+    logger.info(f"\n保存到: {FOLLOWING_PATH}")
+    logger.info(f"共 {len(new_users)} 个博主")
 
 
 if __name__ == "__main__":

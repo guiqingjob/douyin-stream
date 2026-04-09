@@ -1,7 +1,8 @@
 import http.server
-import socketserver
 import json
-import urllib.parse
+import socketserver
+
+from utils.logger import logger
 from utils.auth_parser import AuthParser
 
 PORT = 8080
@@ -29,7 +30,7 @@ HTML_PAGE = """
     <div class="container">
         <h1>🔐 认证数据解析器</h1>
         <p>将捕获到的网页 Cookie、JSON 响应或请求文本粘贴在下方，一键提取并验证核心认证字段。</p>
-        
+
         <label>数据类型</label>
         <select id="dataType">
             <option value="cookie">Cookie 字符串</option>
@@ -71,7 +72,7 @@ HTML_PAGE = """
                     body: JSON.stringify({ raw_data: rawData, data_type: dataType, rule_name: ruleName })
                 });
                 const res = await response.json();
-                
+
                 if (res.success) {
                     resultBox.innerText = '✅ 解析成功！\\n\\n提取结果：\\n' + JSON.stringify(res.data, null, 2);
                 } else {
@@ -88,49 +89,49 @@ HTML_PAGE = """
 </html>
 """
 
+
 class AuthHandler(http.server.SimpleHTTPRequestHandler):
     def do_GET(self):
-        if self.path == '/':
+        if self.path == "/":
             self.send_response(200)
-            self.send_header('Content-type', 'text/html; charset=utf-8')
+            self.send_header("Content-type", "text/html; charset=utf-8")
             self.end_headers()
-            self.wfile.write(HTML_PAGE.encode('utf-8'))
+            self.wfile.write(HTML_PAGE.encode("utf-8"))
         else:
             self.send_error(404)
 
     def do_POST(self):
-        if self.path == '/api/parse':
-            content_length = int(self.headers['Content-Length'])
+        if self.path == "/api/parse":
+            content_length = int(self.headers["Content-Length"])
             post_data = self.rfile.read(content_length)
-            
-            try:
-                req = json.loads(post_data.decode('utf-8'))
-                raw_data = req.get('raw_data', '')
-                data_type = req.get('data_type', 'cookie')
-                rule_name = req.get('rule_name', 'douyin')
 
-                success, msg, data = parser.validate_data(raw_data, data_type, rule_name)
-                
-                res = {
-                    "success": success,
-                    "message": msg,
-                    "data": data
-                }
+            try:
+                req = json.loads(post_data.decode("utf-8"))
+                raw_data = req.get("raw_data", "")
+                data_type = req.get("data_type", "cookie")
+                rule_name = req.get("rule_name", "douyin")
+
+                success, msg, data = parser.validate_data(
+                    raw_data, data_type, rule_name
+                )
+
+                res = {"success": success, "message": msg, "data": data}
                 self.send_response(200)
             except Exception as e:
                 res = {"success": False, "message": str(e), "data": {}}
                 self.send_response(500)
 
-            self.send_header('Content-type', 'application/json; charset=utf-8')
+            self.send_header("Content-type", "application/json; charset=utf-8")
             self.end_headers()
-            self.wfile.write(json.dumps(res).encode('utf-8'))
+            self.wfile.write(json.dumps(res).encode("utf-8"))
         else:
             self.send_error(404)
 
-if __name__ == '__main__':
+
+if __name__ == "__main__":
     with socketserver.TCPServer(("", PORT), AuthHandler) as httpd:
-        print(f"认证可视化服务器已启动: http://localhost:{PORT}")
-        print("按 Ctrl+C 停止服务")
+        logger.info(f"认证可视化服务器已启动: http://localhost:{PORT}")
+        logger.info("按 Ctrl+C 停止服务")
         try:
             httpd.serve_forever()
         except KeyboardInterrupt:

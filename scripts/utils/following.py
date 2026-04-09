@@ -6,10 +6,11 @@ following.json 统一读写模块
 数据格式: {users: [{uid, nickname, folder, ...}, ...]}
 """
 
+from utils.logger import logger
 import json
 import sqlite3
-from pathlib import Path
 from datetime import datetime
+from pathlib import Path
 from typing import Optional
 
 # 获取 skill 根目录（scripts/utils/ 的上两级）
@@ -21,15 +22,17 @@ DB_PATH = SKILL_DIR / "douyin_users.db"
 try:
     from utils.config import sanitize_folder_name
 except ImportError:
+
     def sanitize_folder_name(name: str) -> str:
         """简单的文件夹名称清理"""
         import re
+
         if not name:
             return "unknown"
         name = name.strip()
-        name = re.sub(r'[<>:"/\\|?*]', '_', name)
-        name = re.sub(r'[\s_]+', '_', name)
-        name = name.strip('_')
+        name = re.sub(r'[<>:"/\\|?*]', "_", name)
+        name = re.sub(r"[\s_]+", "_", name)
+        name = name.strip("_")
         return name[:100] if name else "unknown"
 
 
@@ -111,7 +114,9 @@ def add_user(uid: str, info: dict, merge: bool = True) -> bool:
                     existing[key] = value
             # 确保 folder 字段存在
             if "folder" not in existing:
-                existing["folder"] = sanitize_folder_name(existing.get("nickname") or existing.get("name", "") or uid)
+                existing["folder"] = sanitize_folder_name(
+                    existing.get("nickname") or existing.get("name", "") or uid
+                )
             info = existing
         data["users"][index] = info
         save_following(data)
@@ -197,20 +202,26 @@ def update_user_info_from_db(uid: str, last_fetch_time: str = None) -> bool:
         cursor = conn.cursor()
 
         # 先尝试用 uid 查找
-        cursor.execute("""
+        cursor.execute(
+            """
             SELECT uid, sec_user_id, nickname, avatar_url, signature,
                    follower_count, following_count, aweme_count
             FROM user_info_web WHERE uid = ?
-        """, (uid,))
+        """,
+            (uid,),
+        )
         result = cursor.fetchone()
 
         # 如果没找到，尝试用 sec_user_id 查找
         if not result:
-            cursor.execute("""
+            cursor.execute(
+                """
                 SELECT uid, sec_user_id, nickname, avatar_url, signature,
                        follower_count, following_count, aweme_count
                 FROM user_info_web WHERE sec_user_id = ?
-            """, (uid,))
+            """,
+                (uid,),
+            )
             result = cursor.fetchone()
 
         conn.close()

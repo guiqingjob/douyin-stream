@@ -9,11 +9,12 @@
 - 路径规范化
 """
 
-import os
+from utils.logger import logger
 import re
-import yaml
 from pathlib import Path
-from typing import Optional, Dict, Any
+from typing import Any, Dict, Optional
+
+import yaml
 
 # 技能目录
 SKILL_DIR = Path(__file__).parent.parent.parent.resolve()
@@ -50,13 +51,13 @@ def sanitize_folder_name(name: str) -> str:
     name = name.strip()
 
     # 替换不允许的字符为下划线
-    name = re.sub(r'[<>:"/\\|?*]', '_', name)
+    name = re.sub(r'[<>:"/\\|?*]', "_", name)
 
     # 移除连续的空格和下划线
-    name = re.sub(r'[\s_]+', '_', name)
+    name = re.sub(r"[\s_]+", "_", name)
 
     # 移除首尾的下划线
-    name = name.strip('_')
+    name = name.strip("_")
 
     # 如果清理后为空，使用 unknown
     if not name:
@@ -232,21 +233,21 @@ class Paths:
 
 if __name__ == "__main__":
     # 测试
-    print(f"技能目录: {SKILL_DIR}")
-    print(f"配置文件: {CONFIG_PATH}")
-    print(f"默认下载路径: {get_default_download_path()}")
-    print(f"实际下载路径: {get_download_path()}")
-    print(f"数据库路径: {get_db_path()}")
-    print(f"following.json 路径: {get_following_path()}")
+    logger.info(f"技能目录: {SKILL_DIR}")
+    logger.info(f"配置文件: {CONFIG_PATH}")
+    logger.info(f"默认下载路径: {get_default_download_path()}")
+    logger.info(f"实际下载路径: {get_download_path()}")
+    logger.info(f"数据库路径: {get_db_path()}")
+    logger.info(f"following.json 路径: {get_following_path()}")
 
     # 测试文件夹名称清理
     test_names = [
         "测试博主",
         "博主/名称",
-        "test<>:\"/\\|?*name",
+        'test<>:"/\\|?*name',
         "  multiple   spaces  ",
         "",
     ]
-    print("\n文件夹名称清理测试:")
+    logger.info("\n文件夹名称清理测试:")
     for name in test_names:
-        print(f"  '{name}' -> '{sanitize_folder_name(name)}'")
+        logger.info(f"  '{name}' -> '{sanitize_folder_name(name)}'")

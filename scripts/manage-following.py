@@ -23,30 +23,23 @@
     python scripts/manage-following.py --search "张总"
 """
 
-import sys
+import os
 import re
-import asyncio
 import sqlite3
 import subprocess
-from pathlib import Path
+import sys
 from datetime import datetime
-import os
+from pathlib import Path
 
 # 强制使用脚本所在目录作为工作目录
 SKILL_DIR = Path(__file__).parent.parent.resolve()
 # 切换到脚本目录（确保相对路径正确）
 os.chdir(SKILL_DIR)
 
-from utils.following import (
-    load_following,
-    save_following,
-    add_user,
-    get_user,
-    list_users,
-    remove_user,
-    create_empty_user,
-    FOLLOWING_PATH,
-)
+from utils.logger import logger
+from utils.following import (FOLLOWING_PATH, add_user, create_empty_user,
+                             get_user, list_users, load_following, remove_user,
+                             save_following)
 
 DOWNLOADS_PATH = SKILL_DIR / "downloads"
 DB_PATH = SKILL_DIR / "douyin_users.db"
@@ -60,7 +53,7 @@ def clean_nickname(name: str) -> str:
     suffixes = ["的抖音", "的Douyin", " - 抖音", " - Douyin", " | 抖音", " | Douyin"]
     for suffix in suffixes:
         if name.endswith(suffix):
-            name = name[:-len(suffix)]
+            name = name[: -len(suffix)]
     return name.strip()
 
 
@@ -70,7 +63,7 @@ def fetch_user_info_via_f2(url: str) -> dict:
 
     流程：URL -> F2 下载1个视频 -> 归档视频到 downloads/{uid}/ -> 从数据库读取用户信息 -> 返回用户信息
     """
-    print(f"  📥 通过 F2 获取用户信息...")
+    logger.info("  📥 通过 F2 获取用户信息...")
 
     CONFIG_PATH = SKILL_DIR / "config" / "config.yaml"
 
@@ -81,22 +74,33 @@ def fetch_user_info_via_f2(url: str) -> dict:
     f2_temp_path = DOWNLOADS_PATH / "douyin"
     if f2_temp_path.exists():
         import shutil
+
         shutil.rmtree(f2_temp_path)
 
     # 2. 运行 F2 下载（只下载1个视频）
     f2_env = os.environ.copy()
     f2_env["PWD"] = str(SKILL_DIR)
 
-    result = subprocess.run([
-        "f2", "dy",
-        "-c", str(CONFIG_PATH),
-        "-u", url,
-        "-M", "post",
-        "--max-counts", "1"
-    ], env=f2_env, capture_output=True, text=True)
+    result = subprocess.run(
+        [
+            "f2",
+            "dy",
+            "-c",
+            str(CONFIG_PATH),
+            "-u",
+            url,
+            "-M",
+            "post",
+            "--max-counts",
+            "1",
+        ],
+        env=f2_env,
+        capture_output=True,
+        text=True,
+    )
 
     if result.returncode != 0:
-        print(f"     ❌ F2 下载失败: {result.stderr}")
+        logger.info(f"     ❌ F2 下载失败: {result.stderr}")
         return None
 
     # 3. 从数据库读取用户信息（根据 sec_user_id 或 uid 查询）
@@ -106,30 +110,38 @@ def fetch_user_info_via_f2(url: str) -> dict:
 
         # 优先用 sec_user_id 查询，因为 URL 中通常只有这个
         if sec_id_from_url:
-            cursor.execute("""
+            cursor.execute(
+                """
                 SELECT uid, sec_user_id, nickname, avatar_url, signature,
                        follower_count, following_count, aweme_count
                 FROM user_info_web WHERE sec_user_id = ?
-            """, (sec_id_from_url,))
+            """,
+                (sec_id_from_url,),
+            )
         elif uid_from_url:
-            cursor.execute("""
+            cursor.execute(
+                """
                 SELECT uid, sec_user_id, nickname, avatar_url, signature,
                        follower_count, following_count, aweme_count
                 FROM user_info_web WHERE uid = ?
-            """, (uid_from_url,))
+            """,
+                (uid_from_url,),
+            )
         else:
             # 兜底：取最新的记录
-            cursor.execute("""
+            cursor.execute(
+                """
                 SELECT uid, sec_user_id, nickname, avatar_url, signature,
                        follower_count, following_count, aweme_count
                 FROM user_info_web ORDER BY ROWID DESC LIMIT 1
-            """)
+            """
+            )
 
         row = cursor.fetchone()
         conn.close()
 
         if not row:
-            print(f"     ❌ 数据库中未找到用户信息")
+            logger.info("     ❌ 数据库中未找到用户信息")
             return None
 
         # 使用数据库中的数字 UID
@@ -137,6 +149,7 @@ def fetch_user_info_via_f2(url: str) -> dict:
 
         # 4. 归档视频文件到 downloads/{uid}/
         import shutil as sh
+
         post_path = DOWNLOADS_PATH / "douyin" / "post"
         if post_path.exists():
             for folder in post_path.iterdir():
@@ -154,7 +167,7 @@ def fetch_user_info_via_f2(url: str) -> dict:
                     # 删除空文件夹
                     try:
                         sh.rmtree(folder)
-                    except:
+                    except Exception as e:
                         pass
 
         user_info = {
@@ -170,11 +183,11 @@ def fetch_user_info_via_f2(url: str) -> dict:
             "last_updated": datetime.now().isoformat(),
             "last_fetch_time": None,
         }
-        print(f"     ✅ 获取成功: {user_info['nickname']}")
+        logger.info(f"     ✅ 获取成功: {user_info['nickname']}")
         return user_info
 
     except Exception as e:
-        print(f"     ❌ 数据库读取失败: {e}")
+        logger.info(f"     ❌ 数据库读取失败: {e}")
         return None
 
 
@@ -187,7 +200,7 @@ def extract_uid_from_url(url: str) -> tuple:
         sec_user_id: sec_user_id
     """
     # 匹配数字 UID
-    uid_match = re.search(r'/user/(\d+)', url)
+    uid_match = re.search(r"/user/(\d+)", url)
     if uid_match:
         return (uid_match.group(1), "")
 
@@ -206,11 +219,11 @@ def list_users_cmd():
     users = list_users()
 
     if not users:
-        print("📋 关注列表为空")
+        logger.info("📋 关注列表为空")
         return
 
-    print(f"\n📋 关注列表 (共 {len(users)} 位博主):")
-    print("=" * 60)
+    logger.info(f"\n📋 关注列表 (共 {len(users)} 位博主):")
+    logger.info("=" * 60)
 
     for info in users:
         uid = info.get("uid", "未知")
@@ -224,12 +237,14 @@ def list_users_cmd():
         has_videos = user_dir.exists() if user_dir else False
         local_video_count = len(list(user_dir.glob("*.mp4"))) if has_videos else 0
 
-        print(f"\n👤 {name}")
-        print(f"   UID: {uid}")
-        print(f"   粉丝: {followers:,}  |  视频: {videos}  |  本地: {local_video_count} 个")
-        print(f"   最后获取: {last_fetch or '未获取'}")
+        logger.info(f"\n👤 {name}")
+        logger.info(f"   UID: {uid}")
+        print(
+            f"   粉丝: {followers:,}  |  视频: {videos}  |  本地: {local_video_count} 个"
+        )
+        logger.info(f"   最后获取: {last_fetch or '未获取'}")
 
-    print("\n" + "=" * 60)
+    logger.info("\n" + "=" * 60)
 
 
 def remove_user_cmd(uid: str):
@@ -237,7 +252,7 @@ def remove_user_cmd(uid: str):
     user = get_user(uid)
 
     if not user:
-        print(f"❌ 用户 {uid} 不在关注列表中")
+        logger.error(f"❌ 用户 {uid} 不在关注列表中")
         return
 
     name = user.get("nickname", user.get("name", "未知"))
@@ -246,7 +261,7 @@ def remove_user_cmd(uid: str):
 
     # 1. 从 following.json 删除
     remove_user(uid)
-    print(f"✅ 已从关注列表移除: {name} (UID: {uid})")
+    logger.info(f"✅ 已从关注列表移除: {name} (UID: {uid})")
 
     # 2. 清理数据库记录
     db_cleaned = False
@@ -261,24 +276,30 @@ def remove_user_cmd(uid: str):
 
             # 也尝试用 sec_user_id 删除
             if sec_user_id:
-                cursor.execute("DELETE FROM user_info_web WHERE sec_user_id = ?", (sec_user_id,))
+                cursor.execute(
+                    "DELETE FROM user_info_web WHERE sec_user_id = ?", (sec_user_id,)
+                )
                 user_deleted += cursor.rowcount
 
             # 删除 video_metadata 中的记录
-            cursor.execute("DELETE FROM video_metadata WHERE uid = ? OR nickname = ?", (uid, name))
+            cursor.execute(
+                "DELETE FROM video_metadata WHERE uid = ? OR nickname = ?", (uid, name)
+            )
             video_deleted = cursor.rowcount
 
             conn.commit()
             conn.close()
 
             if user_deleted > 0 or video_deleted > 0:
-                print(f"🗑️ 已清理数据库: 用户记录 {user_deleted} 条, 视频记录 {video_deleted} 条")
+                print(
+                    f"🗑️ 已清理数据库: 用户记录 {user_deleted} 条, 视频记录 {video_deleted} 条"
+                )
                 db_cleaned = True
         except Exception as e:
-            print(f"⚠️ 清理数据库时出错: {e}")
+            logger.warning(f"⚠️ 清理数据库时出错: {e}")
 
     if not db_cleaned and DB_PATH.exists():
-        print(f"📋 数据库中无该用户记录")
+        logger.info("📋 数据库中无该用户记录")
 
     # 3. 检查视频目录（询问是否删除本地文件）
     user_dir = DOWNLOADS_PATH / folder
@@ -288,27 +309,29 @@ def remove_user_cmd(uid: str):
 
     if user_dir.exists():
         video_count = len(list(user_dir.glob("*.mp4")))
-        print(f"\n📁 发现本地视频文件在: {user_dir}")
-        print(f"   共 {video_count} 个视频文件")
-        
+        logger.info(f"\n📁 发现本地视频文件在: {user_dir}")
+        logger.info(f"   共 {video_count} 个视频文件")
+
         confirm = input("❓ 是否同时删除本地的所有视频文件？(y/N): ").strip().lower()
-        if confirm == 'y':
+        if confirm == "y":
             import shutil
+
             try:
                 shutil.rmtree(user_dir)
-                print(f"✅ 已彻底删除该博主的所有本地视频文件")
+                logger.info("✅ 已彻底删除该博主的所有本地视频文件")
             except Exception as e:
-                print(f"❌ 删除本地文件夹失败: {e}")
+                logger.error(f"❌ 删除本地文件夹失败: {e}")
         else:
-            print(f"📁 视频文件保留在: {user_dir}")
+            logger.info(f"📁 视频文件保留在: {user_dir}")
     else:
-        print(f"📁 本地无该用户视频目录")
+        logger.info("📁 本地无该用户视频目录")
 
     # 重新生成 Web 看板数据
-    print(f"🔄 正在更新数据看板...")
+    logger.info("🔄 正在更新数据看板...")
     import subprocess
+
     subprocess.run([sys.executable, str(SKILL_DIR / "scripts" / "generate-data.py")])
-    print(f"✅ 更新完成")
+    logger.info("✅ 更新完成")
 
 
 def add_user_cmd(url: str):
@@ -316,9 +339,9 @@ def add_user_cmd(url: str):
     uid, sec_user_id = extract_uid_from_url(url)
 
     if not uid and not sec_user_id:
-        print(f"❌ 无法从 URL 提取用户标识: {url}")
-        print("   请使用抖音主页链接，格式如:")
-        print("   https://www.douyin.com/user/MS4wLjABAAAA...")
+        logger.error(f"❌ 无法从 URL 提取用户标识: {url}")
+        logger.info("   请使用抖音主页链接，格式如:")
+        logger.info("   https://www.douyin.com/user/MS4wLjABAAAA...")
         return
 
     # 检查是否已存在
@@ -326,24 +349,24 @@ def add_user_cmd(url: str):
         for u in list_users():
             if u.get("sec_user_id") == sec_user_id:
                 name = u.get("nickname", u.get("name", "未知"))
-                print(f"⚠️ 用户已在关注列表: {name} (UID: {u.get('uid')})")
+                logger.warning(f"⚠️ 用户已在关注列表: {name} (UID: {u.get('uid')})")
                 return
     elif uid:
         existing = get_user(uid)
         if existing:
             name = existing.get("nickname", existing.get("name", "未知"))
-            print(f"⚠️ 用户已在关注列表: {name} (UID: {uid})")
+            logger.warning(f"⚠️ 用户已在关注列表: {name} (UID: {uid})")
             return
 
     # 如果只有 sec_user_id 没有 uid，需要通过 F2 获取
     if not uid:
-        print("  📥 正在通过 F2 获取用户详细信息...")
+        logger.info("  📥 正在通过 F2 获取用户详细信息...")
         info = fetch_user_info_via_f2(url)
         if info and info.get("uid"):
             uid = str(info["uid"])
             user_info = info
         else:
-            print("❌ 获取用户信息失败，无法添加到关注列表")
+            logger.error("❌ 获取用户信息失败，无法添加到关注列表")
             return
     else:
         user_info = create_empty_user(uid, sec_user_id)
@@ -351,8 +374,8 @@ def add_user_cmd(url: str):
     # 添加到关注列表
     add_user(uid, user_info)
 
-    print(f"✅ 已添加用户: {user_info.get('nickname', '未知')} (UID: {uid})")
-    print(f"   提示: 运行下载脚本可获取完整用户信息和视频")
+    logger.info(f"✅ 已添加用户: {user_info.get('nickname', '未知')} (UID: {uid})")
+    logger.info("   提示: 运行下载脚本可获取完整用户信息和视频")
 
 
 async def fetch_user_info_from_web(uid: str, sec_user_id: str = None) -> dict:
@@ -360,7 +383,7 @@ async def fetch_user_info_from_web(uid: str, sec_user_id: str = None) -> dict:
     try:
         from playwright.async_api import async_playwright
     except ImportError:
-        print("   ⚠️ Playwright 未安装，无法获取详细信息")
+        logger.info("   ⚠️ Playwright 未安装，无法获取详细信息")
         return None
 
     user_info = {
@@ -386,7 +409,11 @@ async def fetch_user_info_from_web(uid: str, sec_user_id: str = None) -> dict:
                 user_data_dir=str(SKILL_DIR / ".playwright-data"),
                 headless=False,  # 有头模式，避免抖音反爬虫
                 viewport={"width": 1280, "height": 800},
-                args=["--no-sandbox", "--disable-web-security", "--disable-blink-features=AutomationControlled"],
+                args=[
+                    "--no-sandbox",
+                    "--disable-web-security",
+                    "--disable-blink-features=AutomationControlled",
+                ],
             )
 
             page = context.pages[0] if context.pages else await context.new_page()
@@ -397,16 +424,19 @@ async def fetch_user_info_from_web(uid: str, sec_user_id: str = None) -> dict:
                 await page.wait_for_timeout(1500)
 
                 # 获取 sec_user_id
-                sec_user_id = await page.evaluate("""() => {
+                sec_user_id = await page.evaluate(
+                    """() => {
                     const url = window.location.href;
                     const match = url.match(/\\/user\\/([^?]+)/);
                     return match ? match[1] : '';
-                }""")
+                }"""
+                )
                 if sec_user_id and not sec_user_id.isdigit():
                     user_info["sec_user_id"] = sec_user_id
 
                 # 从 JSON-LD 获取
-                json_ld = await page.evaluate("""() => {
+                json_ld = await page.evaluate(
+                    """() => {
                     const scripts = document.querySelectorAll('script[type="application/ld+json"]');
                     for (const s of scripts) {
                         try {
@@ -415,7 +445,8 @@ async def fetch_user_info_from_web(uid: str, sec_user_id: str = None) -> dict:
                         } catch {}
                     }
                     return null;
-                }""")
+                }"""
+                )
 
                 if json_ld and isinstance(json_ld, dict):
                     user_info["nickname"] = clean_nickname(json_ld.get("name", ""))
@@ -426,15 +457,18 @@ async def fetch_user_info_from_web(uid: str, sec_user_id: str = None) -> dict:
 
                 # 从 meta 获取昵称
                 if not user_info["nickname"]:
-                    nickname = await page.evaluate("""() => {
+                    nickname = await page.evaluate(
+                        """() => {
                         const ogTitle = document.querySelector('meta[property="og:title"]');
                         return ogTitle ? ogTitle.getAttribute('content') : document.title;
-                    }""")
+                    }"""
+                    )
                     user_info["nickname"] = clean_nickname(nickname)
 
                 # 获取头像 - 优先从页面元素获取
                 if not user_info["avatar_url"]:
-                    avatar_result = await page.evaluate("""() => {
+                    avatar_result = await page.evaluate(
+                        """() => {
                         // 1. 尝试 og:image
                         const ogImage = document.querySelector('meta[property="og:image"]');
                         if (ogImage) return ogImage.getAttribute('content');
@@ -451,23 +485,26 @@ async def fetch_user_info_from_web(uid: str, sec_user_id: str = None) -> dict:
                             if (match) return match[1];
                         }
                         return '';
-                    }""")
+                    }"""
+                    )
                     user_info["avatar_url"] = avatar_result or ""
 
                 # 获取签名
-                signature = await page.evaluate("""() => {
+                signature = await page.evaluate(
+                    """() => {
                     const desc = document.querySelector('meta[property="og:description"]');
                     return desc ? desc.getAttribute('content') : '';
-                }""")
+                }"""
+                )
                 user_info["signature"] = signature
 
             except Exception as e:
-                print(f"   ⚠️ 获取信息出错: {e}")
+                logger.info(f"   ⚠️ 获取信息出错: {e}")
 
             await context.close()
 
     except Exception as e:
-        print(f"   ⚠️ Playwright 错误: {e}")
+        logger.info(f"   ⚠️ Playwright 错误: {e}")
         return None
 
     return user_info
@@ -475,11 +512,11 @@ async def fetch_user_info_from_web(uid: str, sec_user_id: str = None) -> dict:
 
 def batch_add_cmd(auto_confirm: bool = False):
     """批量导入用户（粘贴多个 URL，自动获取用户信息）"""
-    print("\n📋 批量导入用户")
-    print("=" * 60)
-    print("请粘贴多个抖音主页 URL（支持逗号、空格、换行分隔）")
-    print("输入空行或 'done' 结束输入")
-    print("-" * 60)
+    logger.info("\n📋 批量导入用户")
+    logger.info("=" * 60)
+    logger.info("请粘贴多个抖音主页 URL（支持逗号、空格、换行分隔）")
+    logger.info("输入空行或 'done' 结束输入")
+    logger.info("-" * 60)
 
     lines = []
     while True:
@@ -495,25 +532,27 @@ def batch_add_cmd(auto_confirm: bool = False):
     all_text = " ".join(lines)
 
     # 分割 URL（支持逗号、空格、换行）
-    urls = re.split(r'[,\s]+', all_text)
+    urls = re.split(r"[,\s]+", all_text)
     urls = [u.strip() for u in urls if u.strip()]
 
     if not urls:
-        print("❌ 未检测到有效的 URL")
+        logger.error("❌ 未检测到有效的 URL")
         return
 
     # 提取所有 UID（包括只有 sec_user_id 的情况）
     user_requests = []
     for url in urls:
         uid, sec_user_id = extract_uid_from_url(url)
-        user_requests.append({
-            "url": url,
-            "initial_uid": uid,  # URL 中解析出的初始 UID（可能为 None）
-            "sec_user_id": sec_user_id,
-        })
+        user_requests.append(
+            {
+                "url": url,
+                "initial_uid": uid,  # URL 中解析出的初始 UID（可能为 None）
+                "sec_user_id": sec_user_id,
+            }
+        )
 
     if not user_requests:
-        print("❌ 无法从输入中提取有效的用户 ID")
+        logger.error("❌ 无法从输入中提取有效的用户 ID")
         return
 
     # 去重（基于 URL）
@@ -525,8 +564,8 @@ def batch_add_cmd(auto_confirm: bool = False):
             unique_requests.append(req)
 
     # 显示待添加列表
-    print(f"\n📝 检测到 {len(unique_requests)} 个用户:")
-    print("-" * 60)
+    logger.info(f"\n📝 检测到 {len(unique_requests)} 个用户:")
+    logger.info("-" * 60)
     for i, req in enumerate(unique_requests, 1):
         # 检查是否已存在（按 sec_user_id 检查）
         existing = None
@@ -537,15 +576,19 @@ def batch_add_cmd(auto_confirm: bool = False):
                     existing = u
                     break
         status = "已存在" if existing else "新增"
-        display_id = req["sec_user_id"][:20] if req["sec_user_id"] else (req["initial_uid"][:20] if req["initial_uid"] else "未知")
-        print(f"  {i}. {display_id}... [{status}]")
+        display_id = (
+            req["sec_user_id"][:20]
+            if req["sec_user_id"]
+            else (req["initial_uid"][:20] if req["initial_uid"] else "未知")
+        )
+        logger.info(f"  {i}. {display_id}... [{status}]")
 
     # 确认添加
-    print("-" * 60)
+    logger.info("-" * 60)
     if not auto_confirm:
         confirm = input("\n确认添加并获取用户信息？(y/N): ").strip().lower()
         if confirm != "y":
-            print("❌ 已取消")
+            logger.error("❌ 已取消")
             return
 
     # 添加用户并获取信息
@@ -553,11 +596,11 @@ def batch_add_cmd(auto_confirm: bool = False):
     updated = 0
     failed = 0
 
-    print("\n📱 正在通过 F2 获取用户信息...")
+    logger.info("\n📱 正在通过 F2 获取用户信息...")
 
     for i, req in enumerate(unique_requests, 1):
         url = req["url"]
-        print(f"  [{i}/{len(unique_requests)}] {url[:50]}...")
+        logger.info(f"  [{i}/{len(unique_requests)}] {url[:50]}...")
 
         # 检查是否已存在（通过 sec_user_id）
         existing = None
@@ -587,16 +630,18 @@ def batch_add_cmd(auto_confirm: bool = False):
         else:
             if existing:
                 failed += 1
-                print(f"     ⚠️ 获取失败，保留原有数据")
+                logger.info("     ⚠️ 获取失败，保留原有数据")
             else:
-                user_info = create_empty_user(req["initial_uid"] or "", req["sec_user_id"])
+                user_info = create_empty_user(
+                    req["initial_uid"] or "", req["sec_user_id"]
+                )
                 add_user(req["initial_uid"] or "", user_info)
                 added += 1
                 failed += 1
-                print(f"     ⚠️ 获取失败，仅保存基础信息")
+                logger.info("     ⚠️ 获取失败，仅保存基础信息")
 
-    print(f"\n✅ 完成! 新增 {added} 个，更新 {updated} 个，失败 {failed} 个")
-    print(f"   配置文件: {FOLLOWING_PATH}")
+    logger.info(f"\n✅ 完成! 新增 {added} 个，更新 {updated} 个，失败 {failed} 个")
+    logger.info(f"   配置文件: {FOLLOWING_PATH}")
 
 
 def update_all_users_cmd(auto_confirm: bool = False):
@@ -604,13 +649,13 @@ def update_all_users_cmd(auto_confirm: bool = False):
     users = list_users()
 
     if not users:
-        print("📋 关注列表为空")
+        logger.info("📋 关注列表为空")
         return
 
-    print(f"\n📋 更新用户信息（从 F2 数据库同步）")
-    print("=" * 60)
-    print(f"共 {len(users)} 个用户")
-    print("-" * 60)
+    logger.info("\n📋 更新用户信息（从 F2 数据库同步）")
+    logger.info("=" * 60)
+    logger.info(f"共 {len(users)} 个用户")
+    logger.info("-" * 60)
 
     from utils.following import update_user_info_from_db
 
@@ -627,17 +672,17 @@ def update_all_users_cmd(auto_confirm: bool = False):
             # 读取更新后的昵称
             updated = get_user(uid)
             new_name = updated.get("nickname", uid[:20]) if updated else uid[:20]
-            print(f"  [{i}/{len(users)}] ✅ {new_name}")
+            logger.info(f"  [{i}/{len(users)}] ✅ {new_name}")
         else:
             no_data += 1
             display = name if name else f"{uid[:30]}..."
-            print(f"  [{i}/{len(users)}] ⚠️ {display} (数据库无记录)")
+            logger.info(f"  [{i}/{len(users)}] ⚠️ {display} (数据库无记录)")
 
-    print("\n" + "=" * 60)
-    print(f"📊 结果: 同步 {synced} 个，无数据 {no_data} 个")
+    logger.info("\n" + "=" * 60)
+    logger.info(f"📊 结果: 同步 {synced} 个，无数据 {no_data} 个")
     if no_data > 0:
-        print("\n💡 提示: 无数据的用户需要先运行下载脚本获取完整信息")
-        print("   例如: python scripts/batch-download.py --all")
+        logger.info("\n💡 提示: 无数据的用户需要先运行下载脚本获取完整信息")
+        logger.info("   例如: python scripts/batch-download.py --all")
 
 
 def search_users(keyword: str):
@@ -645,8 +690,8 @@ def search_users(keyword: str):
     users = list_users()
     keyword_lower = keyword.lower()
 
-    print(f"\n🔍 搜索: {keyword}")
-    print("=" * 60)
+    logger.info(f"\n🔍 搜索: {keyword}")
+    logger.info("=" * 60)
 
     found = False
     for info in users:
@@ -657,18 +702,18 @@ def search_users(keyword: str):
         if keyword_lower in name or keyword_lower in sig or keyword_lower in uid:
             found = True
             display_name = info.get("nickname", info.get("name", "未知"))
-            print(f"\n👤 {display_name}")
-            print(f"   UID: {uid}")
+            logger.info(f"\n👤 {display_name}")
+            logger.info(f"   UID: {uid}")
             if info.get("signature"):
                 sig_text = info.get("signature", "")[:50]
                 if len(info.get("signature", "")) > 50:
                     sig_text += "..."
-                print(f"   简介: {sig_text}")
+                logger.info(f"   简介: {sig_text}")
 
     if not found:
-        print("未找到匹配用户")
+        logger.info("未找到匹配用户")
 
-    print("\n" + "=" * 60)
+    logger.info("\n" + "=" * 60)
 
 
 def status_tasks_cmd():
@@ -676,17 +721,19 @@ def status_tasks_cmd():
     log_dir = DOWNLOADS_PATH / "logs"
 
     if not log_dir.exists():
-        print("📋 暂无后台任务")
+        logger.info("📋 暂无后台任务")
         return
 
-    log_files = sorted(log_dir.glob("*.log"), key=lambda x: x.stat().st_mtime, reverse=True)
+    log_files = sorted(
+        log_dir.glob("*.log"), key=lambda x: x.stat().st_mtime, reverse=True
+    )
 
     if not log_files:
-        print("📋 暂无后台任务")
+        logger.info("📋 暂无后台任务")
         return
 
-    print(f"\n📋 后台任务列表 (共 {len(log_files)} 个)")
-    print("=" * 60)
+    logger.info(f"\n📋 后台任务列表 (共 {len(log_files)} 个)")
+    logger.info("=" * 60)
 
     for log_file in log_files:
         task_id = log_file.stem
@@ -697,7 +744,7 @@ def status_tasks_cmd():
                 lines = f.readlines()
                 first_lines = lines[:5] if lines else []
                 last_lines = lines[-3:] if lines else []
-                log_content = ''.join(lines)
+                log_content = "".join(lines)
         except Exception:
             log_content = ""
 
@@ -717,22 +764,22 @@ def status_tasks_cmd():
         user = get_user(uid)
         name = user.get("nickname", user.get("name", "未知")) if user else "未知"
 
-        print(f"\n{status} {name}")
-        print(f"   任务ID: {task_id}")
-        print(f"   UID: {uid}")
+        logger.info(f"\n{status} {name}")
+        logger.info(f"   任务ID: {task_id}")
+        logger.info(f"   UID: {uid}")
 
         # 显示最后一条进度信息
         for line in reversed(last_lines):
             line = line.strip()
             if line and not line.startswith("="):
-                print(f"   📊 {line}")
+                logger.info(f"   📊 {line}")
                 break
 
-    print("\n" + "=" * 60)
-    print("💡 命令提示:")
-    print("   查看实时日志: tail -f downloads/logs/<任务ID>.log")
-    print("   查看所有日志: ls -lt downloads/logs/")
-    print("=" * 60)
+    logger.info("\n" + "=" * 60)
+    logger.info("💡 命令提示:")
+    logger.info("   查看实时日志: tail -f downloads/logs/<任务ID>.log")
+    logger.info("   查看所有日志: ls -lt downloads/logs/")
+    logger.info("=" * 60)
 
 
 def main():
@@ -742,15 +789,17 @@ def main():
         sys.argv.remove("--yes")
 
     if len(sys.argv) < 2:
-        print("用法:")
-        print("  python scripts/manage-following.py --list")
-        print("  python scripts/manage-following.py --add <抖音主页链接>")
-        print("  python scripts/manage-following.py --batch")
-        print("  python scripts/manage-following.py --update")
-        print("  python scripts/manage-following.py --remove <UID>")
-        print("  python scripts/manage-following.py --search <关键词>")
-        print("  python scripts/manage-following.py --status          # 查看后台任务状态")
-        print("  --yes                                    # 跳过确认直接执行")
+        logger.info("用法:")
+        logger.info("  python scripts/manage-following.py --list")
+        logger.info("  python scripts/manage-following.py --add <抖音主页链接>")
+        logger.info("  python scripts/manage-following.py --batch")
+        logger.info("  python scripts/manage-following.py --update")
+        logger.info("  python scripts/manage-following.py --remove <UID>")
+        logger.info("  python scripts/manage-following.py --search <关键词>")
+        print(
+            "  python scripts/manage-following.py --status          # 查看后台任务状态"
+        )
+        logger.info("  --yes                                    # 跳过确认直接执行")
         return
 
     action = sys.argv[1]
@@ -759,12 +808,12 @@ def main():
         list_users_cmd()
     elif action == "--remove":
         if len(sys.argv) < 3:
-            print("用法: python scripts/manage-following.py --remove <UID>")
+            logger.info("用法: python scripts/manage-following.py --remove <UID>")
             return
         remove_user_cmd(sys.argv[2])
     elif action == "--add":
         if len(sys.argv) < 3:
-            print("用法: python scripts/manage-following.py --add <抖音主页链接>")
+            logger.info("用法: python scripts/manage-following.py --add <抖音主页链接>")
             return
         add_user_cmd(sys.argv[2])
     elif action == "--batch":
@@ -773,14 +822,16 @@ def main():
         update_all_users_cmd(auto_confirm=auto_confirm)
     elif action == "--search":
         if len(sys.argv) < 3:
-            print("用法: python scripts/manage-following.py --search <关键词>")
+            logger.info("用法: python scripts/manage-following.py --search <关键词>")
             return
         search_users(sys.argv[2])
     elif action == "--status":
         status_tasks_cmd()
     else:
-        print(f"❌ 未知操作: {action}")
-        print("可用操作: --list, --add, --batch, --update, --remove, --search, --status")
+        logger.error(f"❌ 未知操作: {action}")
+        print(
+            "可用操作: --list, --add, --batch, --update, --remove, --search, --status"
+        )
 
 
 if __name__ == "__main__":
