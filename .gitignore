@@ -168,4 +168,5 @@ cython_debug/
 douyin_users.db
 config/config.yaml
 config/following.json
+logs/
 .playwright-data/
