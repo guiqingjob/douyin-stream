@@ -1,8 +1,8 @@
-# 🚀 抖音短视频自动下载管家 (Douyin Download Renew)
+# 🚀 抖音短视频自动下载管家 (Douyin Stream)
 
 [![License](https://img.shields.io/badge/license-MIT-blue.svg)](LICENSE.txt)
 [![Python Version](https://img.shields.io/badge/python-3.9%2B-brightgreen.svg)](https://www.python.org/)
-[![CI Status](https://github.com/cat-xierluo/douyin-download-renew/actions/workflows/ci.yml/badge.svg)](https://github.com/cat-xierluo/douyin-download-renew/actions)
+[![CI Status](https://github.com/GQ-Studio/douyin-stream/actions/workflows/ci.yml/badge.svg)](https://github.com/GQ-Studio/douyin-stream/actions)
 
 一款专为自媒体创作者、运营人员和数据分析师打造的**全自动抖音无水印视频下载与数据分析管家**。
 
@@ -87,7 +87,7 @@ python scripts/generate-data.py
 ## 📂 核心目录结构
 
 ```text
-douyin-download-renew/
+douyin-stream/
 ├── references/               # 详细文档目录 (包含小白教程、安装、使用说明等)
 ├── scripts/                  # 核心执行脚本
 │   ├── utils/                # 通用工具模块 (高度解耦，适合 API 化)
