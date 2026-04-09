@@ -33,10 +33,11 @@ SKILL_DIR = Path(__file__).parent.parent.resolve()
 # 切换到脚本目录（确保相对路径正确）
 os.chdir(SKILL_DIR)
 
-# 导入统一配置模块
-from utils.logger import logger
 from utils.config import get_download_path, get_user_folder_name
 from utils.following import get_user, list_users, update_fetch_time
+
+# 导入统一配置模块
+from utils.logger import logger
 
 DOWNLOAD_SCRIPT = SKILL_DIR / "scripts" / "download.py"
 DOWNLOADS_PATH = get_download_path()
@@ -425,7 +426,9 @@ def main():
         logger.info("用法:")
         logger.info("  python scripts/batch-download.py           # 交互选择")
         logger.info("  python scripts/batch-download.py --all      # 全量下载")
-        logger.info("  python scripts/batch-download.py --sample   # 采样下载（每个1个视频）")
+        logger.info(
+            "  python scripts/batch-download.py --sample   # 采样下载（每个1个视频）"
+        )
         logger.info("  python scripts/batch-download.py --uid <UID> # 指定博主")
         logger.info("  --daemon                                # 后台运行模式")
         logger.info("  --yes                                   # 跳过确认直接执行")

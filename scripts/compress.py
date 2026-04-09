@@ -28,9 +28,10 @@ from pathlib import Path
 SKILL_DIR = Path(__file__).parent.parent.resolve()
 os.chdir(SKILL_DIR)
 
+from utils.config import get_download_path
+
 # 导入统一配置模块
 from utils.logger import logger
-from utils.config import get_download_path
 
 DOWNLOADS_PATH = get_download_path()
 
@@ -134,7 +135,9 @@ def compress_video(
 
     # 跳过低分辨率视频（避免对已低分辨率视频进行压缩）
     if aggressive and height > 0 and height < LOW_RESOLUTION_THRESHOLD:
-        logger.info(f"    跳过 (分辨率 {height}p 已低于阈值 {LOW_RESOLUTION_THRESHOLD}p)")
+        logger.info(
+            f"    跳过 (分辨率 {height}p 已低于阈值 {LOW_RESOLUTION_THRESHOLD}p)"
+        )
         return None  # 返回 None 表示跳过
 
     # ffmpeg 命令
@@ -196,7 +199,9 @@ def compress_video(
     # 计算压缩率
     if original_size > 0 and compressed_size > 0:
         ratio = (1 - compressed_size / original_size) * 100
-        logger.info(f"    压缩后: {format_size(compressed_size)} (压缩率: {ratio:.1f}%)")
+        logger.info(
+            f"    压缩后: {format_size(compressed_size)} (压缩率: {ratio:.1f}%)"
+        )
 
     # 如果需要替换原文件
     if replace:
@@ -256,7 +261,9 @@ def compress_user_dir(user_dir, replace=True, skip_small=True, **kwargs):
 
         logger.info("")
 
-    logger.info(f"完成: {success_count} 成功, {skipped_count} 跳过, {failed_count} 失败")
+    logger.info(
+        f"完成: {success_count} 成功, {skipped_count} 跳过, {failed_count} 失败"
+    )
 
 
 def compress_all(replace=True, skip_small=True, **kwargs):

@@ -1,10 +1,10 @@
-from utils.logger import logger
 import json
 import re
 from pathlib import Path
 from typing import Any, Dict, Tuple
 
 import yaml
+from utils.logger import logger
 
 SKILL_DIR = Path(__file__).parent.parent.parent.resolve()
 RULES_PATH = SKILL_DIR / "config" / "auth_rules.yaml"

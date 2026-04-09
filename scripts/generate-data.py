@@ -15,10 +15,11 @@ from pathlib import Path
 SKILL_DIR = Path(__file__).parent.parent.resolve()
 os.chdir(SKILL_DIR)
 
-# 导入统一配置模块
-from utils.logger import logger
 from utils.config import get_db_path, get_download_path, get_following_path
 from utils.following import load_following
+
+# 导入统一配置模块
+from utils.logger import logger
 
 # 技能目录
 SKILL_DIR = Path(__file__).parent.parent.resolve()

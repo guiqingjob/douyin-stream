@@ -36,10 +36,17 @@ SKILL_DIR = Path(__file__).parent.parent.resolve()
 # 切换到脚本目录（确保相对路径正确）
 os.chdir(SKILL_DIR)
 
+from utils.following import (
+    FOLLOWING_PATH,
+    add_user,
+    create_empty_user,
+    get_user,
+    list_users,
+    load_following,
+    remove_user,
+    save_following,
+)
 from utils.logger import logger
-from utils.following import (FOLLOWING_PATH, add_user, create_empty_user,
-                             get_user, list_users, load_following, remove_user,
-                             save_following)
 
 DOWNLOADS_PATH = SKILL_DIR / "downloads"
 DB_PATH = SKILL_DIR / "douyin_users.db"
@@ -80,6 +87,7 @@ def fetch_user_info_via_f2(url: str) -> dict:
     f2_env["PWD"] = str(SKILL_DIR)
 
     from utils.config import load_config
+
     config = load_config()
     cookie = config.get("cookie", config.get("douyin", {}).get("cookie", ""))
 
@@ -95,7 +103,7 @@ def fetch_user_info_via_f2(url: str) -> dict:
         "--max-counts",
         "1",
     ]
-    
+
     if cookie:
         f2_args.extend(["-k", cookie])
 

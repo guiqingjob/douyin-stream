@@ -2,8 +2,8 @@ import http.server
 import json
 import socketserver
 
-from utils.logger import logger
 from utils.auth_parser import AuthParser
+from utils.logger import logger
 
 PORT = 8080
 parser = AuthParser()

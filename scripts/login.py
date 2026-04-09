@@ -5,11 +5,12 @@
 只负责打开浏览器和获取 cookies
 """
 
-from utils.logger import logger
 import asyncio
 import os
 import sys
 from pathlib import Path
+
+from utils.logger import logger
 
 try:
     from playwright.async_api import async_playwright
@@ -90,7 +91,9 @@ async def douyin_login(cookies_path: str = None, persist: bool = False):
             if persist:
                 logger.info("   💾 持久化模式已启用，登录状态将自动保存")
                 logger.info(f"   数据目录：{user_data_dir}")
-                logger.info("   💡 首次使用需要扫码，后续启动将自动使用已保存的登录状态")
+                logger.info(
+                    "   💡 首次使用需要扫码，后续启动将自动使用已保存的登录状态"
+                )
             else:
                 logger.info("   登录成功后脚本会自动检测并获取 cookies")
             logger.info("   最久等待 5 分钟，按 Ctrl+C 可取消\n")

@@ -6,12 +6,13 @@ following.json 统一读写模块
 数据格式: {users: [{uid, nickname, folder, ...}, ...]}
 """
 
-from utils.logger import logger
 import json
 import sqlite3
 from datetime import datetime
 from pathlib import Path
 from typing import Optional
+
+from utils.logger import logger
 
 # 获取 skill 根目录（scripts/utils/ 的上两级）
 SKILL_DIR = Path(__file__).parent.parent.parent.resolve()

@@ -9,12 +9,12 @@
 - 路径规范化
 """
 
-from utils.logger import logger
 import re
 from pathlib import Path
 from typing import Any, Dict, Optional
 
 import yaml
+from utils.logger import logger
 
 # 技能目录
 SKILL_DIR = Path(__file__).parent.parent.parent.resolve()

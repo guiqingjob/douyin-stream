@@ -3,9 +3,10 @@
 """
 环境检测脚本 - 检查 Python 版本和依赖
 """
-from utils.logger import logger
 import subprocess
 import sys
+
+from utils.logger import logger
 
 
 def check_python_version():

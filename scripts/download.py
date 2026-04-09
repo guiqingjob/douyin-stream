@@ -27,20 +27,26 @@ import sys
 from datetime import datetime
 from pathlib import Path
 
-
 # 强制使用脚本所在目录作为工作目录
 SKILL_DIR = Path(__file__).parent.parent.resolve()
 os.chdir(SKILL_DIR)
 
 import f2
 from f2.apps.douyin.db import AsyncUserDB, AsyncVideoDB
+
 # 导入 F2 模块
 from f2.apps.douyin.handler import DouyinHandler
 from f2.utils.conf_manager import ConfigManager
+from utils.config import (
+    get_db_path,
+    get_download_path,
+    get_user_folder_name,
+    load_config,
+    sanitize_folder_name,
+)
+
 # 导入统一配置模块
 from utils.logger import logger
-from utils.config import (get_db_path, get_download_path, get_user_folder_name,
-                          load_config, sanitize_folder_name)
 
 
 def merge_config(main_conf: dict, custom_conf: dict) -> dict:
@@ -79,7 +85,11 @@ def get_f2_kwargs() -> dict:
     kwargs["path"] = str(get_download_path())
 
     # 映射命名模板
-    naming_tpl = custom_conf.get("naming_template") or douyin_custom.get("naming_template") or douyin_custom.get("naming")
+    naming_tpl = (
+        custom_conf.get("naming_template")
+        or douyin_custom.get("naming_template")
+        or douyin_custom.get("naming")
+    )
     if naming_tpl:
         kwargs["naming"] = naming_tpl
 
@@ -96,7 +106,9 @@ def get_f2_kwargs() -> dict:
         success, msg, _ = parser.validate_data(cookie_str, "cookie", "douyin")
         if not success:
             logger.warning(f"⚠️ 警告: 当前配置的 Cookie 验证未通过 ({msg})")
-            logger.info("如果下载失败，请运行 `python scripts/login.py` 重新获取 Cookie。")
+            logger.info(
+                "如果下载失败，请运行 `python scripts/login.py` 重新获取 Cookie。"
+            )
     except ImportError:
         pass
 
@@ -394,7 +406,9 @@ async def main():
 
     if len(sys.argv) < 2:
         logger.info("用法: python scripts/download.py <主页URL>")
-        logger.info("  示例: python scripts/download.py https://www.douyin.com/user/xxx")
+        logger.info(
+            "  示例: python scripts/download.py https://www.douyin.com/user/xxx"
+        )
         logger.info("  限制数量: python scripts/download.py <URL> --max-counts=10")
         logger.info("  后台运行: python scripts/download.py <URL> --daemon")
         return

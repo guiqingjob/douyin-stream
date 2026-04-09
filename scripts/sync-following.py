@@ -21,9 +21,15 @@ SKILL_DIR = Path(__file__).parent.parent.resolve()
 # 切换到脚本目录（确保相对路径正确）
 os.chdir(SKILL_DIR)
 
+from utils.following import (
+    FOLLOWING_PATH,
+    add_user,
+    get_user,
+    list_users,
+    load_following,
+    save_following,
+)
 from utils.logger import logger
-from utils.following import (FOLLOWING_PATH, add_user, get_user, list_users,
-                             load_following, save_following)
 
 DB_PATH = SKILL_DIR / "douyin_users.db"
 HTML_PATH = SKILL_DIR / "downloads" / "index.html"
