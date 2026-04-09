@@ -73,6 +73,7 @@ python scripts/generate-data.py
 
 为保持内容清晰，详细说明已分拆至独立文档，请根据需求查阅：
 
+- 👶 **[零基础小白说明书 (USER_MANUAL)](references/USER_MANUAL_ZERO_BASIS.md)**：专门为非技术人员编写的“保姆级”图文操作指南。
 - ⚙️ **[安装指南 (INSTALLATION)](references/INSTALLATION.md)**：系统要求、依赖安装步骤。
 - 📖 **[使用说明 (USAGE)](references/USAGE.md)**：所有脚本的详细命令参数、配置项说明及完整工作流。
 - ❓ **[常见问题解答 (FAQ)](references/FAQ.md)**：常见报错排查及解决方案。
