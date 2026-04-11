@@ -1,0 +1,22 @@
+{
+  "__default__": {
+    "2026-04-10": {
+      "consumedMinutes": 0,
+      "lastBeforeRemaining": 3880,
+      "lastAfterRemaining": 3880,
+      "lastEquityClaimAt": "",
+      "lastEquityBeforeRemaining": null,
+      "lastEquityAfterRemaining": null,
+      "updatedAt": "2026-04-10T15:08:46+00:00"
+    },
+    "2026-04-11": {
+      "consumedMinutes": 0,
+      "lastBeforeRemaining": 3880,
+      "lastAfterRemaining": 3880,
+      "lastEquityClaimAt": "",
+      "lastEquityBeforeRemaining": null,
+      "lastEquityAfterRemaining": null,
+      "updatedAt": "2026-04-11T09:17:46+00:00"
+    }
+  }
+}

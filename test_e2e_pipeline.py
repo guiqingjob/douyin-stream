@@ -123,14 +123,27 @@ def step2_verify_downloaded():
 
 
 def step3_test_transcribe():
-    """步骤3：测试转写流程（可选）"""
+    """步骤3：测试转写流程（必须）"""
     header("步骤 3/5: 测试转写流程")
     
     # 检查认证状态
     auth_file = project_root / ".auth" / "qwen-storage-state.json"
     if not auth_file.exists():
-        warning("未检测到认证状态，跳过转写测试")
-        info("如需测试转写，请先运行: python cli.py → 选项10 → 扫码登录")
+        error("未检测到认证状态，无法测试转写")
+        print()
+        print(f"{Colors.YELLOW}请先完成转写认证：{Colors.END}")
+        print(f"  1. 运行: python cli.py")
+        print(f"  2. 选择: 选项10 (转写认证管理)")
+        print(f"  3. 选择: 选项1 (浏览器扫码登录)")
+        print()
+        
+        try:
+            skip = input(f"{Colors.BOLD}是否跳过转写测试？(y/N): {Colors.END}").strip().lower()
+        except (EOFError, KeyboardInterrupt):
+            skip = 'y'
+        
+        if skip != 'y':
+            return False
         return 'skip'
     
     info("找到认证文件，开始测试转写...")
@@ -150,17 +163,28 @@ def step3_test_transcribe():
         # 测试第一个视频
         test_video = video_files[0]
         info(f"测试转写: {test_video.name}")
+        print()
         
-        # 这里调用转写 Pipeline
-        # 注意：转写需要较长时间，测试时可能需要 mock
-        warning("转写测试需要较长时间，此处仅验证接口可调用")
+        # 调用转写 Pipeline
+        from src.media_tools.pipeline.orchestrator import run_pipeline_single
         
-        # 实际转写调用（需要认证）
-        # from src.media_tools.pipeline.orchestrator import run_pipeline_single
-        # result = run_pipeline_single(test_video)
+        result = run_pipeline_single(test_video)
         
-        warning("转写测试跳过（需要有效认证和较长时间）")
-        return 'skip'
+        if result.success:
+            success("转写成功")
+            info(f"输出文稿: {result.transcript_path}")
+            
+            # 验证输出文件
+            if result.transcript_path.exists():
+                content = result.transcript_path.read_text(encoding='utf-8')
+                info(f"文稿大小: {len(content)} 字符")
+                return True
+            else:
+                error("转写输出文件不存在")
+                return False
+        else:
+            error(f"转写失败: {result.error}")
+            return False
         
     except Exception as e:
         error(f"转写测试出错: {e}")
