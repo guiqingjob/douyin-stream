@@ -121,6 +121,10 @@ class ConfigManager:
         # 默认使用项目根目录下的 douyin_users.db
         return Path(__file__).parent.parent.parent / "douyin_users.db"
 
+    def get_naming(self):
+        """获取文件命名格式"""
+        return self.get("naming", "{desc}_{aweme_id}")
+
     def get_following_path(self):
         """获取关注列表路径"""
         path = self.get("following.path")

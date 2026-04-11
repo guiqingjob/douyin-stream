@@ -157,47 +157,20 @@ async def export_file(context: Any, gen_record_id: str, export_config: ExportCon
 
 
 def _get_video_title_from_db(video_path: Path) -> str | None:
-    """从数据库获取视频的原始标题（清洗后）"""
-    import sqlite3
+    """从文件名提取标题（下载时已清洗）"""
+    stem = Path(video_path).stem
+    
+    # 如果文件名已经是清洗后的标题（长度适中，无 aweme_id），直接使用
+    # aweme_id 通常是 19 位数字
     import re
-    
-    filename = Path(video_path).stem
-    db_path = Path(__file__).parent.parent.parent.parent / "douyin_users.db"
-    
-    if not db_path.exists():
-        return None
-    
-    try:
-        conn = sqlite3.connect(str(db_path))
-        cursor = conn.cursor()
-        
-        # 方法1: 直接匹配
-        cursor.execute(
-            "SELECT desc FROM video_metadata WHERE ? LIKE '%' || desc || '%' LIMIT 1",
-            (filename,)
-        )
-        row = cursor.fetchone()
-        if row and row[0]:
-            conn.close()
-            return _clean_title(row[0])
-        
-        # 方法2: 提取文件名中的中文关键词去匹配
-        chinese_parts = re.findall(r'[\u4e00-\u9fa5]{3,10}', filename)
-        chinese_parts.sort(key=len, reverse=True)
-        
-        for part in chinese_parts[:5]:
-            cursor.execute(
-                "SELECT desc FROM video_metadata WHERE desc LIKE ? LIMIT 1",
-                (f'%{part}%',)
-            )
-            row = cursor.fetchone()
-            if row and row[0]:
-                conn.close()
-                return _clean_title(row[0])
-        
-        conn.close()
-    except Exception:
+    if re.search(r'\d{15,}', stem):
+        # 文件名包含 aweme_id，需要从数据库查询
         pass
+    else:
+        # 文件名已经是清洗后的标题
+        clean = stem.strip()
+        if len(clean) > 5 and len(clean) < 65:
+            return clean
     
     return None
 

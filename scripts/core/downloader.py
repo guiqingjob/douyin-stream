@@ -185,11 +185,50 @@ def _save_video_metadata_from_raw(raw_data: dict, nickname: str = ""):
     return saved_count
 
 
+def _clean_video_title(raw_title: str) -> str:
+    """清洗视频标题：去掉换行符和 #话题标签，并智能截断长标题"""
+    # 1. 按换行分割，取第一行（正文）
+    main_part = raw_title.replace('<br>', '\n').split('\n')[0]
+    
+    # 2. 截取第一个 # 之前的内容
+    if '#' in main_part:
+        clean = main_part[:main_part.index('#')].strip()
+    else:
+        clean = main_part.strip()
+    
+    # 3. 智能截断：限制到 40 字以内，保持核心语义
+    if len(clean) > 40:
+        # 优先在句末标点（？ ！ 。）截断
+        for p in ['？', '！', '。']:
+            idx = clean.find(p)
+            if 10 < idx < 50:
+                return clean[:idx + 1].strip()
+        
+        # 其次在空格处截断（适合长标题中的短语）
+        space_idx = clean.find(' ')
+        if space_idx > 15:
+            return clean[:space_idx].strip()
+            
+        # 再次在逗号处截断（适合长句子）
+        comma_idx = clean.find('，')
+        if comma_idx > 10:
+            return clean[:comma_idx + 1].strip()
+        
+        # 如果都没有，强制截断
+        return clean[:35] + '...'
+        
+    return clean
+
+
 def _reorganize_files(nickname: str, uid: str) -> str:
-    """整理文件到下载目录/{博主昵称}/"""
+    """整理文件到下载目录/{博主昵称}/，并重命名为清洗后的标题"""
+    import re
+    import sqlite3
+    
     config = get_config()
     downloads_path = config.get_download_path()
     old_path = downloads_path / "douyin" / "post" / nickname
+    db_path = config.get_db_path()
 
     if not old_path.exists():
         return None
@@ -199,14 +238,65 @@ def _reorganize_files(nickname: str, uid: str) -> str:
     new_path = downloads_path / folder_name
     new_path.mkdir(parents=True, exist_ok=True)
 
-    # 移动文件
+    # 连接数据库获取视频标题
+    conn = sqlite3.connect(str(db_path))
+    cursor = conn.cursor()
+
+    # 移动并重命名文件
     moved_count = 0
+    renamed_count = 0
     for pattern in ["*.mp4", "*.jpg", "*.webp"]:
         for f in old_path.glob(pattern):
-            dest = new_path / f.name
-            if not dest.exists():
-                shutil.move(str(f), str(dest))
-                moved_count += 1
+            # 从文件名提取 aweme_id（F2 命名格式：{desc}_{aweme_id}.{ext}）
+            stem = f.stem
+            aweme_id = stem.split('_')[-1] if '_' in stem else None
+            
+            if aweme_id and len(aweme_id) > 10:
+                # 查询数据库获取原始标题
+                cursor.execute("SELECT desc FROM video_metadata WHERE aweme_id = ?", (aweme_id,))
+                row = cursor.fetchone()
+                
+                if row and row[0]:
+                    # 清洗标题并重命名
+                    clean_title = _clean_video_title(row[0])
+                    # 清理文件名非法字符
+                    clean_title = re.sub(r'[<>:"/\\|?*]', '', clean_title).strip()
+                    # 限制长度
+                    if len(clean_title) > 60:
+                        clean_title = clean_title[:60]
+                    
+                    new_name = f"{clean_title}{f.suffix}"
+                    dest = new_path / new_name
+                    
+                    if not dest.exists():
+                        shutil.move(str(f), str(dest))
+                        moved_count += 1
+                        renamed_count += 1
+                        print(info(f"  [重命名] {f.name[:40]}... → {new_name[:40]}..."))
+                    else:
+                        # 如果目标已存在，加序号
+                        counter = 1
+                        while dest.exists():
+                            new_name = f"{clean_title}_{counter}{f.suffix}"
+                            dest = new_path / new_name
+                            counter += 1
+                        shutil.move(str(f), str(dest))
+                        moved_count += 1
+                        renamed_count += 1
+                else:
+                    # 数据库中没找到，直接移动不重命名
+                    dest = new_path / f.name
+                    if not dest.exists():
+                        shutil.move(str(f), str(dest))
+                        moved_count += 1
+            else:
+                # 无法提取 aweme_id，直接移动
+                dest = new_path / f.name
+                if not dest.exists():
+                    shutil.move(str(f), str(dest))
+                    moved_count += 1
+
+    conn.close()
 
     # 清理旧文件夹
     if old_path.exists():
@@ -216,7 +306,7 @@ def _reorganize_files(nickname: str, uid: str) -> str:
             pass
 
     if moved_count > 0:
-        print(info(f"  [移动] {nickname} -> {folder_name} ({moved_count} 文件)"))
+        print(info(f"  [移动] {nickname} -> {folder_name} ({moved_count} 文件，{renamed_count} 个已重命名）"))
 
     return folder_name
 
