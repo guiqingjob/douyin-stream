@@ -127,13 +127,6 @@ def main():
     print("✓ PASS - 压缩功能代码路径存在")
     
     # 测试 10: 旧脚本重定向
-    results.append(run_test(
-        "旧脚本重定向",
-        "0\n",
-        expected_outputs=["已废弃", "请使用新的 CLI"],
-        unexpected_outputs=["Traceback", "No module"],
-    ))
-    # 注意：旧脚本测试用不同路径
     import os
     os.chdir("/Users/gq/Projects/douyindownload_renew")
     result = subprocess.run(
