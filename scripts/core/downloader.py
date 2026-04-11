@@ -440,12 +440,19 @@ async def _download_with_stats(url: str, max_counts: int = None):
     total_downloaded = 0
     total_stats_saved = 0
 
+    # 安全限制：默认只下载 10 个视频，防止硬盘被占满
+    SAFE_LIMIT = 10
+    if max_counts is None:
+        max_counts = SAFE_LIMIT
+        print(info(f"  ⚠️  安全限制：默认最多下载 {SAFE_LIMIT} 个视频"))
+        print(info(f"     如需下载更多，请明确指定数量或使用 '采样下载' 功能"))
+
     print(info("[下载] 正在获取视频列表..."))
-    logger.info("正在获取视频列表...")
+    logger.info(f"正在获取视频列表（上限 {max_counts} 个）...")
 
     try:
         async for aweme_data_list in handler.fetch_user_post_videos(
-            sec_user_id, max_counts=max_counts or float("inf")
+            sec_user_id, max_counts=max_counts
         ):
             video_list = aweme_data_list._to_list()
 
