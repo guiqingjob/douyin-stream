@@ -30,17 +30,19 @@ def get_db_connection(db_path=None):
     config = get_config()
     path = Path(db_path) if db_path else config.get_db_path()
 
-    conn = sqlite3.connect(str(path))
-    cursor = conn.cursor()
-
+    conn = None
     try:
+        conn = sqlite3.connect(str(path))
+        cursor = conn.cursor()
         yield conn, cursor
         conn.commit()
     except Exception:
-        conn.rollback()
+        if conn:
+            conn.rollback()
         raise
     finally:
-        conn.close()
+        if conn:
+            conn.close()
 
 
 def execute_query(query, params=None, db_path=None):

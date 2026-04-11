@@ -224,113 +224,113 @@ def _rename_videos_in_downloads(nickname: str, uid: str, downloads_path: Path) -
     """重命名下载目录下的视频文件（包括已在目标子目录的情况）"""
     import re
     import sqlite3
-    
+
     config = get_config()
     db_path = config.get_db_path()
-    
+
     # 博主文件夹
     folder_name = nickname or uid
     user_dir = downloads_path / folder_name
     user_dir.mkdir(parents=True, exist_ok=True)
-    
+
     # 连接数据库获取该博主最近的视频标题
     conn = sqlite3.connect(str(db_path))
-    cursor = conn.cursor()
-    
-    # 查询该博主最近下载的视频标题
-    cursor.execute(
-        "SELECT aweme_id, desc FROM video_metadata WHERE uid = ? ORDER BY fetch_time DESC LIMIT 10",
-        (uid,)
-    )
-    recent_videos = cursor.fetchall()
-    
-    if not recent_videos:
-        conn.close()
-        return None
-    
-    # 构建 aweme_id -> 标题 映射
-    title_map = {row[0]: row[1] for row in recent_videos}
-    
-    renamed_count = 0
-    processed_count = 0
-    
-    # 递归查找下载目录下的所有视频文件
-    for f in downloads_path.rglob("*.mp4"):
-        # 跳过 douyin/post 临时目录
-        if "/douyin/post/" in str(f):
-            continue
-            
-        stem = f.stem
-        
-        # 方法1：尝试从文件名提取 aweme_id
-        aweme_id = None
-        for vid in title_map.keys():
-            if vid in stem:
-                aweme_id = vid
-                break
-        
-        # 方法2：如果文件名不包含 aweme_id，使用标题关键词匹配
-        if not aweme_id:
-            for vid, title in title_map.items():
-                # 提取标题中的中文关键词
-                clean_title = _clean_video_title(title)
-                # 检查标题中的连续中文是否出现在文件名中
-                chinese_words = re.findall(r'[\u4e00-\u9fa5]{2,}', clean_title)
-                for word in chinese_words[:3]:  # 取前3个关键词
-                    if word in stem:
-                        aweme_id = vid
-                        break
-                if aweme_id:
-                    break
-        
-        if aweme_id and aweme_id in title_map:
-            title = title_map[aweme_id]
-            clean_title = _clean_video_title(title)
-            clean_title = re.sub(r'[<>:"/\\|?*]', '', clean_title).strip()
-            if len(clean_title) > 60:
-                clean_title = clean_title[:60]
-            
-            new_name = f"{clean_title}{f.suffix}"
-            dest = user_dir / new_name
-            
-            # 如果文件名已经是清洗后的（与新名相同），跳过
-            if f.name == new_name and f.parent == user_dir:
+    try:
+        cursor = conn.cursor()
+
+        # 查询该博主最近下载的视频标题
+        cursor.execute(
+            "SELECT aweme_id, desc FROM video_metadata WHERE uid = ? ORDER BY fetch_time DESC LIMIT 10",
+            (uid,)
+        )
+        recent_videos = cursor.fetchall()
+
+        if not recent_videos:
+            return None
+
+        # 构建 aweme_id -> 标题 映射
+        title_map = {row[0]: row[1] for row in recent_videos}
+
+        renamed_count = 0
+        processed_count = 0
+
+        # 递归查找下载目录下的所有视频文件
+        for f in downloads_path.rglob("*.mp4"):
+            # 跳过 douyin/post 临时目录
+            if "/douyin/post/" in str(f):
                 continue
-            
-            if not dest.exists():
-                shutil.move(str(f), str(dest))
-                processed_count += 1
-                renamed_count += 1
-                print(info(f"  [重命名] {f.name[:40]}... → {new_name[:40]}..."))
-            else:
-                counter = 1
-                while dest.exists():
-                    new_name = f"{clean_title}_{counter}{f.suffix}"
-                    dest = user_dir / new_name
-                    counter += 1
-                shutil.move(str(f), str(dest))
-                processed_count += 1
-                renamed_count += 1
-        else:
-            # 无法匹配，直接移动到目标目录
-            if f.parent != user_dir:
-                dest = user_dir / f.name
+
+            stem = f.stem
+
+            # 方法1：尝试从文件名提取 aweme_id
+            aweme_id = None
+            for vid in title_map.keys():
+                if vid in stem:
+                    aweme_id = vid
+                    break
+
+            # 方法2：如果文件名不包含 aweme_id，使用标题关键词匹配
+            if not aweme_id:
+                for vid, title in title_map.items():
+                    # 提取标题中的中文关键词
+                    clean_title = _clean_video_title(title)
+                    # 检查标题中的连续中文是否出现在文件名中
+                    chinese_words = re.findall(r'[\u4e00-\u9fa5]{2,}', clean_title)
+                    for word in chinese_words[:3]:  # 取前3个关键词
+                        if word in stem:
+                            aweme_id = vid
+                            break
+                    if aweme_id:
+                        break
+
+            if aweme_id and aweme_id in title_map:
+                title = title_map[aweme_id]
+                clean_title = _clean_video_title(title)
+                clean_title = re.sub(r'[<>:"/\\|?*]', '', clean_title).strip()
+                if len(clean_title) > 60:
+                    clean_title = clean_title[:60]
+
+                new_name = f"{clean_title}{f.suffix}"
+                dest = user_dir / new_name
+
+                # 如果文件名已经是清洗后的（与新名相同），跳过
+                if f.name == new_name and f.parent == user_dir:
+                    continue
+
                 if not dest.exists():
                     shutil.move(str(f), str(dest))
                     processed_count += 1
+                    renamed_count += 1
+                    print(info(f"  [重命名] {f.name[:40]}... → {new_name[:40]}..."))
+                else:
+                    counter = 1
+                    while dest.exists():
+                        new_name = f"{clean_title}_{counter}{f.suffix}"
+                        dest = user_dir / new_name
+                        counter += 1
+                    shutil.move(str(f), str(dest))
+                    processed_count += 1
+                    renamed_count += 1
+            else:
+                # 无法匹配，直接移动到目标目录
+                if f.parent != user_dir:
+                    dest = user_dir / f.name
+                    if not dest.exists():
+                        shutil.move(str(f), str(dest))
+                        processed_count += 1
 
-    if processed_count > 0:
-        print(info(f"  [整理] 已处理 {processed_count} 个文件到 {folder_name}/（{renamed_count} 个已重命名）"))
-        
-        # 更新数据库中的 local_filename 字段
-        cursor.execute(
-            "UPDATE video_metadata SET local_filename = ? WHERE uid = ?",
-            (folder_name, uid)
-        )
-        conn.commit()
-        print(info(f"  [更新] 已更新 {folder_name} 的 local_filename"))
+        if processed_count > 0:
+            print(info(f"  [整理] 已处理 {processed_count} 个文件到 {folder_name}/（{renamed_count} 个已重命名）"))
 
-    conn.close()
+            # 更新数据库中的 local_filename 字段
+            cursor.execute(
+                "UPDATE video_metadata SET local_filename = ? WHERE uid = ?",
+                (folder_name, uid)
+            )
+            conn.commit()
+            print(info(f"  [更新] 已更新 {folder_name} 的 local_filename"))
+    finally:
+        conn.close()
 
     return folder_name
 
@@ -759,7 +759,7 @@ def download_by_url(url, max_counts=None):
         max_counts: 最大下载数量
 
     Returns:
-        是否成功
+        dict: 包含 success, uid, nickname 的字典，或 False
     """
     print_header("下载博主视频")
     print(info(f"博主 URL: {url}"))
@@ -781,7 +781,7 @@ def download_by_url(url, max_counts=None):
 
     if result:
         print(success("下载完成！"))
-        return True
+        return result
     else:
         print(error("下载失败，请检查日志"))
         return False

@@ -157,6 +157,7 @@ def _fetch_user_info_via_f2(url, sec_user_id):
 
     # 从数据库读取用户信息
     db_path = config.get_db_path()
+    conn = None
     try:
         conn = sqlite3.connect(str(db_path))
         cursor = conn.cursor()
@@ -172,7 +173,6 @@ def _fetch_user_info_via_f2(url, sec_user_id):
         )
 
         row = cursor.fetchone()
-        conn.close()
 
         if not row:
             print(error("数据库中未找到用户信息"))
@@ -218,6 +218,9 @@ def _fetch_user_info_via_f2(url, sec_user_id):
     except Exception as e:
         print(error(f"数据库读取失败: {e}"))
         return None
+    finally:
+        if conn:
+            conn.close()
 
 
 def _clean_nickname(name):
@@ -261,6 +264,7 @@ def remove_user(uid, delete_local=False):
     config = get_config()
     db_path = config.get_db_path()
     if db_path.exists():
+        conn = None
         try:
             conn = sqlite3.connect(str(db_path))
             cursor = conn.cursor()
@@ -270,10 +274,12 @@ def remove_user(uid, delete_local=False):
                 (uid, name),
             )
             conn.commit()
-            conn.close()
             print(success("已清理数据库记录"))
         except Exception as e:
             print(warning(f"清理数据库时出错: {e}"))
+        finally:
+            if conn:
+                conn.close()
 
     # 删除本地视频文件
     if delete_local:

@@ -141,6 +141,10 @@ def execute_command(spec: CommandSpec, argv: list[str]) -> int:
             return int(code)
         except (TypeError, ValueError):
             return 1
+    
+    # 处理命令函数返回None的情况
+    if result is None:
+        return 0
     return int(result)
 
 

@@ -85,7 +85,7 @@ async def transcribe_video(
         )
         
         # 可选：删除原视频
-        if config.remove_video and config.keep_original is False:
+        if config.remove_video and not config.keep_original:
             video_path.unlink()
             print(f"🗑️  已删除原视频: {video_path}")
         

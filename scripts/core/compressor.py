@@ -130,7 +130,12 @@ def _compress_video(input_path, output_path, crf=32, preset="fast"):
         return (False, original_size, 0, error_msg)
 
     compressed_info = _get_video_info(output_path)
-    compressed_size = compressed_info["size"] if compressed_info else 0
+    if compressed_info is None:
+        if output_path.exists():
+            output_path.unlink()
+        return (False, original_size, 0, "无法获取压缩后视频信息")
+    
+    compressed_size = compressed_info.get("size", 0)
 
     if compressed_size == 0:
         if output_path.exists():

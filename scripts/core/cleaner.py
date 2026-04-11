@@ -122,7 +122,6 @@ def get_db_video_records():
         cursor = conn.cursor()
         cursor.execute("SELECT aweme_id, uid, desc, local_filename FROM video_metadata")
         rows = cursor.fetchall()
-        conn.close()
 
         db_data = {}
         for aweme_id, uid, desc, local_filename in rows:
@@ -143,6 +142,8 @@ def get_db_video_records():
     except Exception as e:
         print(error(f"数据库读取失败: {e}"))
         return {}
+    finally:
+        conn.close()
 
 
 def clean_deleted_videos(auto_confirm=False):
@@ -254,7 +255,7 @@ def _clean_user_videos(uid, count_to_remove, db_records, local_files):
         # 优先删除本地不存在的文件对应的记录
         # 通过文件名匹配（假设local_filename字段存储了文件名）
         deleted = 0
-        
+
         for record in db_records:
             if deleted >= count_to_remove:
                 break
@@ -284,7 +285,7 @@ def _clean_user_videos(uid, count_to_remove, db_records, local_files):
                 (uid, count_to_remove - deleted + 10),  # 多获取一些
             )
             remaining = [row[0] for row in cursor.fetchall()]
-            
+
             for aweme_id in remaining:
                 if deleted >= count_to_remove:
                     break
@@ -295,13 +296,14 @@ def _clean_user_videos(uid, count_to_remove, db_records, local_files):
                 deleted += 1
 
         conn.commit()
-        conn.close()
 
         return deleted
 
     except Exception as e:
         print(error(f"   清理失败: {e}"))
         return 0
+    finally:
+        conn.close()
 
 
 def clean_all_user_data(uid, user_name):
@@ -335,7 +337,6 @@ def clean_all_user_data(uid, user_name):
         user_deleted = cursor.rowcount
 
         conn.commit()
-        conn.close()
 
         print(success(f"  ✓ 已清理 {user_name} 的数据库记录"))
         print(f"    视频记录: {video_deleted} 条 | 用户信息: {user_deleted} 条")
@@ -345,6 +346,8 @@ def clean_all_user_data(uid, user_name):
     except Exception as e:
         print(error(f"  清理失败: {e}"))
         return False
+    finally:
+        conn.close()
 
 
 def interactive_clean_menu():

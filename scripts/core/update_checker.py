@@ -92,6 +92,7 @@ def _get_db_video_count(uid):
     config = get_config()
     db_path = config.get_db_path()
 
+    conn = None
     try:
         conn = sqlite3.connect(str(db_path))
         cursor = conn.cursor()
@@ -100,10 +101,12 @@ def _get_db_video_count(uid):
             (uid,),
         )
         count = cursor.fetchone()[0]
-        conn.close()
         return count
     except Exception:
         return 0
+    finally:
+        if conn:
+            conn.close()
 
 
 async def _get_remote_video_count(sec_user_id):
@@ -121,7 +124,12 @@ async def _get_remote_video_count(sec_user_id):
     """
     import logging
     import os
-    
+
+    # 初始化变量，确保finally中可以安全访问
+    old_stdout = None
+    old_stderr = None
+    devnull = None
+
     try:
         # 完全抑制输出
         old_stdout = os.dup(1)
@@ -130,7 +138,7 @@ async def _get_remote_video_count(sec_user_id):
         os.dup2(devnull, 1)
         os.dup2(devnull, 2)
         logging.disable(logging.CRITICAL)
-        
+
         kwargs = _get_f2_kwargs()
         url = f"https://www.douyin.com/user/{sec_user_id}"
         kwargs["url"] = url
@@ -148,22 +156,24 @@ async def _get_remote_video_count(sec_user_id):
             video_count += len(aweme_list)
             break
 
-        # 恢复输出
-        os.dup2(old_stdout, 1)
-        os.dup2(old_stderr, 2)
-        os.close(devnull)
-        logging.disable(logging.NOTSET)
         return video_count
 
     except Exception as e:
+        return 0
+    finally:
+        # 恢复输出
         try:
-            os.dup2(old_stdout, 1)
-            os.dup2(old_stderr, 2)
-            os.close(devnull)
+            if old_stdout is not None:
+                os.dup2(old_stdout, 1)
+                os.close(old_stdout)
+            if old_stderr is not None:
+                os.dup2(old_stderr, 2)
+                os.close(old_stderr)
+            if devnull is not None:
+                os.close(devnull)
             logging.disable(logging.NOTSET)
         except Exception:
             pass
-        return 0
 
 
 async def _check_single_user(user):
