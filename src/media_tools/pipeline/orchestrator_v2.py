@@ -698,18 +698,26 @@ class OrchestratorV2:
         # 汇总结果
         for result in results:
             if isinstance(result, Exception):
-                # 异常情况
+                # 异常情况 - 需要从tasks中找到对应的video_path
                 error_type = classify_error(result)
+                # 使用空Path并记录错误
                 pipeline_result = PipelineResultV2(
                     success=False,
                     video_path=Path(""),
                     error=str(result),
                     error_type=error_type,
                 )
-                # 尝试从状态中获取视频路径
                 logger.error(f"任务执行异常: {result}")
             else:
                 pipeline_result = result
+
+            # 确保video_path不为空
+            if not pipeline_result.video_path or not pipeline_result.video_path.exists():
+                # 尝试从状态管理器中找到失败的记录
+                for path_str, state in self.state_mgr.states.items():
+                    if state.status == VideoStatus.RUNNING:
+                        pipeline_result.video_path = Path(path_str)
+                        break
 
             # 添加到报告
             result_dict = {
