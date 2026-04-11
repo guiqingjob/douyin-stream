@@ -156,6 +156,81 @@ async def export_file(context: Any, gen_record_id: str, export_config: ExportCon
     raise RuntimeError(f"Export did not produce a downloadable URL for exportTaskId={export_task_id}")
 
 
+def _get_video_title_from_db(video_path: Path) -> str | None:
+    """从数据库获取视频的原始标题（清洗后）"""
+    import sqlite3
+    import re
+    
+    filename = Path(video_path).stem
+    db_path = Path(__file__).parent.parent.parent.parent / "douyin_users.db"
+    
+    if not db_path.exists():
+        return None
+    
+    try:
+        conn = sqlite3.connect(str(db_path))
+        cursor = conn.cursor()
+        
+        # 方法1: 直接匹配
+        cursor.execute(
+            "SELECT desc FROM video_metadata WHERE ? LIKE '%' || desc || '%' LIMIT 1",
+            (filename,)
+        )
+        row = cursor.fetchone()
+        if row and row[0]:
+            conn.close()
+            return _clean_title(row[0])
+        
+        # 方法2: 提取文件名中的中文关键词去匹配
+        chinese_parts = re.findall(r'[\u4e00-\u9fa5]{3,10}', filename)
+        chinese_parts.sort(key=len, reverse=True)
+        
+        for part in chinese_parts[:5]:
+            cursor.execute(
+                "SELECT desc FROM video_metadata WHERE desc LIKE ? LIMIT 1",
+                (f'%{part}%',)
+            )
+            row = cursor.fetchone()
+            if row and row[0]:
+                conn.close()
+                return _clean_title(row[0])
+        
+        conn.close()
+    except Exception:
+        pass
+    
+    return None
+
+
+def _clean_title(raw_title: str) -> str:
+    """清洗标题：去掉换行符和 #话题标签，并智能截断长标题"""
+    # 1. 按换行分割，取第一行（正文）
+    main_part = raw_title.replace('<br>', '\n').split('\n')[0]
+    
+    # 2. 截取第一个 # 之前的内容
+    if '#' in main_part:
+        clean = main_part[:main_part.index('#')].strip()
+    else:
+        clean = main_part.strip()
+    
+    # 3. 智能截断：限制到 25 字左右，保持核心语义
+    if len(clean) > 25:
+        # 尝试在结束性标点（？ ！ 。）处截断
+        for p in ['？', '！', '。']:
+            idx = clean.find(p)
+            if 15 < idx < 40:
+                return clean[:idx + 1].strip()
+        
+        # 如果没有合适的标点，在最近一个空格处截断
+        space_idx = clean.rfind(' ', 0, 28)
+        if space_idx > 10:
+            return clean[:space_idx].strip()
+            
+        return clean[:25] + '...'
+        
+    return clean
+
+
 def build_export_output_path(
     *,
     input_path: str | Path,
@@ -314,26 +389,10 @@ async def run_real_flow(
                     export_url = await export_file(api, token["genRecordId"], export_config)
             
             run_stamp = now_stamp()
-            
-            # 从文件名提取标题
-            input_stem = Path(input_path).stem
-            # 抖音文件名格式：日期_时间_标题_..._video
-            # 例：2026-04-09 19-05-32__手机_我只买跳水的__2026年4月手机推荐_..._video
-            # 提取：去掉日期时间前缀，去掉 video 后缀
-            parts = input_stem.split("__")
-            if len(parts) >= 2:
-                # 取第二部分作为标题基础
-                title_raw = parts[1]
-            else:
-                title_raw = input_stem
-            
-            # 去除 _video 后缀
-            title = title_raw.replace("_video", "").rstrip("_")
-            
-            # 限制长度
-            if len(title) > 50:
-                title = title[:50]
-            
+
+            # 从数据库获取视频原始标题
+            title = _get_video_title_from_db(input_path)
+
             export_out = build_export_output_path(
                 input_path=input_path,
                 output_dir=output_dir,
