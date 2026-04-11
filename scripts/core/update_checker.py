@@ -126,9 +126,7 @@ async def _get_remote_video_count(sec_user_id):
 
         handler = DouyinHandler(kwargs)
 
-        total_count = 0
-        page_count = 0
-        max_pages = 3  # 只获取最新 3 页
+        video_count = 0
 
         # 只获取最新几页
         async for aweme_data_list in handler.fetch_user_post_videos(
@@ -136,15 +134,14 @@ async def _get_remote_video_count(sec_user_id):
         ):
             raw = aweme_data_list._to_raw()
             aweme_list = raw.get("aweme_list", [])
-            page_count += len(aweme_list)
-            total_count = raw.get("max_cursor", 0)
+            video_count += len(aweme_list)
 
             has_more = raw.get("has_more", 0)
-            if not has_more or page_count >= 60:
+            if not has_more:
                 break
 
-        # 返回总数（如果获取到的话）
-        return total_count if total_count > 0 else page_count
+        # 返回实际获取到的视频数量
+        return video_count
 
     except Exception as e:
         # 静默失败，返回0
