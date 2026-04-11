@@ -12,7 +12,7 @@ class PipelineConfig:
     # 转写设置
     export_format: str = "md"  # md 或 docx
     output_dir: str = "./transcripts/"
-    delete_after_export: bool = False
+    delete_after_export: bool = True  # 默认为 True：导出后立即删除云端记录以节省额度
     account_id: str = ""
     
     # 清理设置
