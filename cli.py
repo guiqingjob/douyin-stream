@@ -438,6 +438,13 @@ def cmd_compress():
     try:
         crf_input = input("压缩质量 CRF (0-51，默认32，越小质量越好): ").strip()
         crf = int(crf_input) if crf_input.isdigit() else 32
+        # CRF 范围校验
+        if crf < 0:
+            crf = 0
+            print("CRF 值过小，已调整为 0")
+        elif crf > 51:
+            crf = 51
+            print("CRF 值过大，已调整为 51")
     except (EOFError, KeyboardInterrupt):
         crf = 32
 
