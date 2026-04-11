@@ -101,15 +101,15 @@ def _get_video_metadata(db_path):
     if not db_path.exists():
         return {}
 
-    conn = sqlite3.connect(str(db_path))
-    cursor = conn.cursor()
-
+    conn = None
     try:
+        conn = sqlite3.connect(str(db_path))
+        cursor = conn.cursor()
+
         cursor.execute(
             "SELECT name FROM sqlite_master WHERE type='table' AND name='video_metadata'"
         )
         if not cursor.fetchone():
-            conn.close()
             return {}
 
         cursor.execute(
@@ -122,7 +122,6 @@ def _get_video_metadata(db_path):
         """
         )
         rows = cursor.fetchall()
-        conn.close()
 
         metadata = {}
         for row in rows:
@@ -142,11 +141,15 @@ def _get_video_metadata(db_path):
                 "file_size": row[12] or 0,
                 "fetch_time": row[13] or 0,
             }
-        return metadata
-    except sqlite3.OperationalError:
-        conn.close()
-        return {}
 
+        return metadata
+
+    except Exception as e:
+        print(warning(f"读取数据库时出错: {e}"))
+        return {}
+    finally:
+        if conn:
+            conn.close()
 
 def _extract_aweme_id(filename):
     """从文件名提取 aweme_id"""

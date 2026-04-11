@@ -208,6 +208,8 @@ def print_countdown(seconds, message="开始"):
 
 def format_size(bytes_size):
     """格式化文件大小"""
+    if bytes_size < 0:
+        return "0 B"
     for unit in ["B", "KB", "MB", "GB"]:
         if bytes_size < 1024.0:
             return f"{bytes_size:.2f} {unit}"

@@ -5,6 +5,7 @@
 """
 
 import asyncio
+import os
 import sys
 from pathlib import Path
 
@@ -172,10 +173,6 @@ async def douyin_login(persist=False, cookies_path=None):
 
                 print(success(f"✓ Cookie 已保存到: {cookies_path}"))
 
-            # 关闭浏览器
-            if not persist:
-                await browser.close()
-
             return True, cookie_str
 
     except KeyboardInterrupt:
@@ -185,6 +182,13 @@ async def douyin_login(persist=False, cookies_path=None):
     except Exception as e:
         print(error(f"✗ 发生错误: {e}"))
         return False, ""
+    finally:
+        # 确保浏览器总是被关闭
+        if browser is not None:
+            try:
+                await browser.close()
+            except Exception:
+                pass
 
 
 def login_sync(persist=False):
@@ -197,8 +201,6 @@ def login_sync(persist=False):
     Returns:
         (success, cookie_str) 元组
     """
+    skill_dir = Path(__file__).parent.parent.parent
+    os.chdir(skill_dir)
     return asyncio.run(douyin_login(persist=persist))
-
-
-# 需要导入 os
-import os

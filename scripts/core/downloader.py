@@ -251,7 +251,16 @@ def _sync_following():
     new_users_dict = {}  # 用 dict 去重
 
     # 遍历下载目录找用户
-    for folder in downloads_path.iterdir():
+    try:
+        folders = list(downloads_path.iterdir())
+    except PermissionError as e:
+        print(error(f"  [错误] 无法访问下载目录: {e}"))
+        return
+    except OSError as e:
+        print(error(f"  [错误] 文件系统错误: {e}"))
+        return
+
+    for folder in folders:
         if not folder.is_dir():
             continue
 
@@ -276,13 +285,18 @@ def _sync_following():
         uid = str(user_data[0])
 
         # 如果已经处理过该用户，合并视频数量
-        if uid in new_users_dict:
+        try:
             existing_video_count = new_users_dict[uid].get("video_count", 0)
             new_video_count = len(list(folder.glob("*.mp4")))
             new_users_dict[uid]["video_count"] = max(existing_video_count, new_video_count)
             continue
+        except Exception:
+            pass
 
-        video_count = len(list(folder.glob("*.mp4")))
+        try:
+            video_count = len(list(folder.glob("*.mp4")))
+        except (PermissionError, OSError):
+            video_count = 0
 
         # 保留旧数据中的 last_fetch_time
         old_user = old_users.get(uid, {})
@@ -489,7 +503,30 @@ async def _download_with_stats(url: str, max_counts: int = None):
 def download_by_url_sync(url, max_counts=None):
     """同步包装器：通过 URL 下载单个博主的视频"""
     try:
-        return asyncio.run(_download_with_stats(url, max_counts))
+        # 检查是否已有运行中的事件循环
+        try:
+            loop = asyncio.get_running_loop()
+        except RuntimeError:
+            loop = None
+        
+        if loop and loop.is_running():
+            # 如果已有事件循环，创建任务并等待
+            import warnings
+            warnings.warn(
+                "download_by_url_sync called from running event loop. "
+                "Consider using the async version directly.",
+                RuntimeWarning,
+                stacklevel=2
+            )
+            # 在已有循环中，我们需要用 run_until_complete 的替代方案
+            # 但由于无法在同步函数中等待异步，只能抛出异常
+            raise RuntimeError(
+                "Cannot call sync wrapper from async context. "
+                "Use _download_with_stats directly."
+            )
+        else:
+            # 没有运行中的循环，可以安全使用 asyncio.run()
+            return asyncio.run(_download_with_stats(url, max_counts))
     except Exception as e:
         print(error(f"下载出错: {e}"))
         return False

@@ -19,6 +19,9 @@ from .ui import (
 )
 from .config_mgr import get_config
 
+# 导入日志记录器
+from utils.logger import logger
+
 
 def check_ffmpeg():
     """检查 ffmpeg 是否安装"""
@@ -77,22 +80,26 @@ def _compress_video(input_path, output_path, crf=32, preset="fast"):
         preset: 压缩速度
 
     Returns:
-        (success, original_size, compressed_size) 或 None（跳过）
+        (success, original_size, compressed_size, error_msg)
+        - success: bool
+        - original_size: int (字节)
+        - compressed_size: int (字节)
+        - error_msg: str 或 None
     """
     info_data = _get_video_info(input_path)
     if not info_data:
-        return None
+        return (False, 0, 0, "无法获取视频信息")
 
     original_size = info_data["size"]
     height = info_data.get("height", 0)
 
     # 跳过小文件（< 5MB）
     if original_size < 5 * 1024 * 1024:
-        return None
+        return (False, original_size, 0, "文件小于5MB，跳过压缩")
 
     # 跳过低分辨率（< 720p）
     if height > 0 and height < 720:
-        return None
+        return (False, original_size, 0, "分辨率低于720p，跳过压缩")
 
     cmd = [
         "ffmpeg",
@@ -117,12 +124,20 @@ def _compress_video(input_path, output_path, crf=32, preset="fast"):
     result = subprocess.run(cmd, capture_output=True, text=True)
 
     if result.returncode != 0:
-        return False
+        error_msg = f"FFmpeg错误: {result.stderr[:200]}" if result.stderr else "FFmpeg执行失败"
+        if output_path.exists():
+            output_path.unlink()
+        return (False, original_size, 0, error_msg)
 
     compressed_info = _get_video_info(output_path)
     compressed_size = compressed_info["size"] if compressed_info else 0
 
-    return True, original_size, compressed_size
+    if compressed_size == 0:
+        if output_path.exists():
+            output_path.unlink()
+        return (False, original_size, 0, "压缩后文件为空")
+
+    return (True, original_size, compressed_size, None)
 
 
 def compress_user_dir(user_folder, crf=32, preset="fast", replace=True):
@@ -140,7 +155,17 @@ def compress_user_dir(user_folder, crf=32, preset="fast", replace=True):
     """
     config = get_config()
     downloads_path = config.get_download_path()
+    
+    # 防止路径遍历攻击
+    user_folder = Path(user_folder).name  # 只取文件名，忽略路径
     user_dir = downloads_path / user_folder
+    
+    # 验证最终路径确实在downloads_path下
+    try:
+        user_dir.resolve().relative_to(downloads_path.resolve())
+    except ValueError:
+        print(error(f"非法目录: {user_folder}"))
+        return 0, 0, 0
 
     if not user_dir.exists():
         print(error(f"目录不存在: {user_dir}"))
@@ -172,34 +197,33 @@ def compress_user_dir(user_folder, crf=32, preset="fast", replace=True):
 
         result = _compress_video(video, output, crf, preset)
 
-        if result is None:
-            skipped_count += 1
-        elif result is False:
-            failed_count += 1
-            print(error(f"压缩失败: {video.name}"))
-        else:
-            ok, orig_size, comp_size = result
-            if ok:
-                success_count += 1
-                ratio = (1 - comp_size / orig_size) * 100
-                print(
-                    success(
-                        f"✓ {video.name}: {format_size(orig_size)} -> {format_size(comp_size)} ({ratio:.1f}%)"
-                    )
-                )
-
-                if replace:
-                    # 原子性替换：先重命名新文件覆盖原文件，成功则无需删除旧文件
-                    # Path.replace() 在 POSIX 上是原子操作
-                    try:
-                        output.replace(video)
-                    except OSError:
-                        # 如果 replace 失败，回退到传统方法
-                        video.unlink()
-                        output.rename(video)
+        success, orig_size, comp_size, error_msg = result
+        
+        if success:
+            # 压缩成功，替换原文件
+            if replace:
+                try:
+                    output.replace(video)
+                    success_count += 1
+                except Exception as e:
+                    failed_count += 1
+                    print(error(f"替换文件失败: {video.name} - {e}"))
+                    if output.exists():
+                        output.unlink()
             else:
-                failed_count += 1
+                success_count += 1
+                print(success(f"压缩成功: {video.name} ({orig_size/1024/1024:.1f}MB -> {comp_size/1024/1024:.1f}MB)"))
+        elif error_msg and ("跳过" in error_msg or "小于" in error_msg or "低于" in error_msg):
+            # 主动跳过
+            skipped_count += 1
+        else:
+            # 压缩失败
+            failed_count += 1
+            print(error(f"压缩失败: {video.name} - {error_msg}"))
+            if output.exists():
+                output.unlink()
 
+    print()
     return success_count, skipped_count, failed_count
 
 

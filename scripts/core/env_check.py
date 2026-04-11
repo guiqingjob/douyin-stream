@@ -68,7 +68,6 @@ def check_playwright_browsers():
 
     if cache_dir.exists():
         # 检查是否有 chromium
-        chromium_dir = cache_dir / "chromium-*"
         chromium_dirs = list(cache_dir.glob("chromium-*"))
         if chromium_dirs:
             return True, "已安装"

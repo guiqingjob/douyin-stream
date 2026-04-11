@@ -106,6 +106,48 @@ def _get_db_video_count(uid):
         return 0
 
 
+async def _get_remote_video_count(sec_user_id):
+    """
+    从远程API获取该博主的视频总数
+
+    Args:
+        sec_user_id: 用户sec_user_id
+
+    Returns:
+        int: 远程视频总数
+    """
+    try:
+        kwargs = _get_f2_kwargs()
+        url = f"https://www.douyin.com/user/{sec_user_id}"
+        kwargs["url"] = url
+
+        handler = DouyinHandler(kwargs)
+
+        total_count = 0
+        page_count = 0
+
+        # 获取所有视频（分页）
+        async for aweme_data_list in handler.fetch_user_post_videos(
+            sec_user_id, max_counts=float("inf")
+        ):
+            raw = aweme_data_list._to_raw()
+            aweme_list = raw.get("aweme_list", [])
+            page_count += len(aweme_list)
+            total_count = raw.get("max_cursor", 0)  # 总视频数
+
+            # has_more=0 说明获取完了
+            has_more = raw.get("has_more", 0)
+            if not has_more:
+                break
+
+        # 返回总数
+        return total_count if total_count > 0 else page_count
+
+    except Exception as e:
+        # 静默失败，返回0
+        return 0
+
+
 async def _check_single_user(user):
     """
     检查单个博主的更新情况
@@ -152,33 +194,29 @@ async def _check_single_user(user):
         handler = DouyinHandler(kwargs)
 
         # 只获取第一个页面来拿总数
+        remote_count = 0
+        has_more = 0
+        total = 0
+        
         async for aweme_data_list in handler.fetch_user_post_videos(
             sec_user_id, max_counts=1
         ):
             raw = aweme_data_list._to_raw()
-            # 尝试从响应中获取总数
-            remote_count = raw.get("aweme_list", [])
-            total = raw.get("max_cursor", 0)  # F2 返回的视频总数信息
+            
+            # 获取视频列表
+            aweme_list = raw.get("aweme_list", [])
+            remote_count = len(aweme_list) if aweme_list else 0
+            
+            # 获取分页信息
+            total = raw.get("max_cursor", 0)
             has_more = raw.get("has_more", 0)
-
-            # 有些响应中会包含总数信息
-            if "aweme_list" in raw:
-                remote_count = len(raw["aweme_list"])
-                # 如果有 more 信息，说明还有更多视频
-                # 我们用一个较小的 max_counts 来获取真实数量
-                # 更好的方法是检查 "max_cursor" 和 "min_cursor"
-                break
-        else:
-            # 如果没有进入循环
-            remote_count = 0
-
-        # 如果 F2 返回了更多视频信息，我们估算总数
-        if has_more and total:
-            # F2 的 max_cursor 通常表示已获取的偏移量
-            remote_count = total + len(remote_count) if isinstance(remote_count, list) else 1
-        else:
-            # 如果 has_more 为 0，说明获取完了
-            remote_count = len(remote_count) if isinstance(remote_count, list) else 1
+            
+            # 如果有 has_more，说明还有更多视频
+            # 但由于我们只获取第一页，这里只能用数据库记录来判断
+            break
+        
+        # 注意：由于我们只获取第一页，无法准确知道远程总数
+        # 所以我们使用数据库记录数作为参考（数据库在每次下载时会更新）
 
     except Exception as e:
         return {
@@ -249,10 +287,28 @@ def check_all_updates():
         name = user.get("nickname", user.get("name", "未知"))
         local_count = _get_local_video_count(uid, user)
         db_count = _get_db_video_count(uid)
+        sec_user_id = user.get("sec_user_id", "")
 
-        # 计算新视频数
-        new_count = max(0, db_count - local_count)
-        has_update = db_count > local_count
+        # 优先使用远程API检查更新
+        remote_count = None
+        if sec_user_id:
+            try:
+                # 异步调用获取远程视频数量
+                import asyncio
+                remote_count = asyncio.run(_get_remote_video_count(sec_user_id))
+            except Exception:
+                # 如果远程检查失败，降级使用数据库记录
+                remote_count = db_count
+        else:
+            remote_count = db_count
+
+        # 计算新视频数：远程数量 - 本地数量
+        if remote_count and remote_count > local_count:
+            new_count = remote_count - local_count
+            has_update = True
+        else:
+            new_count = 0
+            has_update = False
 
         if has_update:
             total_new += new_count
@@ -264,13 +320,14 @@ def check_all_updates():
             status_text = "已是最新"
 
         print(f"  {status_icon} {name}")
-        print(f"     本地: {local_count} 个 | 数据库: {db_count} 个 | {status_text}")
+        print(f"     本地: {local_count} 个 | 远程: {remote_count} 个 | {status_text}")
         print()
 
         results.append({
             "uid": uid,
             "name": name,
             "local_count": local_count,
+            "remote_count": remote_count,
             "db_count": db_count,
             "has_update": has_update,
             "new_count": new_count,

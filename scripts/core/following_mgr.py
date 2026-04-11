@@ -351,12 +351,15 @@ def batch_add_urls(urls):
 
     for i, url in enumerate(urls, 1):
         print(info(f"[{i}/{len(urls)}] 处理: {url[:50]}..."))
-        ok, _ = add_user(url)
+        ok, user_info = add_user(url)
         if ok:
             added += 1
+        elif user_info:
+            # 用户已存在，计为更新
+            updated += 1
         else:
             failed += 1
 
     print()
-    print(success(f"完成! 新增 {added} 个，失败 {failed} 个"))
-    return added, 0, failed
+    print(success(f"完成! 新增 {added} 个，已存在 {updated} 个，失败 {failed} 个"))
+    return added, updated, failed

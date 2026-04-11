@@ -48,12 +48,13 @@ def main_menu():
         print(f"  {bold('5')}. 🗜️  视频压缩")
         print(f"  {bold('6')}. 📊 生成数据看板")
         print(f"  {bold('7')}. ⚙️  系统设置")
+        print(f"  {bold('8')}. 🗑️  数据清理")
         print()
         print(f"  {bold('0')}. 退出程序")
         print()
 
         try:
-            choice = input("请输入选项 (0-7): ").strip()
+            choice = input("请输入选项 (0-8): ").strip()
         except (EOFError, KeyboardInterrupt):
             print()
             print(success("感谢使用，再见！"))
@@ -78,6 +79,8 @@ def main_menu():
             cmd_generate_data()
         elif choice == "7":
             cmd_system_settings()
+        elif choice == "8":
+            cmd_clean_data()
         else:
             print()
             print(warning("无效的选项，请重新选择"))
@@ -475,6 +478,15 @@ def cmd_generate_data():
     generate_data()
     print()
     _wait_for_key()
+
+
+def cmd_clean_data():
+    """数据清理"""
+    from scripts.core.cleaner import interactive_clean_menu
+
+    print()
+    interactive_clean_menu()
+    print()
 
 
 def _wait_for_key():
