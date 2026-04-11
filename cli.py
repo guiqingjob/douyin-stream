@@ -38,9 +38,8 @@ def main_menu():
     _check_updates_on_startup()
 
     while True:
-        print_header("🎬 抖音下载管家")
-        print("  请选择功能：")
-        print()
+        print_header("🎬 Media Tools 媒体工具")
+        print("  ━━ 抖音功能 ━━")
         print(f"  {bold('1')}. 🔍 检查博主更新")
         print(f"  {bold('2')}. 📥 下载所有更新")
         print(f"  {bold('3')}. 👤 关注列表管理")
@@ -48,14 +47,22 @@ def main_menu():
         print(f"  {bold('5')}. 🔄 下载并自动转写（Pipeline）")
         print(f"  {bold('6')}. 🗜️  视频压缩")
         print(f"  {bold('7')}. 📊 生成数据看板")
-        print(f"  {bold('8')}. ⚙️  系统设置")
-        print(f"  {bold('9')}. 🗑️  数据清理")
+        print()
+        print("  ━━ 转写功能 ━━")
+        print(f"  {bold('8')}. 🎙️  视频/音频转写")
+        print(f"  {bold('9')}. 📂 批量转写")
+        print(f"  {bold('10')}. 🔑 转写认证管理")
+        print(f"  {bold('11')}. 📊 账号状态/配额")
+        print()
+        print("  ━━ 系统设置 ━━")
+        print(f"  {bold('12')}. ⚙️  系统设置")
+        print(f"  {bold('13')}. 🗑️  数据清理")
         print()
         print(f"  {bold('0')}. 退出程序")
         print()
 
         try:
-            choice = input("请输入选项 (0-9): ").strip()
+            choice = input("请输入选项 (0-13): ").strip()
         except (EOFError, KeyboardInterrupt):
             print()
             print(success("感谢使用，再见！"))
@@ -81,8 +88,16 @@ def main_menu():
         elif choice == "7":
             cmd_generate_data()
         elif choice == "8":
-            cmd_system_settings()
+            cmd_transcribe_run()
         elif choice == "9":
+            cmd_transcribe_batch()
+        elif choice == "10":
+            cmd_transcribe_auth()
+        elif choice == "11":
+            cmd_transcribe_accounts()
+        elif choice == "12":
+            cmd_system_settings()
+        elif choice == "13":
             cmd_clean_data()
         else:
             print()
@@ -686,6 +701,219 @@ def _cmd_pipeline_from_file():
         print(traceback.format_exc())
     
     print()
+    _wait_for_key()
+
+
+# ============================================================
+# 转写功能命令
+# ============================================================
+
+def cmd_transcribe_run():
+    """单文件转写"""
+    import questionary
+    from pathlib import Path
+
+    print()
+    try:
+        file_path = questionary.path("请选择视频/音频文件: ").ask()
+    except (EOFError, KeyboardInterrupt):
+        return
+    
+    if not file_path:
+        return
+    
+    video = Path(file_path)
+    if not video.exists():
+        print("❌ 文件不存在")
+        _wait_for_key()
+        return
+    
+    print(f"\n开始转写: {video.name}")
+    print("=" * 50)
+    
+    try:
+        import asyncio
+        from src.media_tools.transcribe.cli.run_api import run
+        asyncio.run(run(argv=[str(video)]))
+    except Exception as e:
+        print(f"\n❌ 转写过程出错: {e}")
+        import traceback
+        print(traceback.format_exc())
+    
+    print()
+    _wait_for_key()
+
+
+def cmd_transcribe_batch():
+    """批量转写"""
+    import questionary
+    from pathlib import Path
+
+    print()
+    try:
+        dir_path = questionary.path("请选择包含视频/音频的目录: ").ask()
+    except (EOFError, KeyboardInterrupt):
+        return
+    
+    if not dir_path:
+        return
+    
+    target = Path(dir_path)
+    if not target.is_dir():
+        print("❌ 目录不存在")
+        _wait_for_key()
+        return
+    
+    print(f"\n开始批量转写: {target}")
+    print("=" * 50)
+    
+    try:
+        import asyncio
+        from src.media_tools.transcribe.cli.run_batch import run
+        asyncio.run(run(argv=[str(target)]))
+    except Exception as e:
+        print(f"\n❌ 批量转写过程出错: {e}")
+        import traceback
+        print(traceback.format_exc())
+    
+    print()
+    _wait_for_key()
+
+
+def cmd_transcribe_auth():
+    """转写认证管理"""
+    from scripts.core.ui import bold, print_header, warning
+
+    while True:
+        print_header("🔑 转写认证管理")
+        print(f"  {bold('1')}. 浏览器扫码登录")
+        print(f"  {bold('2')}. 检查认证状态")
+        print(f"  {bold('0')}. 返回主菜单")
+        print()
+
+        try:
+            choice = input("请输入选项 (0-2): ").strip()
+        except (EOFError, KeyboardInterrupt):
+            print()
+            return
+
+        if choice == "0":
+            return
+        elif choice == "1":
+            _cmd_transcribe_auth_login()
+        elif choice == "2":
+            _cmd_transcribe_auth_check()
+        else:
+            print()
+            print(warning("无效的选项，请重新选择"))
+
+
+def _cmd_transcribe_auth_login():
+    """浏览器扫码登录"""
+    print()
+    print("正在启动浏览器进行认证...")
+    try:
+        import asyncio
+        from src.media_tools.transcribe.cli.auth import run
+        asyncio.run(run(argv=[]))
+    except Exception as e:
+        print(f"\n❌ 认证失败: {e}")
+    _wait_for_key()
+
+
+def _cmd_transcribe_auth_check():
+    """检查认证状态"""
+    print()
+    try:
+        from pathlib import Path
+        auth_path = Path(".auth/qwen-storage-state.json")
+        if auth_path.exists():
+            print("✅ 认证文件存在")
+            print(f"路径: {auth_path.resolve()}")
+        else:
+            print("❌ 认证文件不存在")
+            print("请先进行扫码登录")
+    except Exception as e:
+        print(f"❌ 检查状态失败: {e}")
+    _wait_for_key()
+
+
+def cmd_transcribe_accounts():
+    """账号状态和配额管理"""
+    from scripts.core.ui import bold, print_header, warning
+
+    while True:
+        print_header("📊 账号状态/配额")
+        print(f"  {bold('1')}. 查看账号状态")
+        print(f"  {bold('2')}. 查看配额")
+        print(f"  {bold('3')}. 领取配额")
+        print(f"  {bold('0')}. 返回主菜单")
+        print()
+
+        try:
+            choice = input("请输入选项 (0-3): ").strip()
+        except (EOFError, KeyboardInterrupt):
+            print()
+            return
+
+        if choice == "0":
+            return
+        elif choice == "1":
+            _cmd_transcribe_accounts_status()
+        elif choice == "2":
+            _cmd_transcribe_quota_status()
+        elif choice == "3":
+            _cmd_transcribe_quota_claim()
+        else:
+            print()
+            print(warning("无效的选项，请重新选择"))
+
+
+def _cmd_transcribe_accounts_status():
+    """查看账号状态"""
+    print()
+    try:
+        import asyncio
+        from src.media_tools.transcribe.cli.accounts_status import run
+        asyncio.run(run(argv=[]))
+    except Exception as e:
+        print(f"❌ 查询失败: {e}")
+    _wait_for_key()
+
+
+def _cmd_transcribe_quota_status():
+    """查看配额"""
+    print()
+    try:
+        from src.media_tools.transcribe.quota import get_quota_snapshot
+        from pathlib import Path
+        import asyncio
+        
+        auth_path = Path(".auth/qwen-storage-state.json")
+        if not auth_path.exists():
+            print("❌ 未认证，请先进行登录")
+            _wait_for_key()
+            return
+        
+        snapshot = asyncio.run(get_quota_snapshot(auth_state_path=auth_path))
+        print(f"总配额: {snapshot.total_upload}")
+        print(f"已使用: {snapshot.used_upload}")
+        print(f"剩余: {snapshot.remaining_upload}")
+    except Exception as e:
+        print(f"❌ 查询失败: {e}")
+    _wait_for_key()
+
+
+def _cmd_transcribe_quota_claim():
+    """领取配额"""
+    print()
+    print("正在领取配额...")
+    try:
+        import asyncio
+        from src.media_tools.transcribe.cli.claim_needed import run
+        asyncio.run(run(argv=[]))
+    except Exception as e:
+        print(f"❌ 领取失败: {e}")
     _wait_for_key()
 
 

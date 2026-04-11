@@ -18,27 +18,27 @@ CommandSpec = tuple[str, str, str]
 HELP_TOKENS = {"-h", "--help", "help"}
 
 DIRECT_COMMANDS: dict[str, CommandSpec] = {
-    "menu": ("Interactive menu navigation (recommended for beginners)", "qwen_transcribe.cli.interactive_menu", "run"),
-    "init": ("Initialize configuration files (use --interactive for wizard)", "qwen_transcribe.cli.init_wizard", "run"),
-    "auth": ("Open a browser and save login storage state", "qwen_transcribe.cli.auth", "run"),
-    "capture": ("Capture browser network traffic into local JSONL logs", "qwen_transcribe.cli.capture", "run"),
-    "summarize": ("Summarize captured network logs", "qwen_transcribe.cli.summarize_network", "run"),
-    "run": ("Run the Qwen API flow for one local media file", "qwen_transcribe.cli.run_api", "run"),
-    "batch": ("Batch-process multiple local media files", "qwen_transcribe.cli.run_batch", "run"),
+    "menu": ("Interactive menu navigation (recommended for beginners)", "media_tools.transcribe.cli.interactive_menu", "run"),
+    "init": ("Initialize configuration files (use --interactive for wizard)", "media_tools.transcribe.cli.init_wizard", "run"),
+    "auth": ("Open a browser and save login storage state", "media_tools.transcribe.cli.auth", "run"),
+    "capture": ("Capture browser network traffic into local JSONL logs", "media_tools.transcribe.cli.capture", "run"),
+    "summarize": ("Summarize captured network logs", "media_tools.transcribe.cli.summarize_network", "run"),
+    "run": ("Run the Qwen API flow for one local media file", "media_tools.transcribe.cli.run_api", "run"),
+    "batch": ("Batch-process multiple local media files", "media_tools.transcribe.cli.run_batch", "run"),
 }
 
 GROUP_COMMANDS: dict[str, tuple[str, dict[str, CommandSpec]]] = {
     "accounts": (
         "Account inspection commands",
         {
-            "status": ("Show auth/quota status for configured accounts", "qwen_transcribe.cli.accounts_status", "run"),
+            "status": ("Show auth/quota status for configured accounts", "media_tools.transcribe.cli.accounts_status", "run"),
         },
     ),
     "quota": (
         "Quota maintenance commands",
         {
-            "claim": ("Claim upload quota for one or more accounts", "qwen_transcribe.cli.claim_equity", "run"),
-            "needed": ("Claim upload quota only for accounts that need it", "qwen_transcribe.cli.claim_needed", "run"),
+            "claim": ("Claim upload quota for one or more accounts", "media_tools.transcribe.cli.claim_equity", "run"),
+            "needed": ("Claim upload quota only for accounts that need it", "media_tools.transcribe.cli.claim_needed", "run"),
         },
     ),
     "cleanup": (
@@ -46,7 +46,7 @@ GROUP_COMMANDS: dict[str, tuple[str, dict[str, CommandSpec]]] = {
         {
             "remote-records": (
                 "Delete remote records referenced by local metadata sidecars",
-                "qwen_transcribe.cli.cleanup_remote_records",
+                "media_tools.transcribe.cli.cleanup_remote_records",
                 "run",
             ),
         },
