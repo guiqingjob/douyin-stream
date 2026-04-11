@@ -17,8 +17,6 @@ dependencies = [
 ]
 
 [project.scripts]
-# 抖音交互式 CLI
-media-tools = "cli:main"
 # Qwen 转写 CLI（保留原有命令）
 qwen-transcribe = "media_tools.transcribe.cli.main:main"
 qwt = "media_tools.transcribe.cli.main:main"
