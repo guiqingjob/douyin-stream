@@ -137,7 +137,7 @@ def _fetch_user_info_via_f2(url, sec_user_id):
         "post",
         "--max-counts",
         "1",
-        "-d",
+        "-p",
         str(downloads_path),
     ]
 

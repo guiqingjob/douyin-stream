@@ -48,7 +48,12 @@ def main_menu():
         print(f"  {bold('0')}. 退出程序")
         print()
 
-        choice = input("请输入选项 (0-6): ").strip()
+        try:
+            choice = input("请输入选项 (0-6): ").strip()
+        except (EOFError, KeyboardInterrupt):
+            print()
+            print(success("感谢使用，再见！"))
+            return
 
         if choice == "0":
             print()
@@ -87,8 +92,12 @@ def cmd_login():
     from scripts.core.auth import login_sync
 
     print()
-    persist = input("是否启用持久化模式？(y/N): ").strip().lower()
-    success_flag, _ = login_sync(persist=persist == "y")
+    try:
+        persist_input = input("是否启用持久化模式？(y/N): ").strip().lower()
+        persist = persist_input == "y"
+    except (EOFError, KeyboardInterrupt):
+        persist = False
+    success_flag, _ = login_sync(persist=persist)
 
     if success_flag:
         _wait_for_key()
@@ -107,7 +116,11 @@ def cmd_following_menu():
         print(f"  {bold('0')}. 返回主菜单")
         print()
 
-        choice = input("请输入选项 (0-4): ").strip()
+        try:
+            choice = input("请输入选项 (0-4): ").strip()
+        except (EOFError, KeyboardInterrupt):
+            print()
+            return
 
         if choice == "0":
             return
@@ -139,7 +152,10 @@ def _cmd_add_user():
     from scripts.core.following_mgr import add_user
 
     print()
-    url = input("请粘贴抖音主页链接: ").strip()
+    try:
+        url = input("请粘贴抖音主页链接: ").strip()
+    except (EOFError, KeyboardInterrupt):
+        return
     if not url:
         return
 
@@ -159,13 +175,19 @@ def _cmd_remove_user():
         return
 
     print()
-    uid = input("请输入要移除的博主 UID: ").strip()
+    try:
+        uid = input("请输入要移除的博主 UID: ").strip()
+    except (EOFError, KeyboardInterrupt):
+        return
     if not uid:
         return
 
-    delete_local = (
-        input("是否同时删除本地视频文件？(y/N): ").strip().lower() == "y"
-    )
+    try:
+        delete_local = (
+            input("是否同时删除本地视频文件？(y/N): ").strip().lower() == "y"
+        )
+    except (EOFError, KeyboardInterrupt):
+        delete_local = False
 
     remove_user(uid, delete_local=delete_local)
     print()
@@ -216,7 +238,11 @@ def cmd_download_menu():
         print(f"  {bold('0')}. 返回主菜单")
         print()
 
-        choice = input("请输入选项 (0-4): ").strip()
+        try:
+            choice = input("请输入选项 (0-4): ").strip()
+        except (EOFError, KeyboardInterrupt):
+            print()
+            return
 
         if choice == "0":
             return
@@ -238,12 +264,18 @@ def _cmd_download_by_url():
     from scripts.core.downloader import download_by_url
 
     print()
-    url = input("请粘贴抖音主页链接: ").strip()
+    try:
+        url = input("请粘贴抖音主页链接: ").strip()
+    except (EOFError, KeyboardInterrupt):
+        return
     if not url:
         return
 
-    max_counts = input("最大下载数量（直接回车表示不限制）: ").strip()
-    max_counts = int(max_counts) if max_counts.isdigit() else None
+    try:
+        max_counts_input = input("最大下载数量（直接回车表示不限制）: ").strip()
+        max_counts = int(max_counts_input) if max_counts_input.isdigit() else None
+    except (EOFError, KeyboardInterrupt):
+        max_counts = None
 
     download_by_url(url, max_counts)
     print()
@@ -285,17 +317,25 @@ def cmd_compress():
     from scripts.core.compressor import compress_all
 
     print()
-    crf = input("压缩质量 CRF (0-51，默认32，越小质量越好): ").strip()
-    crf = int(crf) if crf.isdigit() else 32
+    try:
+        crf_input = input("压缩质量 CRF (0-51，默认32，越小质量越好): ").strip()
+        crf = int(crf_input) if crf_input.isdigit() else 32
+    except (EOFError, KeyboardInterrupt):
+        crf = 32
 
-    preset = input(
-        "压缩速度 (ultrafast/fast/medium/slow，默认fast): "
-    ).strip().lower()
-    preset = preset if preset in ["ultrafast", "fast", "medium", "slow"] else "fast"
+    try:
+        preset_input = input(
+            "压缩速度 (ultrafast/fast/medium/slow，默认fast): "
+        ).strip().lower()
+        preset = preset_input if preset_input in ["ultrafast", "fast", "medium", "slow"] else "fast"
+    except (EOFError, KeyboardInterrupt):
+        preset = "fast"
 
-    replace = (
-        input("是否直接替换原文件？(Y/n): ").strip().lower() != "n"
-    )
+    try:
+        replace_input = input("是否直接替换原文件？(Y/n): ").strip().lower()
+        replace = replace_input != "n"
+    except (EOFError, KeyboardInterrupt):
+        replace = True
 
     compress_all(crf=crf, preset=preset, replace=replace)
     print()
@@ -314,7 +354,11 @@ def cmd_generate_data():
 
 def _wait_for_key():
     """等待用户按键返回"""
-    input("按回车键返回...")
+    try:
+        input("按回车键返回...")
+    except (EOFError, KeyboardInterrupt):
+        print()
+        pass
 
 
 if __name__ == "__main__":
