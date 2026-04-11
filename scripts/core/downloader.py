@@ -234,8 +234,9 @@ def _rename_videos_in_downloads(nickname: str, uid: str, downloads_path: Path) -
     user_dir.mkdir(parents=True, exist_ok=True)
 
     # 连接数据库获取该博主最近的视频标题
-    conn = sqlite3.connect(str(db_path))
+    conn = None
     try:
+        conn = sqlite3.connect(str(db_path))
         cursor = conn.cursor()
 
         # 查询该博主最近下载的视频标题
@@ -330,7 +331,8 @@ def _rename_videos_in_downloads(nickname: str, uid: str, downloads_path: Path) -
             conn.commit()
             print(info(f"  [更新] 已更新 {folder_name} 的 local_filename"))
     finally:
-        conn.close()
+        if conn:
+            conn.close()
 
     return folder_name
 

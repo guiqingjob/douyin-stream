@@ -591,9 +591,11 @@ def _cmd_pipeline_from_url():
     
     # 下载视频
     download_by_url(url, max_counts=1)
-    
-    # 查找最新下载的视频
-    downloads_dir = Path("downloads")
+
+    # 查找最新下载的视频（从配置获取下载路径）
+    from scripts.core.config_mgr import get_config
+    config = get_config()
+    downloads_dir = config.get_download_path()
     if not downloads_dir.exists():
         print(error("下载目录不存在"))
         _wait_for_key()
@@ -707,10 +709,15 @@ def _cmd_pipeline_from_following():
         
         # 步骤2：找到下载的视频并转写
         try:
-            user_dir = Path("downloads") / name
+            # 从配置获取下载路径
+            from scripts.core.config_mgr import get_config
+            config = get_config()
+            downloads_path = config.get_download_path()
+            
+            user_dir = downloads_path / name
             if not user_dir.exists():
                 # 尝试用 UID 查找
-                user_dir = Path("downloads") / uid
+                user_dir = downloads_path / uid
             
             if not user_dir.exists():
                 print(f"⚠️  未找到 {name} 的下载目录")
@@ -807,7 +814,12 @@ def _cmd_pipeline_sync():
             download_by_uid(uid, max_counts=new_count)
             
             # 找到并转写新视频
-            user_dir = Path("downloads") / name
+            # 从配置获取下载路径
+            from scripts.core.config_mgr import get_config
+            config = get_config()
+            downloads_path = config.get_download_path()
+            
+            user_dir = downloads_path / name
             if user_dir.exists():
                 # 按修改时间排序，取最新的 new_count 个
                 video_files = sorted(user_dir.glob("*.mp4"), 

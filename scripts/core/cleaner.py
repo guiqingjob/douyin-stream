@@ -117,6 +117,7 @@ def get_db_video_records():
     if not db_path.exists():
         return {}
 
+    conn = None
     try:
         conn = sqlite3.connect(str(db_path))
         cursor = conn.cursor()
@@ -143,7 +144,8 @@ def get_db_video_records():
         print(error(f"数据库读取失败: {e}"))
         return {}
     finally:
-        conn.close()
+        if conn:
+            conn.close()
 
 
 def clean_deleted_videos(auto_confirm=False):

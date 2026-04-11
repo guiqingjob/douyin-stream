@@ -190,15 +190,20 @@ async def _check_single_user(user):
     name = user.get("nickname", user.get("name", "未知"))
     sec_user_id = user.get("sec_user_id", "")
 
-    # 完全抑制 F2 的输出
-    old_stdout = os.dup(1)
-    old_stderr = os.dup(2)
-    devnull = os.open(os.devnull, os.O_WRONLY)
-    os.dup2(devnull, 1)
-    os.dup2(devnull, 2)
-    logging.disable(logging.CRITICAL)
+    # 初始化变量，确保 finally 中可以安全访问
+    old_stdout = None
+    old_stderr = None
+    devnull = None
 
     try:
+        # 完全抑制 F2 的输出
+        old_stdout = os.dup(1)
+        old_stderr = os.dup(2)
+        devnull = os.open(os.devnull, os.O_WRONLY)
+        os.dup2(devnull, 1)
+        os.dup2(devnull, 2)
+        logging.disable(logging.CRITICAL)
+
         local_count = _get_local_video_count(uid, user)
         db_count = _get_db_video_count(uid)
 
@@ -250,10 +255,18 @@ async def _check_single_user(user):
         }
     finally:
         # 恢复输出
-        os.dup2(old_stdout, 1)
-        os.dup2(old_stderr, 2)
-        os.close(devnull)
-        logging.disable(logging.NOTSET)
+        try:
+            if old_stdout is not None:
+                os.dup2(old_stdout, 1)
+                os.close(old_stdout)
+            if old_stderr is not None:
+                os.dup2(old_stderr, 2)
+                os.close(old_stderr)
+            if devnull is not None:
+                os.close(devnull)
+            logging.disable(logging.NOTSET)
+        except Exception:
+            pass
 
 
 def check_all_updates():
