@@ -197,11 +197,12 @@ def cmd_system_settings():
         print_header("⚙️  系统设置")
         print(f"  {bold('1')}. 🔍 环境检测与初始化")
         print(f"  {bold('2')}. 🔑 扫码登录获取 Cookie")
+        print(f"  {bold('3')}. 🔄 Pipeline 配置")
         print(f"  {bold('0')}. 返回主菜单")
         print()
 
         try:
-            choice = input("请输入选项 (0-2): ").strip()
+            choice = input("请输入选项 (0-3): ").strip()
         except (EOFError, KeyboardInterrupt):
             print()
             return
@@ -212,6 +213,8 @@ def cmd_system_settings():
             cmd_env_check()
         elif choice == "2":
             cmd_login()
+        elif choice == "3":
+            cmd_pipeline_config()
         else:
             print()
             print(warning("无效的选项，请重新选择"))
@@ -224,6 +227,83 @@ def cmd_env_check():
     print()
     all_passed, _ = check_all()
     _wait_for_key()
+
+
+def cmd_pipeline_config():
+    """Pipeline 配置"""
+    from scripts.core.ui import bold, info, print_header, warning, success, error
+    from src.media_tools.pipeline.config import load_pipeline_config, PipelineConfig
+    import os
+
+    while True:
+        config = load_pipeline_config()
+        
+        print_header("🔄 Pipeline 配置")
+        print()
+        print(f"  当前配置:")
+        print(f"  {bold('1')}. 导出后删除云端记录: {'是' if config.delete_after_export else '否'}")
+        print(f"  {bold('2')}. 转写后删除本地视频: {'是' if config.remove_video and not config.keep_original else '否'}")
+        print(f"  {bold('3')}. 保留原始文件: {'是' if config.keep_original else '否'}")
+        print(f"  {bold('4')}. 并发数: {config.concurrency}")
+        print()
+        print(f"  {bold('0')}. 返回上级菜单")
+        print()
+
+        try:
+            choice = input("请选择要修改的配置 (0-4): ").strip()
+        except (EOFError, KeyboardInterrupt):
+            print()
+            return
+
+        if choice == "0":
+            return
+        elif choice == "1":
+            current = config.delete_after_export
+            new_val = input(f"  导出后删除云端记录 (当前: {'是' if current else '否'}), 输入 是/否: ").strip()
+            if new_val in ['是', 'yes', 'y', 'true', '1']:
+                os.environ["PIPELINE_DELETE_AFTER_EXPORT"] = "true"
+                print(success("✅ 已设置: 导出后删除云端记录"))
+            elif new_val in ['否', 'no', 'n', 'false', '0']:
+                os.environ["PIPELINE_DELETE_AFTER_EXPORT"] = "false"
+                print(success("✅ 已设置: 导出后保留云端记录"))
+            else:
+                print(warning("输入无效，请重新选择"))
+        elif choice == "2":
+            current = config.remove_video and not config.keep_original
+            new_val = input(f"  转写后删除本地视频 (当前: {'是' if current else '否'}), 输入 是/否: ").strip()
+            if new_val in ['是', 'yes', 'y', 'true', '1']:
+                os.environ["PIPELINE_REMOVE_VIDEO"] = "true"
+                os.environ["PIPELINE_KEEP_ORIGINAL"] = "false"
+                print(success("✅ 已设置: 转写后删除本地视频"))
+            elif new_val in ['否', 'no', 'n', 'false', '0']:
+                os.environ["PIPELINE_REMOVE_VIDEO"] = "false"
+                os.environ["PIPELINE_KEEP_ORIGINAL"] = "true"
+                print(success("✅ 已设置: 转写后保留本地视频"))
+            else:
+                print(warning("输入无效，请重新选择"))
+        elif choice == "3":
+            current = config.keep_original
+            new_val = input(f"  保留原始文件 (当前: {'是' if current else '否'}), 输入 是/否: ").strip()
+            if new_val in ['是', 'yes', 'y', 'true', '1']:
+                os.environ["PIPELINE_KEEP_ORIGINAL"] = "true"
+                print(success("✅ 已设置: 保留原始文件"))
+            elif new_val in ['否', 'no', 'n', 'false', '0']:
+                os.environ["PIPELINE_KEEP_ORIGINAL"] = "false"
+                print(success("✅ 已设置: 不保留原始文件"))
+            else:
+                print(warning("输入无效，请重新选择"))
+        elif choice == "4":
+            new_val = input(f"  并发数 (当前: {config.concurrency}), 输入数字: ").strip()
+            if new_val.isdigit() and int(new_val) > 0:
+                os.environ["PIPELINE_CONCURRENCY"] = new_val
+                print(success(f"✅ 已设置: 并发数 = {new_val}"))
+            else:
+                print(warning("请输入有效的数字"))
+        else:
+            print(warning("无效的选项，请重新选择"))
+        
+        print()
+        _wait_for_key()
 
 
 def cmd_login():
