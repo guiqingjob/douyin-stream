@@ -20,7 +20,7 @@ class PipelineConfig:
     keep_original: bool = True
     
     # 并发设置
-    concurrency: int = 1
+    concurrency: int = 6
     
     @property
     def output_path(self) -> Path:

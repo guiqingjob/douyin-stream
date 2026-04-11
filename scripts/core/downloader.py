@@ -774,7 +774,85 @@ def download_by_uid(uid, max_counts=None):
     name = user.get("nickname", user.get("name", "未知"))
     print(info(f"博主: {name} (UID: {uid})"))
 
-    return download_by_url(url, max_counts)
+    result = download_by_url(url, max_counts)
+
+    # 新增：检查是否开启全自动模式，下载完成后自动转写
+    if result:
+        _trigger_auto_transcribe(uid, name)
+
+    return result
+
+
+def _trigger_auto_transcribe(uid, nickname):
+    """
+    尝试触发自动转写
+    如果配置开启了 auto_transcribe，则扫描博主目录下**最近下载**的视频并转写
+    """
+    import time
+    
+    config = get_config()
+    if not config.is_auto_transcribe():
+        return
+
+    print("\n" + "="*60)
+    print("⚡ [全自动模式] 视频已下载，正在准备自动转写...")
+    print("="*60)
+
+    try:
+        # 查找博主文件夹
+        downloads_path = config.get_download_path()
+        user_dir = downloads_path / nickname
+        
+        # 如果昵称目录不存在，尝试用 UID
+        if not user_dir.exists():
+            user_dir = downloads_path / uid
+        
+        if not user_dir.exists():
+            print("⚠️  未找到下载目录，跳过自动转写")
+            return
+
+        # 获取所有 mp4 视频
+        all_mp4_files = list(user_dir.glob("*.mp4"))
+        if not all_mp4_files:
+            print("⚠️  未找到视频文件，跳过自动转写")
+            return
+
+        # 【优化】只转写最近 5 分钟内下载的文件
+        # 避免每次下载都把历史记录重新转写一遍
+        now = time.time()
+        five_mins = 300  # 5分钟
+        
+        mp4_files = []
+        for f in all_mp4_files:
+            if (now - f.stat().st_mtime) < five_mins:
+                mp4_files.append(f)
+
+        if not mp4_files:
+            print("⚠️  未发现最近下载的视频（均为旧文件），跳过转写")
+            return
+
+        print(f"🔍 扫描到 {len(all_mp4_files)} 个文件，其中 {len(mp4_files)} 个为新下载，开始排队转写...")
+        
+        # 调用 Pipeline 进行批量转写
+        # 这里直接导入，使用批量接口支持并发（默认并发数为 6）
+        from src.media_tools.pipeline.orchestrator import run_pipeline_batch
+        
+        results = run_pipeline_batch(mp4_files)
+        
+        # 打印结果汇总
+        success_count = sum(1 for r in results if r.success)
+        fail_count = len(results) - success_count
+        
+        print("\n" + "="*60)
+        print("🎉 自动转写完成!")
+        print(f"   总数: {len(results)} | ✅ 成功: {success_count} | ❌ 失败: {fail_count}")
+        print(f"   📂 文稿位置: ./transcripts/")
+        print("="*60 + "\n")
+
+    except Exception as e:
+        print(f"⚠️  自动转写过程出错: {e}")
+        import traceback
+        traceback.print_exc()
 
 
 def download_all(auto_confirm=False):

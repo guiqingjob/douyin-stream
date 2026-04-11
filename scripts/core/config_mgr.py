@@ -125,6 +125,14 @@ class ConfigManager:
         """获取文件命名格式"""
         return self.get("naming", "{desc}_{aweme_id}")
 
+    def is_auto_transcribe(self):
+        """获取是否开启自动转写"""
+        val = self.get("auto_transcribe", False)
+        # 兼容字符串 'true' 和布尔值 True
+        if isinstance(val, str):
+            return val.lower() in ('true', '1', 'yes')
+        return bool(val)
+
     def get_following_path(self):
         """获取关注列表路径"""
         path = self.get("following.path")
