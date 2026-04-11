@@ -398,14 +398,23 @@ def cmd_download_menu():
 def _cmd_download_by_url():
     """通过 URL 下载"""
     from scripts.core.downloader import download_by_url
+    from scripts.core.ui import info
 
     print()
     try:
-        url = input("请粘贴抖音主页链接: ").strip()
+        url_input = input("请粘贴抖音主页链接: ").strip()
     except (EOFError, KeyboardInterrupt):
         return
-    if not url:
+    if not url_input:
         return
+
+    # 自动补全 URL：如果用户只输入了 sec_user_id，自动添加前缀
+    if not url_input.startswith("http"):
+        print(info("检测到输入不是完整 URL，自动补全..."))
+        url = f"https://www.douyin.com/user/{url_input}"
+        print(info(f"完整 URL: {url}"))
+    else:
+        url = url_input
 
     try:
         max_counts_input = input("最大下载数量（直接回车表示不限制）: ").strip()
