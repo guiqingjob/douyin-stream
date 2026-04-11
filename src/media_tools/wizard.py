@@ -45,8 +45,8 @@ def show_welcome():
 def step1_choose_scenario() -> str:
     """步骤1: 选择使用场景"""
     console.print(Panel(
-        "[bold]📋 步骤 1/3: 选择你的使用场景[/bold]\n\n"
-        "这将帮你自动配置最合适的功能",
+        "[bold]📋 选择使用场景[/bold]\n\n"
+        "这将自动配置最适合的功能",
         border_style="cyan",
         title="场景选择"
     ))
@@ -57,27 +57,24 @@ def step1_choose_scenario() -> str:
             questionary.Choice(
                 title="🔄 全自动流水线 (推荐)",
                 value="auto",
-                description="下载视频 → 自动转写 → 输出文稿，一条链全自动",
             ),
             questionary.Choice(
                 title="📥 主要下载视频",
                 value="download",
-                description="批量下载抖音视频到本地，暂不转写",
             ),
             questionary.Choice(
                 title="🎙️ 主要转写本地视频",
                 value="transcribe",
-                description="已有视频文件，只需AI转写成文稿",
             ),
         ],
         default="auto"
     ).ask()
 
     if scenario is None:
-        console.print("\n[yellow]已取消配置[/yellow]")
-        return None
+        console.print("\n[yellow]已取消配置，进入主菜单[/yellow]")
+        return "auto"  # 默认自动
 
-    console.print(f"\n✅ 已选择: [green]{scenario}[/green]\n")
+    console.print(f"\n[green]✓[/green] 已选择: {scenario}\n")
     return scenario
 
 

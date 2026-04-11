@@ -23,22 +23,37 @@ sys.path.insert(0, str(PROJECT_DIR))
 
 
 def check_and_run_wizard():
-    """检测并运行首次使用向导"""
-    from src.media_tools.wizard import check_first_run, run_wizard
-    from src.media_tools.config_presets import interactive_preset_wizard
+    """智能检测并自动配置"""
+    from src.media_tools.wizard import check_first_run, mark_config_initialized
+    from src.media_tools.config_presets import apply_preset
 
     if check_first_run():
         print("\n" + "="*60)
-        print("🎉 欢迎使用 Media Tools！检测到首次使用")
+        print("🎉 欢迎使用 Media Tools！首次启动自动配置中...")
         print("="*60)
 
-        # 先选择预设
-        print("\n💡 建议先选择一个配置预设模板\n")
-        interactive_preset_wizard()
+        # 1. 自动运行环境检测
+        print("\n🔍 自动检测环境...")
+        try:
+            from scripts.core.env_check import check_all
+            all_passed, _ = check_all()
+            if all_passed:
+                print("✅ 环境检测通过")
+            else:
+                print("⚠️  环境检测有问题，请查看上方提示")
+        except Exception as e:
+            print(f"⚠️  环境检测跳过: {e}")
 
-        # 再运行配置向导
-        print("\n接下来进行快速配置...\n")
-        run_wizard()
+        # 2. 自动应用新手预设
+        print("\n⚙️  自动应用基础配置...")
+        apply_preset("beginner", auto_apply=True)
+
+        # 3. 标记配置完成
+        mark_config_initialized()
+
+        print("\n" + "="*60)
+        print("✅ 配置完成！进入主菜单...")
+        print("="*60 + "\n")
         return True
 
     return False

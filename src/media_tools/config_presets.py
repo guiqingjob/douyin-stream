@@ -91,12 +91,12 @@ PRESETS = {
 }
 
 
-def apply_preset(preset_name: str, auto_apply: bool = False) -> bool:
+def apply_preset(preset_name: str, auto_apply: bool = True) -> bool:
     """应用预设配置
 
     Args:
         preset_name: 预设名称 (beginner/pro/server)
-        auto_apply: 是否自动应用，不询问
+        auto_apply: 是否自动应用（默认True，不再询问）
 
     Returns:
         是否成功应用
@@ -107,26 +107,9 @@ def apply_preset(preset_name: str, auto_apply: bool = False) -> bool:
 
     preset = PRESETS[preset_name]
 
-    # 显示预设信息
-    console.print()
-    console.print(f"[bold cyan]{preset['name']}[/bold cyan]")
-    console.print(f"[dim]{preset['description']}[/dim]")
-    console.print()
-    console.print("[bold]包含功能:[/bold]")
-    for feature in preset["features"]:
-        console.print(f"  {feature}")
-    console.print()
-
-    # 确认应用
-    if not auto_apply:
-        confirm = questionary.confirm(
-            "是否应用此预设？",
-            default=True
-        ).ask()
-
-        if not confirm:
-            console.print("[yellow]已取消[/yellow]")
-            return False
+    # 自动应用，不再询问（首次使用应该快速进入）
+    console.print(f"\n[green]✓[/green] 应用预设: {preset['name']}")
+    console.print(f"[dim]{preset['description']}[/dim]\n")
 
     # 应用环境变量
     for key, value in preset["config"].items():
