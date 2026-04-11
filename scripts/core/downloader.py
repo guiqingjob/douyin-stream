@@ -30,9 +30,13 @@ from .ui import (
     print_status,
     success,
     warning,
+    ProgressBar,
 )
 from .config_mgr import get_config
 from .following_mgr import list_users
+
+# 导入日志记录器
+from utils.logger import logger
 
 
 def _get_skill_dir():
@@ -352,11 +356,13 @@ async def _download_with_stats(url: str, max_counts: int = None):
         url: 用户主页 URL
         max_counts: 最大下载数量
     """
+    logger.info(f"开始下载: {url}")
     kwargs = _get_f2_kwargs()
     kwargs["url"] = url
 
     if max_counts:
         kwargs["max_counts"] = max_counts
+        logger.info(f"限制下载数量: {max_counts}")
 
     config = get_config()
     downloads_path = config.get_download_path()
@@ -365,10 +371,12 @@ async def _download_with_stats(url: str, max_counts: int = None):
     f2_temp_path = downloads_path / "douyin"
     if f2_temp_path.exists():
         shutil.rmtree(f2_temp_path)
+        logger.info("已清理 F2 临时目录")
         print(info("[清理] F2 临时目录"))
 
     print(info("[下载] 开始下载..."))
     print(info(f"[路径] {downloads_path}"))
+    logger.info(f"下载路径: {downloads_path}")
 
     # 创建元数据表
     _create_video_metadata_table()
@@ -379,12 +387,19 @@ async def _download_with_stats(url: str, max_counts: int = None):
     # 解析 sec_user_id
     from f2.apps.douyin.utils import SecUserIdFetcher
 
-    sec_user_id = await SecUserIdFetcher.get_sec_user_id(url)
-
-    if not sec_user_id:
+    try:
+        sec_user_id = await SecUserIdFetcher.get_sec_user_id(url)
+    except Exception as e:
+        logger.error(f"解析 sec_user_id 失败: {e}")
         print(error("[错误] 无法解析用户 ID"))
         return False
 
+    if not sec_user_id:
+        logger.error("无法解析用户 ID")
+        print(error("[错误] 无法解析用户 ID"))
+        return False
+
+    logger.info(f"sec_user_id: {sec_user_id[:30]}...")
     print(info(f"[信息] sec_user_id: {sec_user_id[:30]}..."))
 
     # 获取用户信息并保存
@@ -404,6 +419,7 @@ async def _download_with_stats(url: str, max_counts: int = None):
     nickname = user_info[1] if user_info else ""
 
     if nickname:
+        logger.info(f"博主: {nickname} (UID: {uid})")
         print(info(f"[博主] {nickname} (UID: {uid})"))
 
     # 收集所有视频数据
@@ -411,26 +427,34 @@ async def _download_with_stats(url: str, max_counts: int = None):
     total_stats_saved = 0
 
     print(info("[下载] 正在获取视频列表..."))
+    logger.info("正在获取视频列表...")
 
-    async for aweme_data_list in handler.fetch_user_post_videos(
-        sec_user_id, max_counts=max_counts or float("inf")
-    ):
-        video_list = aweme_data_list._to_list()
+    try:
+        async for aweme_data_list in handler.fetch_user_post_videos(
+            sec_user_id, max_counts=max_counts or float("inf")
+        ):
+            video_list = aweme_data_list._to_list()
 
-        if video_list:
-            # 保存统计数据
-            raw_data = aweme_data_list._to_raw()
-            stats_saved = _save_video_metadata_from_raw(raw_data, nickname)
-            total_stats_saved += stats_saved
+            if video_list:
+                # 保存统计数据
+                raw_data = aweme_data_list._to_raw()
+                stats_saved = _save_video_metadata_from_raw(raw_data, nickname)
+                total_stats_saved += stats_saved
 
-            # 创建下载任务
-            await handler.downloader.create_download_tasks(
-                kwargs, video_list, user_path
-            )
+                # 创建下载任务
+                await handler.downloader.create_download_tasks(
+                    kwargs, video_list, user_path
+                )
 
-            total_downloaded += len(video_list)
-            print(info(f"[下载] 已处理 {total_downloaded} 个视频..."))
+                total_downloaded += len(video_list)
+                print(info(f"[下载] 已处理 {total_downloaded} 个视频..."))
+                logger.info(f"已处理 {total_downloaded} 个视频")
+    except Exception as e:
+        logger.error(f"下载过程中出错: {e}")
+        print(error(f"下载过程中出错: {e}"))
+        # 继续处理已下载的视频
 
+    logger.info(f"保存了 {total_stats_saved} 条视频元数据")
     print(success(f"[统计] 保存了 {total_stats_saved} 条视频元数据"))
 
     # 整理文件
@@ -454,6 +478,7 @@ async def _download_with_stats(url: str, max_counts: int = None):
     print(info("[数据] 生成 Web 数据文件..."))
     _generate_data()
 
+    logger.info(f"下载完成: 共 {total_downloaded} 个视频")
     print(success(f"\n[完成] 共下载 {total_downloaded} 个视频"))
     if folder_name:
         print(info(f"[位置] {downloads_path / folder_name}"))
