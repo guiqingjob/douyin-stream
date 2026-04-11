@@ -436,8 +436,16 @@ async def _download_with_stats(url: str, max_counts: int = None):
         logger.info(f"博主: {nickname} (UID: {uid})")
         print(info(f"[博主] {nickname} (UID: {uid})"))
 
+    # 统计本地已有视频（增量下载）
+    existing_videos = set()
+    if user_path.exists():
+        existing_videos = {f.stem for f in user_path.glob("*.mp4")}
+        if existing_videos:
+            print(info(f"[本地] 已有 {len(existing_videos)} 个视频，将跳过已下载的"))
+
     # 收集所有视频数据
     total_downloaded = 0
+    total_skipped = 0
     total_stats_saved = 0
 
     print(info("[下载] 正在获取视频列表..."))
@@ -455,21 +463,39 @@ async def _download_with_stats(url: str, max_counts: int = None):
                 stats_saved = _save_video_metadata_from_raw(raw_data, nickname)
                 total_stats_saved += stats_saved
 
-                # 创建下载任务
-                await handler.downloader.create_download_tasks(
-                    kwargs, video_list, user_path
-                )
+                # 增量下载：过滤已存在的视频
+                new_videos = []
+                for video in video_list:
+                    aweme_id = video.get("aweme_id", "")
+                    if aweme_id and aweme_id not in existing_videos:
+                        new_videos.append(video)
+                        existing_videos.add(aweme_id)  # 添加到集合，避免后续重复
+                    else:
+                        total_skipped += 1
 
-                total_downloaded += len(video_list)
-                print(info(f"[下载] 已处理 {total_downloaded} 个视频..."))
-                logger.info(f"已处理 {total_downloaded} 个视频")
+                if new_videos:
+                    # 只下载新视频
+                    await handler.downloader.create_download_tasks(
+                        kwargs, new_videos, user_path
+                    )
+                    total_downloaded += len(new_videos)
+                    print(info(f"[下载] 本页 {len(new_videos)} 个新视频（跳过 {len(video_list) - len(new_videos)} 个已有）"))
+                else:
+                    print(info(f"[跳过] 本页 {len(video_list)} 个视频均为本地已有"))
+
+                # 如果指定了 max_counts，检查是否已达到上限
+                if max_counts and total_downloaded >= max_counts:
+                    print(info(f"[限制] 已达到下载上限 ({max_counts} 个)"))
+                    break
+
+                print(info(f"[下载] 累计新增 {total_downloaded} 个，跳过 {total_skipped} 个已有"))
     except Exception as e:
         logger.error(f"下载过程中出错: {e}")
         print(error(f"下载过程中出错: {e}"))
         # 继续处理已下载的视频
 
     logger.info(f"保存了 {total_stats_saved} 条视频元数据")
-    print(success(f"[统计] 保存了 {total_stats_saved} 条视频元数据"))
+    print(success(f"[统计] 新增 {total_downloaded} 个，跳过 {total_skipped} 个已有"))
 
     # 整理文件
     print(info("[整理] 重新组织文件..."))
