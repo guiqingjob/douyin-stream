@@ -244,7 +244,7 @@ def _sync_following():
     old_data = load_following()
     old_users = {u.get("uid"): u for u in old_data.get("users", [])}
 
-    new_users = []
+    new_users_dict = {}  # 用 dict 去重
 
     # 遍历下载目录找用户
     for folder in downloads_path.iterdir():
@@ -270,6 +270,14 @@ def _sync_following():
             continue
 
         uid = str(user_data[0])
+
+        # 如果已经处理过该用户，合并视频数量
+        if uid in new_users_dict:
+            existing_video_count = new_users_dict[uid].get("video_count", 0)
+            new_video_count = len(list(folder.glob("*.mp4")))
+            new_users_dict[uid]["video_count"] = max(existing_video_count, new_video_count)
+            continue
+
         video_count = len(list(folder.glob("*.mp4")))
 
         # 保留旧数据中的 last_fetch_time
@@ -289,12 +297,12 @@ def _sync_following():
             "last_updated": datetime.now().isoformat(),
             "last_fetch_time": last_fetch,
         }
-        new_users.append(user_info)
+        new_users_dict[uid] = user_info
         print(info(f"  [同步] {user_data[2]} ({video_count} 视频)"))
 
     # 保留 following.json 中但目录中没有的用户
     for uid, old_user in old_users.items():
-        if not any(u.get("uid") == uid for u in new_users):
+        if uid not in new_users_dict:
             try:
                 conn = sqlite3.connect(str(db_path))
                 cursor = conn.cursor()
@@ -319,10 +327,11 @@ def _sync_following():
                         "last_updated": datetime.now().isoformat(),
                         "last_fetch_time": old_user.get("last_fetch_time"),
                     }
-                    new_users.append(user_info)
+                    new_users_dict[uid] = user_info
             except Exception:
                 pass
 
+    new_users = list(new_users_dict.values())
     if new_users:
         save_following({"users": new_users})
         print(info(f"\n[同步] following.json 已更新，共 {len(new_users)} 个博主"))
