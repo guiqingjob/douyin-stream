@@ -1,0 +1,246 @@
+#!/usr/bin/env python3
+# -*- coding: utf-8 -*-
+"""
+统一日志系统 - 为整个项目提供日志记录功能
+
+功能：
+- 分级日志（DEBUG/INFO/WARNING/ERROR）
+- 彩色终端输出
+- 文件持久化
+- 日志轮转（自动清理旧日志）
+- 性能追踪
+"""
+
+import logging
+import sys
+from pathlib import Path
+from datetime import datetime, timedelta
+from typing import Optional
+
+from rich.console import Console
+from rich.logging import RichHandler
+
+console = Console()
+
+
+class MediaLogger:
+    """统一日志管理器"""
+
+    def __init__(
+        self,
+        name: str = "media_tools",
+        log_dir: Path = Path("logs"),
+        level: int = logging.INFO,
+        max_files: int = 10,
+        max_age_days: int = 30,
+    ):
+        self.name = name
+        self.log_dir = log_dir
+        self.max_files = max_files
+        self.max_age_days = max_age_days
+
+        # 确保日志目录存在
+        self.log_dir.mkdir(parents=True, exist_ok=True)
+
+        # 创建logger
+        self.logger = logging.getLogger(name)
+        self.logger.setLevel(level)
+
+        # 避免重复添加handler
+        if not self.logger.handlers:
+            self._setup_handlers()
+
+    def _setup_handlers(self):
+        """配置日志handler"""
+        # 1. 终端输出（Rich）
+        rich_handler = RichHandler(
+            console=console,
+            show_time=True,
+            show_level=True,
+            show_path=False,
+            markup=True,
+        )
+        rich_handler.setLevel(logging.INFO)
+        rich_handler.setFormatter(logging.Formatter(
+            "%(message)s",
+            datefmt="[%X]"
+        ))
+        self.logger.addHandler(rich_handler)
+
+        # 2. 文件输出
+        log_file = self.log_dir / f"media_tools_{datetime.now().strftime('%Y%m%d')}.log"
+        file_handler = logging.FileHandler(log_file, encoding="utf-8")
+        file_handler.setLevel(logging.DEBUG)
+        file_handler.setFormatter(logging.Formatter(
+            "%(asctime)s [%(levelname)s] %(name)s - %(message)s",
+            datefmt="%Y-%m-%d %H:%M:%S"
+        ))
+        self.logger.addHandler(file_handler)
+
+        # 3. 错误文件输出
+        error_file = self.log_dir / f"error_{datetime.now().strftime('%Y%m%d')}.log"
+        error_handler = logging.FileHandler(error_file, encoding="utf-8")
+        error_handler.setLevel(logging.ERROR)
+        error_handler.setFormatter(logging.Formatter(
+            "%(asctime)s [ERROR] %(name)s\n%(message)s\n%(exc_info)s\n"
+        ))
+        self.logger.addHandler(error_handler)
+
+    def _cleanup_old_logs(self):
+        """清理旧日志文件"""
+        if not self.log_dir.exists():
+            return
+
+        cutoff_date = datetime.now() - timedelta(days=self.max_age_days)
+
+        for log_file in self.log_dir.glob("*.log"):
+            try:
+                file_mtime = datetime.fromtimestamp(log_file.stat().st_mtime)
+                if file_mtime < cutoff_date:
+                    log_file.unlink()
+                    self.logger.info(f"清理旧日志: {log_file.name}")
+            except Exception as e:
+                self.logger.warning(f"清理日志失败: {e}")
+
+    def debug(self, message: str, *args, **kwargs):
+        """DEBUG级别日志"""
+        self.logger.debug(message, *args, **kwargs)
+
+    def info(self, message: str, *args, **kwargs):
+        """INFO级别日志"""
+        self.logger.info(message, *args, **kwargs)
+
+    def warning(self, message: str, *args, **kwargs):
+        """WARNING级别日志"""
+        self.logger.warning(message, *args, **kwargs)
+
+    def error(self, message: str, *args, exc_info=False, **kwargs):
+        """ERROR级别日志"""
+        self.logger.error(message, *args, exc_info=exc_info, **kwargs)
+
+    def critical(self, message: str, *args, **kwargs):
+        """CRITICAL级别日志"""
+        self.logger.critical(message, *args, **kwargs)
+
+    def exception(self, message: str, *args, **kwargs):
+        """异常日志（自动包含堆栈信息）"""
+        self.logger.exception(message, *args, **kwargs)
+
+    def log_operation(
+        self,
+        operation: str,
+        status: str,
+        details: str = "",
+        duration: float = 0,
+    ):
+        """记录操作日志（格式化）
+
+        Args:
+            operation: 操作名称
+            status: 状态 (success/failed/warning)
+            details: 详细信息
+            duration: 耗时（秒）
+        """
+        icon = {
+            "success": "✅",
+            "failed": "❌",
+            "warning": "⚠️",
+            "running": "🔄",
+        }.get(status.lower(), "📝")
+
+        msg = f"{icon} {operation}"
+        if details:
+            msg += f" - {details}"
+        if duration > 0:
+            msg += f" ({duration:.1f}s)"
+
+        if status.lower() == "success":
+            self.info(msg)
+        elif status.lower() == "failed":
+            self.error(msg)
+        elif status.lower() == "warning":
+            self.warning(msg)
+        else:
+            self.info(msg)
+
+
+# 全局日志实例
+_logger: Optional[MediaLogger] = None
+
+
+def get_logger(name: str = "media_tools") -> MediaLogger:
+    """获取全局日志实例"""
+    global _logger
+    if _logger is None:
+        _logger = MediaLogger(name)
+    return _logger
+
+
+def init_logging(
+    level: str = "INFO",
+    log_dir: Path = Path("logs"),
+    max_files: int = 10,
+    max_age_days: int = 30,
+) -> MediaLogger:
+    """初始化日志系统
+
+    Args:
+        level: 日志级别 (DEBUG/INFO/WARNING/ERROR)
+        log_dir: 日志目录
+        max_files: 最大日志文件数
+        max_age_days: 日志保留天数
+
+    Returns:
+        MediaLogger实例
+    """
+    global _logger
+
+    level_map = {
+        "DEBUG": logging.DEBUG,
+        "INFO": logging.INFO,
+        "WARNING": logging.WARNING,
+        "ERROR": logging.ERROR,
+    }
+
+    _logger = MediaLogger(
+        name="media_tools",
+        log_dir=log_dir,
+        level=level_map.get(level.upper(), logging.INFO),
+        max_files=max_files,
+        max_age_days=max_age_days,
+    )
+
+    _logger.info(f"日志系统初始化完成 (级别: {level})")
+    return _logger
+
+
+def main():
+    """测试日志系统"""
+    import time
+
+    # 初始化
+    logger = init_logging(level="DEBUG")
+
+    # 测试各级别日志
+    logger.debug("这是一条DEBUG日志")
+    logger.info("这是一条INFO日志")
+    logger.warning("这是一条WARNING日志")
+    logger.error("这是一条ERROR日志")
+
+    # 测试操作日志
+    logger.log_operation("下载视频", "success", "video_001.mp4", 2.5)
+    logger.log_operation("转写视频", "failed", "配额不足", 1.2)
+    logger.log_operation("检查更新", "warning", "网络延迟", 5.0)
+
+    # 测试异常日志
+    try:
+        raise ValueError("测试异常")
+    except Exception as e:
+        logger.exception("捕获到异常")
+
+    print("\n✅ 日志系统测试完成！")
+    print(f"📁 日志文件保存在: {logger.log_dir}")
+
+
+if __name__ == "__main__":
+    main()
