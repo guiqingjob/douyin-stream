@@ -45,16 +45,17 @@ def main_menu():
         print(f"  {bold('2')}. 📥 下载所有更新")
         print(f"  {bold('3')}. 👤 关注列表管理")
         print(f"  {bold('4')}. 📺 视频下载")
-        print(f"  {bold('5')}. 🗜️  视频压缩")
-        print(f"  {bold('6')}. 📊 生成数据看板")
-        print(f"  {bold('7')}. ⚙️  系统设置")
-        print(f"  {bold('8')}. 🗑️  数据清理")
+        print(f"  {bold('5')}. 🔄 下载并自动转写（Pipeline）")
+        print(f"  {bold('6')}. 🗜️  视频压缩")
+        print(f"  {bold('7')}. 📊 生成数据看板")
+        print(f"  {bold('8')}. ⚙️  系统设置")
+        print(f"  {bold('9')}. 🗑️  数据清理")
         print()
         print(f"  {bold('0')}. 退出程序")
         print()
 
         try:
-            choice = input("请输入选项 (0-8): ").strip()
+            choice = input("请输入选项 (0-9): ").strip()
         except (EOFError, KeyboardInterrupt):
             print()
             print(success("感谢使用，再见！"))
@@ -74,12 +75,14 @@ def main_menu():
         elif choice == "4":
             cmd_download_menu()
         elif choice == "5":
-            cmd_compress()
+            cmd_pipeline_menu()
         elif choice == "6":
-            cmd_generate_data()
+            cmd_compress()
         elif choice == "7":
-            cmd_system_settings()
+            cmd_generate_data()
         elif choice == "8":
+            cmd_system_settings()
+        elif choice == "9":
             cmd_clean_data()
         else:
             print()
@@ -487,6 +490,203 @@ def cmd_clean_data():
     print()
     interactive_clean_menu()
     print()
+
+
+def cmd_pipeline_menu():
+    """Pipeline 功能菜单"""
+    from scripts.core.ui import bold, info, print_header, warning, error
+
+    while True:
+        print_header("🔄 下载并自动转写（Pipeline）")
+        print("  自动流程：下载视频 → 上传转写 → 输出文稿")
+        print()
+        print(f"  {bold('1')}. 📎 输入抖音链接，下载并转写")
+        print(f"  {bold('2')}. 👥 从关注列表批量下载并转写")
+        print(f"  {bold('3')}. 🔄 同步模式（只处理新视频）")
+        print(f"  {bold('4')}. 📂 指定本地视频文件转写")
+        print(f"  {bold('0')}. 返回主菜单")
+        print()
+
+        try:
+            choice = input("请输入选项 (0-4): ").strip()
+        except (EOFError, KeyboardInterrupt):
+            print()
+            return
+
+        if choice == "0":
+            return
+        elif choice == "1":
+            _cmd_pipeline_from_url()
+        elif choice == "2":
+            _cmd_pipeline_from_following()
+        elif choice == "3":
+            _cmd_pipeline_sync()
+        elif choice == "4":
+            _cmd_pipeline_from_file()
+        else:
+            print()
+            print(warning("无效的选项，请重新选择"))
+
+
+def _cmd_pipeline_from_url():
+    """从 URL 下载并转写"""
+    from scripts.core.downloader import download_by_url
+    from pathlib import Path
+    import glob as glob_module
+
+    print()
+    try:
+        url = input("请粘贴抖音主页链接: ").strip()
+    except (EOFError, KeyboardInterrupt):
+        return
+    if not url:
+        return
+
+    print()
+    print("开始下载视频...")
+    
+    # 下载视频
+    download_by_url(url, max_counts=1)
+    
+    # 查找最新下载的视频
+    downloads_dir = Path("downloads")
+    if not downloads_dir.exists():
+        print(error("下载目录不存在"))
+        _wait_for_key()
+        return
+    
+    # 查找最新的 MP4 文件
+    video_files = list(downloads_dir.rglob("*.mp4"))
+    if not video_files:
+        print(error("未找到下载的视频文件"))
+        _wait_for_key()
+        return
+    
+    # 按修改时间排序，取最新
+    latest_video = max(video_files, key=lambda p: p.stat().st_mtime)
+    
+    print(f"\n找到视频: {latest_video}")
+    print("开始转写...")
+    
+    # 执行转写
+    try:
+        from src.media_tools.pipeline.orchestrator import run_pipeline_single
+        result = run_pipeline_single(latest_video)
+        
+        if result.success:
+            print(f"\n✅ 转写成功!")
+            print(f"文稿: {result.transcript_path}")
+        else:
+            print(f"\n❌ 转写失败: {result.error}")
+    except Exception as e:
+        print(f"\n❌ 转写过程出错: {e}")
+    
+    print()
+    _wait_for_key()
+
+
+def _cmd_pipeline_from_following():
+    """从关注列表批量下载并转写"""
+    from scripts.core.following_mgr import display_users
+    from scripts.core.downloader import download_by_uid
+    from pathlib import Path
+    import questionary
+
+    print()
+    users = display_users()
+    if not users:
+        print("关注列表为空，请先添加博主")
+        _wait_for_key()
+        return
+
+    # 让用户选择处理方式
+    choice = questionary.select(
+        "选择处理方式:",
+        choices=[
+            f"全部关注 ({len(users)} 位博主)",
+            *[f"{u['name']} ({u['uid']})" for u in users],
+            "返回",
+        ]
+    ).ask()
+    
+    if choice == "返回":
+        return
+    
+    print()
+    print("开始批量下载并转写...")
+    
+    # TODO: 实现批量下载和转写逻辑
+    # 这里先给出提示
+    print("⚠️  批量 Pipeline 功能开发中...")
+    print("建议：先用选项 4 转写已下载的视频文件")
+    
+    print()
+    _wait_for_key()
+
+
+def _cmd_pipeline_sync():
+    """同步模式：只处理新视频"""
+    from scripts.core.update_checker import check_all_updates
+    
+    print()
+    print("检查更新...")
+    result = check_all_updates()
+    
+    if result["total_new"] == 0:
+        print("✓ 所有博主均为最新，无需处理")
+        _wait_for_key()
+        return
+    
+    print(f"发现 {result['total_new']} 个新视频")
+    print("⚠️  同步 Pipeline 功能开发中...")
+    
+    print()
+    _wait_for_key()
+
+
+def _cmd_pipeline_from_file():
+    """转写本地视频文件"""
+    from pathlib import Path
+    import questionary
+
+    print()
+    try:
+        file_path = input("请输入视频文件路径: ").strip()
+    except (EOFError, KeyboardInterrupt):
+        return
+    
+    if not file_path:
+        return
+    
+    video = Path(file_path)
+    if not video.exists():
+        print(error(f"文件不存在: {video}"))
+        _wait_for_key()
+        return
+    
+    if not video.suffix.lower() in ['.mp4', '.mov', '.avi', '.mkv']:
+        print(error("不支持的视频格式"))
+        _wait_for_key()
+        return
+    
+    print(f"\n开始转写: {video}")
+    
+    try:
+        from src.media_tools.pipeline.orchestrator import run_pipeline_single
+        result = run_pipeline_single(video)
+        
+        if result.success:
+            print(f"\n✅ 转写成功!")
+            print(f"文稿: {result.transcript_path}")
+        else:
+            print(f"\n❌ 转写失败: {result.error}")
+    except Exception as e:
+        print(f"\n❌ 转写过程出错: {e}")
+        import traceback
+        print(traceback.format_exc())
+    
+    print()
+    _wait_for_key()
 
 
 def _wait_for_key():
