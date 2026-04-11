@@ -399,20 +399,31 @@ def _cmd_download_by_url():
     """通过 URL 下载"""
     from scripts.core.downloader import download_by_url
     from scripts.core.ui import info
+    from urllib.parse import urlparse, parse_qs
 
     print()
     try:
-        url_input = input("请粘贴抖音主页链接: ").strip()
+        url_input = input("请粘贴抖音链接: ").strip()
     except (EOFError, KeyboardInterrupt):
         return
     if not url_input:
         return
 
-    # 自动补全 URL：如果用户只输入了 sec_user_id，自动添加前缀
-    if not url_input.startswith("http"):
+    # 自动转换 URL 格式
+    if '/jingxuan' in url_input:
+        # 解析 modal_id 并转换成标准视频 URL
+        parsed = urlparse(url_input)
+        params = parse_qs(parsed.query)
+        modal_id = params.get('modal_id', [None])[0]
+        if modal_id:
+            url = f"https://www.douyin.com/video/{modal_id}"
+            print(info(f"自动转换: {url}"))
+        else:
+            print(info("输入不是完整 URL，尝试作为 sec_user_id 处理..."))
+            url = f"https://www.douyin.com/user/{url_input}"
+    elif not url_input.startswith("http"):
         print(info("检测到输入不是完整 URL，自动补全..."))
         url = f"https://www.douyin.com/user/{url_input}"
-        print(info(f"完整 URL: {url}"))
     else:
         url = url_input
 
