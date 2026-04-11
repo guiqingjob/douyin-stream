@@ -34,9 +34,6 @@ def main_menu():
         warning,
     )
 
-    # 启动时自动检查更新
-    _check_updates_on_startup()
-
     while True:
         print_header("🎬 Media Tools 媒体工具")
         print("  ━━ 抖音功能 ━━")
