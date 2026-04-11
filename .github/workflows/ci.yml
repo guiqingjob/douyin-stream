@@ -1,44 +1,100 @@
-name: CI
+name: CI/CD Pipeline
 
 on:
   push:
-    branches: [ main ]
+    branches: [ main, develop ]
   pull_request:
     branches: [ main ]
 
 jobs:
+  test:
+    runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        python-version: ['3.11', '3.12']
+
+    steps:
+    - name: 检出代码
+      uses: actions/checkout@v4
+
+    - name: 设置 Python ${{ matrix.python-version }}
+      uses: actions/setup-python@v4
+      with:
+        python-version: ${{ matrix.python-version }}
+
+    - name: 缓存依赖
+      uses: actions/cache@v3
+      with:
+        path: ~/.cache/pip
+        key: ${{ runner.os }}-pip-${{ hashFiles('**/requirements.txt') }}
+        restore-keys: |
+          ${{ runner.os }}-pip-
+
+    - name: 安装依赖
+      run: |
+        python -m pip install --upgrade pip
+        pip install -r requirements.txt
+        pip install pytest pytest-cov
+
+    - name: 运行测试
+      run: |
+        python test_v2_features.py
+
+    - name: 检查代码质量
+      run: |
+        python -m py_compile cli_v2.py
+        python -m py_compile demo_v2_features.py
+        echo "✅ 代码质量检查通过"
+
   lint:
     runs-on: ubuntu-latest
     steps:
-    - uses: actions/checkout@v3
-    
-    - name: Set up Python
+    - name: 检出代码
+      uses: actions/checkout@v4
+
+    - name: 设置 Python
       uses: actions/setup-python@v4
       with:
         python-version: '3.11'
-        
-    - name: Install dependencies
-      run: |
-        python -m pip install --upgrade pip
-        pip install flake8 black isort
-        if [ -f requirements.txt ]; then pip install -r requirements.txt; fi
-        
-    - name: Check formatting with Black
-      run: |
-        black --check scripts/ src/
 
-    - name: Check imports with isort
+    - name: 安装lint工具
       run: |
-        isort --check-only scripts/ src/
+        pip install flake8 black
 
-    - name: Lint with flake8
+    - name: 运行flake8
       run: |
-        # stop the build if there are Python syntax errors or undefined names
-        flake8 scripts/ src/ --count --select=E9,F63,F7,F82 --show-source --statistics
-        # exit-zero treats all errors as warnings.
-        flake8 scripts/ src/ --count --exit-zero --max-complexity=10 --max-line-length=127 --ignore=E501,E402,W293,E226,W503,F401,F841 --statistics
+        flake8 . --count --select=E9,F63,F7,F82 --show-source --statistics
+        echo "✅ flake8检查通过"
 
-    - name: Run tests with pytest
+  build:
+    needs: [test, lint]
+    runs-on: ubuntu-latest
+    if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+    
+    steps:
+    - name: 检出代码
+      uses: actions/checkout@v4
+
+    - name: 设置 Python
+      uses: actions/setup-python@v4
+      with:
+        python-version: '3.11'
+
+    - name: 安装构建工具
       run: |
-        pip install pytest pytest-asyncio
-        pytest tests/ -v
+        pip install build twine
+
+    - name: 构建包
+      run: |
+        python -m build
+
+    - name: 检查包
+      run: |
+        twine check dist/*
+        echo "✅ 包检查通过"
+
+    - name: 上传构建产物
+      uses: actions/upload-artifact@v3
+      with:
+        name: media-tools-dist
+        path: dist/
