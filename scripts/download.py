@@ -348,7 +348,7 @@ async def download_with_stats(url: str, max_counts: int = None):
     logger.info("[下载] 正在获取视频列表...")
 
     async for aweme_data_list in handler.fetch_user_post_videos(
-        sec_user_id, max_counts=max_counts or float("in")
+        sec_user_id, max_counts=max_counts or float("inf")
     ):
         # 获取视频数据列表（用于下载）
         video_list = aweme_data_list._to_list()

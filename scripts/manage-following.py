@@ -48,7 +48,9 @@ from utils.following import (
 )
 from utils.logger import logger
 
-DOWNLOADS_PATH = SKILL_DIR / "downloads"
+from utils.config import get_download_path
+
+DOWNLOADS_PATH = get_download_path()
 DB_PATH = SKILL_DIR / "douyin_users.db"
 
 
@@ -102,6 +104,8 @@ def fetch_user_info_via_f2(url: str) -> dict:
         "post",
         "--max-counts",
         "1",
+        "-d",
+        str(DOWNLOADS_PATH),
     ]
 
     if cookie:

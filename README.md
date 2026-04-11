@@ -41,6 +41,8 @@
 
 ## 🛠️ 快速开始
 
+> **💡 新版 CLI 已上线！** 现在只需运行 **一个命令**，通过交互式菜单即可完成所有操作，无需再记忆复杂命令。
+
 ### 1. 环境准备
 请确保您的电脑已安装 Python 3.9 - 3.13，然后执行：
 ```bash
@@ -49,38 +51,46 @@ pip install -r requirements.txt
 
 # 安装 Playwright 浏览器内核 (用于扫码登录)
 playwright install chromium
+```
 
-# 检查环境是否全部正常
+### 2. 启动统一 CLI
+```bash
+python cli.py
+```
+启动后按菜单提示选择功能即可：
+- **1** - 环境检测
+- **2** - 扫码登录
+- **3** - 关注列表管理
+- **4** - 视频下载
+- **5** - 视频压缩
+- **6** - 生成数据看板
+
+---
+
+<details>
+<summary>📜 旧版命令（已废弃，点击展开）</summary>
+
+> ⚠️ 以下旧版命令已迁移至 `scripts/deprecated/`，运行时会提示使用新 CLI。
+
+```bash
+# 环境检测
 python scripts/check_env.py
-```
 
-### 2. 获取授权 (扫码登录)
-```bash
+# 扫码登录
 python scripts/login.py --persist
-```
-*(如果没有弹出浏览器，也可以在 `config/config.yaml` 中手动填入抓取到的 Cookie。)*
 
-### 3. 添加关注博主
-去抖音复制博主的主页链接，添加到系统的监控白名单中：
-```bash
+# 添加关注博主
 python scripts/manage-following.py --add "https://www.douyin.com/user/MS4wLjABAAAA..."
-```
 
-### 4. 一键执行下载
-```bash
-# 交互式批量下载（会提示你选择全量还是单个）
+# 下载视频
 python scripts/batch-download.py
-
-# 或者直接针对某个博主下载
 python scripts/download.py "https://www.douyin.com/user/MS4wLjABAAAA..."
-```
 
-### 5. 生成并查看 Web 数据看板
-```bash
+# 生成数据看板
 python scripts/generate-data.py
 ```
-执行完毕后，系统会在 `downloads/` 目录下生成 `data.js` 和 `index.html`。
-双击打开 `downloads/index.html` 即可在浏览器中欣赏您的私人精美短视频库面板。
+
+</details>
 
 ---
 
@@ -88,24 +98,37 @@ python scripts/generate-data.py
 
 ```text
 douyin-stream/
-├── references/               # 详细文档目录 (包含小白教程、安装、使用说明等)
-├── scripts/                  # 核心执行脚本
-│   ├── utils/                # 通用工具模块 (高度解耦，适合 API 化)
-│   │   ├── config.py         # 统一配置模块
-│   │   ├── following.py      # following.json 与数据库操作库
-│   │   ├── auth_parser.py    # Cookie 解析验证引擎
-│   │   └── logger.py         # 统一日志输出引擎
-│   ├── check_env.py          # 环境检测工具
-│   ├── login.py              # 扫码登录与 Cookie 提取
-│   ├── download.py           # 核心下载脚本（带统计入库与增量逻辑）
-│   ├── batch-download.py     # 批量下载控制器
-│   ├── manage-following.py   # 关注列表维护与彻底清理工具
-│   ├── compress.py           # 视频批量压缩工具
-│   └── generate-data.py      # Web 静态数据生成器
-├── config/                   # 配置目录
-│   ├── config.yaml           # 主配置文件（含 Cookie、下载路径、命名模板）
-│   └── following.json        # 关注（待下载）博主名单库
-└── douyin_users.db           # SQLite 数据库（自动生成，存放统计与元数据）
+├── cli.py                      # 🆕 统一 CLI 入口（用户唯一需要运行的脚本）
+├── scripts/
+│   ├── core/                   # 🆕 业务逻辑层（CLI 调用的核心模块）
+│   │   ├── ui.py               # 终端美化输出（颜色/进度条/表格）
+│   │   ├── config_mgr.py       # 统一配置管理
+│   │   ├── env_check.py        # 环境检测
+│   │   ├── auth.py             # 登录认证
+│   │   ├── following_mgr.py    # 关注列表管理
+│   │   ├── downloader.py       # 视频下载
+│   │   ├── compressor.py       # 视频压缩
+│   │   └── data_generator.py   # 数据看板生成
+│   ├── deprecated/             # ⚠️ 已废弃的旧脚本（向后兼容）
+│   │   ├── check_env.py
+│   │   ├── login.py
+│   │   ├── download.py
+│   │   ├── batch-download.py
+│   │   ├── manage-following.py
+│   │   ├── compress.py
+│   │   ├── generate-data.py
+│   │   └── sync-following.py
+│   ├── utils/                  # 通用工具模块（基础设施）
+│   │   ├── config.py
+│   │   ├── following.py
+│   │   ├── auth_parser.py
+│   │   └── logger.py
+│   └── templates/              # Web 模板目录
+├── config/                     # 配置目录
+│   ├── config.yaml             # 主配置文件（含 Cookie、下载路径等）
+│   └── following.json          # 关注博主名单库
+├── downloads/                  # 下载文件存储目录
+└── douyin_users.db             # SQLite 数据库（自动生成）
 ```
 
 ## 👨‍💻 架构与二次开发

@@ -32,8 +32,10 @@ from utils.following import (
 from utils.logger import logger
 
 DB_PATH = SKILL_DIR / "douyin_users.db"
-HTML_PATH = SKILL_DIR / "downloads" / "index.html"
-DOWNLOADS_PATH = SKILL_DIR / "downloads"
+from utils.config import get_download_path
+
+DOWNLOADS_PATH = get_download_path()
+HTML_PATH = DOWNLOADS_PATH / "index.html"
 
 
 def get_user_info_from_db(uid):
