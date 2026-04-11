@@ -4,14 +4,14 @@ from pathlib import Path
 import tempfile
 import unittest
 
-from qwen_transcribe.accounts import ExecutionAccount
-from qwen_transcribe.cli.common import (
+from media_tools.transcribe.accounts import ExecutionAccount
+from media_tools.transcribe.cli.common import (
     chunk_paths,
     collect_batch_sources,
     ensure_auth_state_exists,
     validate_source_file,
 )
-from qwen_transcribe.errors import AuthenticationRequiredError, InputValidationError
+from media_tools.transcribe.errors import AuthenticationRequiredError, InputValidationError
 
 
 class CliCommonTests(unittest.TestCase):

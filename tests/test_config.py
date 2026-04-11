@@ -4,8 +4,8 @@ import os
 from unittest.mock import patch
 import unittest
 
-from qwen_transcribe.config import load_config
-from qwen_transcribe.errors import ConfigurationError
+from media_tools.transcribe.config import load_config
+from media_tools.transcribe.errors import ConfigurationError
 
 
 class ConfigTests(unittest.TestCase):

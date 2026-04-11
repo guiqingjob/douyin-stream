@@ -2,8 +2,8 @@ from __future__ import annotations
 
 import unittest
 
-from qwen_transcribe.cli.run_api import build_parser as build_run_parser
-from qwen_transcribe.cli.run_batch import build_parser as build_batch_parser
+from media_tools.transcribe.cli.run_api import build_parser as build_run_parser
+from media_tools.transcribe.cli.run_batch import build_parser as build_batch_parser
 
 
 class FlowCliParserTests(unittest.TestCase):

@@ -7,8 +7,8 @@ import tempfile
 from unittest.mock import patch
 import unittest
 
-from qwen_transcribe.accounts import load_accounts_config, resolve_auth_state_path
-from qwen_transcribe.errors import ConfigurationError
+from media_tools.transcribe.accounts import load_accounts_config, resolve_auth_state_path
+from media_tools.transcribe.errors import ConfigurationError
 
 
 class AccountsTests(unittest.TestCase):

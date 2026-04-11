@@ -5,8 +5,8 @@ import io
 from unittest.mock import patch
 import unittest
 
-from qwen_transcribe.errors import InputValidationError
-from qwen_transcribe.cli.main import run
+from media_tools.transcribe.errors import InputValidationError
+from media_tools.transcribe.cli.main import run
 
 
 class CliMainTests(unittest.TestCase):
@@ -84,7 +84,7 @@ class CliMainTests(unittest.TestCase):
             del argv
             raise InputValidationError("bad input")
 
-        with patch("qwen_transcribe.cli.main.load_command", return_value=broken_command):
+        with patch("media_tools.transcribe.cli.main.load_command", return_value=broken_command):
             with patch("sys.stderr", buffer):
                 exit_code = run(["run"])
 

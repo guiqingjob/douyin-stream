@@ -433,7 +433,19 @@ def _cmd_download_by_url():
     except (EOFError, KeyboardInterrupt):
         max_counts = None
 
-    download_by_url(url, max_counts)
+    result = download_by_url(url, max_counts)
+    
+    # 检查是否开启全自动模式
+    if isinstance(result, dict) and result.get('success'):
+        try:
+            from scripts.core.downloader import _trigger_auto_transcribe
+            from scripts.core.config_mgr import get_config
+            config = get_config()
+            if config.is_auto_transcribe():
+                _trigger_auto_transcribe(result['uid'], result['nickname'])
+        except Exception as e:
+            print(f"⚠️  自动转写触发失败: {e}")
+            
     print()
     _wait_for_key()
 

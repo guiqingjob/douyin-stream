@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import unittest
 
-from qwen_transcribe.quota import merge_consumption_record, merge_equity_claim_record
+from media_tools.transcribe.quota import merge_consumption_record, merge_equity_claim_record
 
 
 class QuotaTests(unittest.TestCase):

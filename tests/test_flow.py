@@ -4,9 +4,9 @@ from pathlib import Path
 import tempfile
 import unittest
 
-from qwen_transcribe.flow import build_export_output_path, record_flow_quota_usage, save_debug_artifacts
-from qwen_transcribe.quota import QuotaSnapshot
-from qwen_transcribe.runtime import ExportConfig
+from media_tools.transcribe.flow import build_export_output_path, record_flow_quota_usage, save_debug_artifacts
+from media_tools.transcribe.quota import QuotaSnapshot
+from media_tools.transcribe.runtime import ExportConfig
 
 
 class FlowTests(unittest.TestCase):
@@ -47,7 +47,7 @@ class FlowTests(unittest.TestCase):
 
         from unittest.mock import patch
 
-        with patch("qwen_transcribe.flow.record_quota_consumption") as mocked_record:
+        with patch("media_tools.transcribe.flow.record_quota_consumption") as mocked_record:
             consumed = record_flow_quota_usage(
                 account_id="account-a",
                 before_snapshot=before,

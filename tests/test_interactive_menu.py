@@ -7,13 +7,13 @@ import asyncio
 from contextlib import redirect_stdout, redirect_stderr
 from unittest.mock import patch, MagicMock
 
-from qwen_transcribe.cli.interactive_menu import (
+from media_tools.transcribe.cli.interactive_menu import (
     build_main_menu,
     build_group_menu,
     execute_direct_command,
     execute_sub_command,
 )
-from qwen_transcribe.cli.main import DIRECT_COMMANDS, GROUP_COMMANDS
+from media_tools.transcribe.cli.main import DIRECT_COMMANDS, GROUP_COMMANDS
 
 
 def test_main_menu_structure():
@@ -160,7 +160,7 @@ def test_interactive_menu_async():
             
             buffer = io.StringIO()
             with redirect_stdout(buffer):
-                from qwen_transcribe.cli.interactive_menu import run
+                from media_tools.transcribe.cli.interactive_menu import run
                 exit_code = await run([])
             
             assert exit_code == 0, f"选择 exit 应返回 0, 实际返回 {exit_code}"

@@ -6,11 +6,11 @@ import tempfile
 from unittest.mock import AsyncMock, patch
 import unittest
 
-from qwen_transcribe.accounts import ExecutionAccount, ExecutionAccounts
-from qwen_transcribe.cli.common import FlowCliConfig
-from qwen_transcribe.cli.flow_execution import FlowExecutionOutcome, execute_flow_once, execute_flow_with_fallback
-from qwen_transcribe.flow import FlowResult
-from qwen_transcribe.runtime import ExportConfig
+from media_tools.transcribe.accounts import ExecutionAccount, ExecutionAccounts
+from media_tools.transcribe.cli.common import FlowCliConfig
+from media_tools.transcribe.cli.flow_execution import FlowExecutionOutcome, execute_flow_once, execute_flow_with_fallback
+from media_tools.transcribe.flow import FlowResult
+from media_tools.transcribe.runtime import ExportConfig
 
 
 def build_cli_config(accounts: list[ExecutionAccount]) -> FlowCliConfig:
@@ -47,12 +47,12 @@ class FlowExecutionTests(unittest.IsolatedAsyncioTestCase):
                 remote_deleted=True,
             )
 
-            with patch("qwen_transcribe.flow.run_real_flow", new=AsyncMock(return_value=flow_result)) as mocked_flow:
+            with patch("media_tools.transcribe.flow.run_real_flow", new=AsyncMock(return_value=flow_result)) as mocked_flow:
                 with patch(
                     "qwen_transcribe.cli.flow_execution.write_result_metadata",
                     return_value=Path(tmp_dir) / "result.md.meta.json",
                 ) as mocked_metadata:
-                    with patch("qwen_transcribe.cli.flow_execution.mark_account_success") as mocked_mark:
+                    with patch("media_tools.transcribe.cli.flow_execution.mark_account_success") as mocked_mark:
                         outcome = await execute_flow_once(
                             source_path=Path(tmp_dir) / "input.mp4",
                             account=account,
@@ -91,7 +91,7 @@ class FlowExecutionTests(unittest.IsolatedAsyncioTestCase):
         )
 
         with patch(
-            "qwen_transcribe.cli.flow_execution.execute_flow_once",
+            "media_tools.transcribe.cli.flow_execution.execute_flow_once",
             new=AsyncMock(side_effect=[RuntimeError("boom"), expected]),
         ) as mocked_execute:
             with patch("builtins.print") as mocked_print:

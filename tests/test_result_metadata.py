@@ -4,7 +4,7 @@ from pathlib import Path
 import tempfile
 import unittest
 
-from qwen_transcribe.result_metadata import metadata_sidecar_path, read_result_metadata, write_result_metadata
+from media_tools.transcribe.result_metadata import metadata_sidecar_path, read_result_metadata, write_result_metadata
 
 
 class ResultMetadataTests(unittest.TestCase):

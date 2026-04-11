@@ -681,7 +681,11 @@ async def _download_with_stats(url: str, max_counts: int = None):
     if folder_name:
         print(info(f"[位置] {downloads_path / folder_name}"))
 
-    return True
+    return {
+        'success': True,
+        'uid': uid,
+        'nickname': nickname
+    }
 
 
 def download_by_url_sync(url, max_counts=None):
@@ -738,6 +742,15 @@ def download_by_url(url, max_counts=None):
 
     result = download_by_url_sync(url, max_counts)
 
+    # 【修复异步报错】：下载完成后触发自动转写（此时事件循环已关闭）
+    if isinstance(result, dict) and result.get('success'):
+        try:
+            _trigger_auto_transcribe(result['uid'], result['nickname'])
+        except Exception as e:
+            print(f"⚠️ 自动转写失败: {e}")
+
+    return result
+
     if result:
         print(success("下载完成！"))
         return True
@@ -776,10 +789,10 @@ def download_by_uid(uid, max_counts=None):
 
     result = download_by_url(url, max_counts)
 
-    # 新增：检查是否开启全自动模式，下载完成后自动转写
-    if result:
+    # 检查是否开启全自动模式
+    if isinstance(result, dict) and result.get('success'):
         _trigger_auto_transcribe(uid, name)
-
+    
     return result
 
 
