@@ -109,12 +109,15 @@ def _get_db_video_count(uid):
 async def _get_remote_video_count(sec_user_id):
     """
     从远程API获取该博主的视频总数
-
+    
+    优化：只获取最新 3 页（60个视频）来判断是否有更新
+    而不是遍历所有历史，节省时间
+    
     Args:
         sec_user_id: 用户sec_user_id
-
+    
     Returns:
-        int: 远程视频总数
+        int: 远程视频总数（估算）
     """
     try:
         kwargs = _get_f2_kwargs()
@@ -125,22 +128,22 @@ async def _get_remote_video_count(sec_user_id):
 
         total_count = 0
         page_count = 0
+        max_pages = 3  # 只获取最新 3 页
 
-        # 获取所有视频（分页）
+        # 只获取最新几页
         async for aweme_data_list in handler.fetch_user_post_videos(
-            sec_user_id, max_counts=float("inf")
+            sec_user_id, max_counts=60  # 3页 * 20个/页
         ):
             raw = aweme_data_list._to_raw()
             aweme_list = raw.get("aweme_list", [])
             page_count += len(aweme_list)
-            total_count = raw.get("max_cursor", 0)  # 总视频数
+            total_count = raw.get("max_cursor", 0)
 
-            # has_more=0 说明获取完了
             has_more = raw.get("has_more", 0)
-            if not has_more:
+            if not has_more or page_count >= 60:
                 break
 
-        # 返回总数
+        # 返回总数（如果获取到的话）
         return total_count if total_count > 0 else page_count
 
     except Exception as e:
