@@ -15,7 +15,7 @@ jobs:
     - name: Set up Python
       uses: actions/setup-python@v4
       with:
-        python-version: '3.9'
+        python-version: '3.11'
         
     - name: Install dependencies
       run: |
@@ -25,15 +25,20 @@ jobs:
         
     - name: Check formatting with Black
       run: |
-        black --check scripts/
-        
+        black --check scripts/ src/
+
     - name: Check imports with isort
       run: |
-        isort --check-only scripts/
-        
+        isort --check-only scripts/ src/
+
     - name: Lint with flake8
       run: |
         # stop the build if there are Python syntax errors or undefined names
-        flake8 scripts/ --count --select=E9,F63,F7,F82 --show-source --statistics
+        flake8 scripts/ src/ --count --select=E9,F63,F7,F82 --show-source --statistics
         # exit-zero treats all errors as warnings.
-        flake8 scripts/ --count --exit-zero --max-complexity=10 --max-line-length=127 --ignore=E501,E402,W293,E226,W503,F401,F841 --statistics
+        flake8 scripts/ src/ --count --exit-zero --max-complexity=10 --max-line-length=127 --ignore=E501,E402,W293,E226,W503,F401,F841 --statistics
+
+    - name: Run tests with pytest
+      run: |
+        pip install pytest pytest-asyncio
+        pytest tests/ -v

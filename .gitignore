@@ -170,3 +170,4 @@ config/config.yaml
 config/following.json
 logs/
 .playwright-data/
+.auth/

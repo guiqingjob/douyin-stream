@@ -161,7 +161,7 @@ async def _get_remote_video_count(sec_user_id):
             os.dup2(old_stderr, 2)
             os.close(devnull)
             logging.disable(logging.NOTSET)
-        except:
+        except Exception:
             pass
         return 0
 

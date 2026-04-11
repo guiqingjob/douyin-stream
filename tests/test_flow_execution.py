@@ -49,7 +49,7 @@ class FlowExecutionTests(unittest.IsolatedAsyncioTestCase):
 
             with patch("media_tools.transcribe.flow.run_real_flow", new=AsyncMock(return_value=flow_result)) as mocked_flow:
                 with patch(
-                    "qwen_transcribe.cli.flow_execution.write_result_metadata",
+                    "media_tools.transcribe.cli.flow_execution.write_result_metadata",
                     return_value=Path(tmp_dir) / "result.md.meta.json",
                 ) as mocked_metadata:
                     with patch("media_tools.transcribe.cli.flow_execution.mark_account_success") as mocked_mark:

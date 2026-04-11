@@ -749,8 +749,6 @@ def download_by_url(url, max_counts=None):
         except Exception as e:
             print(f"⚠️ 自动转写失败: {e}")
 
-    return result
-
     if result:
         print(success("下载完成！"))
         return True

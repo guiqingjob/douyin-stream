@@ -20,7 +20,7 @@ class PipelineConfig:
     keep_original: bool = True
     
     # 并发设置
-    concurrency: int = 6
+    concurrency: int = 2
     
     @property
     def output_path(self) -> Path:
@@ -32,7 +32,7 @@ def load_pipeline_config() -> PipelineConfig:
     return PipelineConfig(
         export_format=os.environ.get("PIPELINE_EXPORT_FORMAT", "md").strip().lower(),
         output_dir=os.environ.get("PIPELINE_OUTPUT_DIR", "./transcripts/").strip(),
-        delete_after_export=os.environ.get("PIPELINE_DELETE_AFTER_EXPORT", "false").lower() == "true",
+        delete_after_export=os.environ.get("PIPELINE_DELETE_AFTER_EXPORT", "true").lower() == "true",
         account_id=os.environ.get("PIPELINE_ACCOUNT_ID", "").strip(),
         remove_video=os.environ.get("PIPELINE_REMOVE_VIDEO", "false").lower() == "true",
         keep_original=os.environ.get("PIPELINE_KEEP_ORIGINAL", "true").lower() == "true",
