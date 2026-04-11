@@ -110,16 +110,27 @@ async def _get_remote_video_count(sec_user_id):
     """
     从远程API获取该博主的视频总数
     
-    优化：只获取最新 3 页（60个视频）来判断是否有更新
-    而不是遍历所有历史，节省时间
+    后台静默模式：只获取最新 20 个视频来判断是否有更新
+    完全抑制所有输出
     
     Args:
         sec_user_id: 用户sec_user_id
     
     Returns:
-        int: 远程视频总数（估算）
+        int: 远程视频总数
     """
+    import logging
+    import os
+    
     try:
+        # 完全抑制输出
+        old_stdout = os.dup(1)
+        old_stderr = os.dup(2)
+        devnull = os.open(os.devnull, os.O_WRONLY)
+        os.dup2(devnull, 1)
+        os.dup2(devnull, 2)
+        logging.disable(logging.CRITICAL)
+        
         kwargs = _get_f2_kwargs()
         url = f"https://www.douyin.com/user/{sec_user_id}"
         kwargs["url"] = url
@@ -128,128 +139,111 @@ async def _get_remote_video_count(sec_user_id):
 
         video_count = 0
 
-        # 只获取最新几页
+        # 只获取最新 1 页
         async for aweme_data_list in handler.fetch_user_post_videos(
-            sec_user_id, max_counts=60  # 3页 * 20个/页
+            sec_user_id, max_counts=20
         ):
             raw = aweme_data_list._to_raw()
             aweme_list = raw.get("aweme_list", [])
             video_count += len(aweme_list)
+            break
 
-            has_more = raw.get("has_more", 0)
-            if not has_more:
-                break
-
-        # 返回实际获取到的视频数量
+        # 恢复输出
+        os.dup2(old_stdout, 1)
+        os.dup2(old_stderr, 2)
+        os.close(devnull)
+        logging.disable(logging.NOTSET)
         return video_count
 
     except Exception as e:
-        # 静默失败，返回0
+        try:
+            os.dup2(old_stdout, 1)
+            os.dup2(old_stderr, 2)
+            os.close(devnull)
+            logging.disable(logging.NOTSET)
+        except:
+            pass
         return 0
 
 
 async def _check_single_user(user):
     """
-    检查单个博主的更新情况
-
+    检查单个博主的更新情况（后台静默模式）
+    
     Returns:
-        dict: {
-            "uid": str,
-            "name": str,
-            "remote_count": int,      # 远程总视频数
-            "local_count": int,       # 本地已下载数
-            "db_count": int,          # 数据库记录数
-            "has_update": bool,       # 是否有新视频
-            "new_count": int,         # 新视频数量
-            "sec_user_id": str,
-        }
+        dict: 检查结果
     """
+    import logging
+    import os
+    
     uid = user.get("uid")
     name = user.get("nickname", user.get("name", "未知"))
     sec_user_id = user.get("sec_user_id", "")
 
-    local_count = _get_local_video_count(uid, user)
-    db_count = _get_db_video_count(uid)
+    # 完全抑制 F2 的输出
+    old_stdout = os.dup(1)
+    old_stderr = os.dup(2)
+    devnull = os.open(os.devnull, os.O_WRONLY)
+    os.dup2(devnull, 1)
+    os.dup2(devnull, 2)
+    logging.disable(logging.CRITICAL)
 
-    if not sec_user_id:
-        return {
-            "uid": uid,
-            "name": name,
-            "remote_count": db_count,
-            "local_count": local_count,
-            "db_count": db_count,
-            "has_update": False,
-            "new_count": 0,
-            "sec_user_id": "",
-            "error": "缺少 sec_user_id",
-        }
-
-    # 构建 URL
-    url = f"https://www.douyin.com/user/{sec_user_id}"
-
-    # 使用 F2 获取远程视频数量
     try:
+        local_count = _get_local_video_count(uid, user)
+        db_count = _get_db_video_count(uid)
+
+        if not sec_user_id:
+            return {
+                "uid": uid,
+                "name": name,
+                "remote_count": db_count,
+                "local_count": local_count,
+                "db_count": db_count,
+                "has_update": False,
+                "new_count": 0,
+                "sec_user_id": "",
+                "error": "缺少 sec_user_id",
+            }
+
+        # 获取远程视频数（只取最新 20 个）
         kwargs = _get_f2_kwargs()
+        url = f"https://www.douyin.com/user/{sec_user_id}"
         kwargs["url"] = url
         handler = DouyinHandler(kwargs)
 
-        # 只获取第一个页面来拿总数
         remote_count = 0
-        has_more = 0
-        total = 0
-        
         async for aweme_data_list in handler.fetch_user_post_videos(
-            sec_user_id, max_counts=1
+            sec_user_id, max_counts=20
         ):
             raw = aweme_data_list._to_raw()
-            
-            # 获取视频列表
             aweme_list = raw.get("aweme_list", [])
-            remote_count = len(aweme_list) if aweme_list else 0
-            
-            # 获取分页信息
-            total = raw.get("max_cursor", 0)
-            has_more = raw.get("has_more", 0)
-            
-            # 如果有 has_more，说明还有更多视频
-            # 但由于我们只获取第一页，这里只能用数据库记录来判断
-            break
-        
-        # 注意：由于我们只获取第一页，无法准确知道远程总数
-        # 所以我们使用数据库记录数作为参考（数据库在每次下载时会更新）
+            remote_count += len(aweme_list)
+            break  # 只取一页
 
-    except Exception as e:
+        # 计算新视频数
+        if remote_count > local_count:
+            has_update = True
+            new_count = remote_count - local_count
+        else:
+            has_update = False
+            new_count = 0
+
         return {
             "uid": uid,
             "name": name,
-            "remote_count": db_count,
+            "remote_count": remote_count,
             "local_count": local_count,
             "db_count": db_count,
-            "has_update": False,
-            "new_count": 0,
+            "has_update": has_update,
+            "new_count": new_count,
             "sec_user_id": sec_user_id,
-            "error": f"检查失败: {e}",
         }
-
-    # 估算新视频数量：数据库数量 - 本地数量
-    # 如果远程总数 > 本地数量，则有更新
-    new_count = max(0, db_count - local_count) if db_count > local_count else 0
-
-    # 更准确的判断：如果远程能获取到的视频数大于本地数，则有更新
-    # 但因为这里我们只快速获取了一页，所以用数据库记录作为参考
-    has_update = db_count > local_count
-
-    return {
-        "uid": uid,
-        "name": name,
-        "remote_count": db_count,  # 使用数据库记录作为参考
-        "local_count": local_count,
-        "db_count": db_count,
-        "has_update": has_update,
-        "new_count": max(0, db_count - local_count),
-        "sec_user_id": sec_user_id,
-        "error": None,
-    }
+    finally:
+        # 恢复输出
+        os.dup2(old_stdout, 1)
+        os.dup2(old_stderr, 2)
+        os.close(devnull)
+        logging.disable(logging.NOTSET)
 
 
 def check_all_updates():
