@@ -34,6 +34,9 @@ def main_menu():
         warning,
     )
 
+    # 启动时自动检查更新
+    _check_updates_on_startup()
+
     while True:
         print_header("🎬 Media Tools 媒体工具")
         print("  ━━ 抖音功能 ━━")
@@ -226,6 +229,7 @@ def cmd_env_check():
 def cmd_login():
     """登录认证"""
     from scripts.core.auth import login_sync
+    from scripts.core.ui import error, success
 
     print()
     try:
@@ -233,10 +237,15 @@ def cmd_login():
         persist = persist_input == "y"
     except (EOFError, KeyboardInterrupt):
         persist = False
-    success_flag, _ = login_sync(persist=persist)
+    
+    success_flag, msg = login_sync(persist=persist)
 
     if success_flag:
-        _wait_for_key()
+        print(success("登录认证成功！"))
+    else:
+        print(error(f"登录失败: {msg or '未知错误'}"))
+    
+    _wait_for_key()
 
 
 def cmd_following_menu():
@@ -588,9 +597,13 @@ def _cmd_pipeline_from_url():
 
     print()
     print("开始下载视频...")
-    
-    # 下载视频
-    download_by_url(url, max_counts=1)
+
+    # 下载视频并检查结果
+    result = download_by_url(url, max_counts=1)
+    if not result:
+        print(error("下载失败，无法继续转写"))
+        _wait_for_key()
+        return
 
     # 查找最新下载的视频（从配置获取下载路径）
     from scripts.core.config_mgr import get_config
@@ -699,8 +712,9 @@ def _cmd_pipeline_from_following():
                 print(f"⚠️  {name} 下载失败，跳过")
                 total_errors += 1
                 continue
-            
-            total_downloaded += max_counts  # 约略计数
+
+            # 实际下载计数（result是dict时有uid，否则是False）
+            total_downloaded += 1  # 每成功调用计1次
             
         except Exception as e:
             print(f"❌ {name} 下载出错: {e}")
@@ -808,11 +822,15 @@ def _cmd_pipeline_sync():
         new_count = user["new_count"]
         
         print(f"\n📥 {name}: {new_count} 个新视频")
-        
-        # 下载新视频（只下载新视频数量）
+
+        # 下载新视频（只下载新视频数量）并检查结果
         try:
-            download_by_uid(uid, max_counts=new_count)
-            
+            download_result = download_by_uid(uid, max_counts=new_count)
+            if not download_result:
+                print(f"  ⚠️  下载失败，跳过转写")
+                total_errors += 1
+                continue
+
             # 找到并转写新视频
             # 从配置获取下载路径
             from scripts.core.config_mgr import get_config
@@ -857,29 +875,30 @@ def _cmd_pipeline_from_file():
     """转写本地视频文件"""
     from pathlib import Path
     import questionary
+    from scripts.core.ui import error, success
 
     print()
     try:
         file_path = input("请输入视频文件路径: ").strip()
     except (EOFError, KeyboardInterrupt):
         return
-    
+
     if not file_path:
         return
-    
+
     video = Path(file_path)
     if not video.exists():
         print(error(f"文件不存在: {video}"))
         _wait_for_key()
         return
-    
-    if not video.suffix.lower() in ['.mp4', '.mov', '.avi', '.mkv']:
+
+    if video.suffix.lower() not in ['.mp4', '.mov', '.avi', '.mkv']:
         print(error("不支持的视频格式"))
         _wait_for_key()
         return
-    
+
     print(f"\n开始转写: {video}")
-    
+
     try:
         from src.media_tools.pipeline.orchestrator import run_pipeline_single
         result = run_pipeline_single(video)
