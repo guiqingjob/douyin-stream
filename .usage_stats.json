@@ -1,13 +1,13 @@
 {
-  "total_downloads": 15,
-  "total_transcribes": 3,
-  "total_words": 3000,
+  "total_downloads": 20,
+  "total_transcribes": 4,
+  "total_words": 4000,
   "creators": {
     "测试博主": {
-      "videos": 15,
-      "words": 3000
+      "videos": 20,
+      "words": 4000
     }
   },
   "first_use": "2026-04-12T01:01:47.873238",
-  "last_use": "2026-04-12T01:03:16.940489"
+  "last_use": "2026-04-12T07:29:09.807035"
 }
