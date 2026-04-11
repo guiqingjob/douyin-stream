@@ -60,15 +60,15 @@ def main():
     results.append(run_test(
         "主菜单展示",
         "0\n",
-        expected_outputs=["抖音下载管家", "1. 环境检测", "0. 退出程序"],
+        expected_outputs=["抖音下载管家", "1. 🔍 检查博主更新", "7. ⚙️  系统设置", "0. 退出程序"],
         unexpected_outputs=["Error", "Traceback", "No module"]
     ))
     
-    # 测试 2: 环境检测
+    # 测试 2: 环境检测（现在在系统设置子菜单中）
     results.append(run_test(
-        "环境检测",
-        "1\n",
-        expected_outputs=["环境检测", "Python 版本", "f2", "playwright"],
+        "系统设置-环境检测",
+        "7\n1\n",
+        expected_outputs=["系统设置", "Python 版本", "f2", "playwright"],
         unexpected_outputs=["Error", "Traceback"]
     ))
     
