@@ -133,6 +133,13 @@ class ConfigManager:
             return val.lower() in ('true', '1', 'yes')
         return bool(val)
 
+    def is_auto_delete_video(self):
+        """获取是否开启转写成功后自动删除视频"""
+        val = self.get("auto_delete_video", True) # 默认为 True，节省空间
+        if isinstance(val, str):
+            return val.lower() in ('true', '1', 'yes')
+        return bool(val)
+
     def get_following_path(self):
         """获取关注列表路径"""
         path = self.get("following.path")

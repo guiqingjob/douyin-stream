@@ -836,17 +836,37 @@ def _trigger_auto_transcribe(uid, nickname):
         # 调用 Pipeline 进行批量转写
         # 这里直接导入，使用批量接口支持并发（默认并发数为 6）
         from src.media_tools.pipeline.orchestrator import run_pipeline_batch
-        
+
         results = run_pipeline_batch(mp4_files)
-        
+
+        # 统计与清理
+        success_count = 0
+        fail_count = 0
+        deleted_count = 0
+
+        for r in results:
+            if r.success:
+                success_count += 1
+                # 【核心优化】如果开启配置且转写成功，删除原视频节省空间
+                if config.is_auto_delete_video():
+                    try:
+                        if r.video_path.exists():
+                            r.video_path.unlink()
+                            deleted_count += 1
+                    except Exception:
+                        pass
+            else:
+                fail_count += 1
+
         # 打印结果汇总
-        success_count = sum(1 for r in results if r.success)
-        fail_count = len(results) - success_count
-        
         print("\n" + "="*60)
         print("🎉 自动转写完成!")
-        print(f"   总数: {len(results)} | ✅ 成功: {success_count} | ❌ 失败: {fail_count}")
+        
+        delete_msg = f" | 🗑️ 已删除 {deleted_count} 个视频" if deleted_count > 0 else ""
+        print(f"   总数: {len(results)} | ✅ 成功: {success_count} | ❌ 失败: {fail_count}{delete_msg}")
         print(f"   📂 文稿位置: ./transcripts/")
+        if deleted_count > 0:
+            print(f"   ✨ 已自动释放 {deleted_count * 50} MB+ 磁盘空间 (估算)")
         print("="*60 + "\n")
 
     except Exception as e:
