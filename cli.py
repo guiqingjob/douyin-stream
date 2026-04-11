@@ -34,16 +34,19 @@ def main_menu():
         warning,
     )
 
+    # 启动时自动检查更新
+    _check_updates_on_startup()
+
     while True:
         print_header("🎬 抖音下载管家")
         print("  请选择功能：")
         print()
-        print(f"  {bold('1')}. 环境检测与初始化")
-        print(f"  {bold('2')}. 扫码登录获取 Cookie")
-        print(f"  {bold('3')}. 关注列表管理")
-        print(f"  {bold('4')}. 视频下载")
-        print(f"  {bold('5')}. 视频压缩")
-        print(f"  {bold('6')}. 生成数据看板")
+        print(f"  {bold('1')}. 🔍 检查博主更新")
+        print(f"  {bold('2')}. 📥 下载所有更新")
+        print(f"  {bold('3')}. 👤 关注列表管理")
+        print(f"  {bold('4')}. 📺 视频下载")
+        print(f"  {bold('5')}. 🗜️  视频压缩")
+        print(f"  {bold('6')}. 📊 生成数据看板")
         print()
         print(f"  {bold('0')}. 退出程序")
         print()
@@ -61,9 +64,9 @@ def main_menu():
             print()
             return
         elif choice == "1":
-            cmd_env_check()
+            cmd_check_updates()
         elif choice == "2":
-            cmd_login()
+            cmd_download_updates()
         elif choice == "3":
             cmd_following_menu()
         elif choice == "4":
@@ -76,6 +79,90 @@ def main_menu():
             print()
             print(warning("无效的选项，请重新选择"))
             print()
+
+
+def _check_updates_on_startup():
+    """启动时自动检查更新"""
+    from scripts.core.update_checker import check_all_updates
+    from scripts.core.ui import separator, dim
+
+    try:
+        result = check_all_updates()
+
+        if result["has_updates_count"] > 0:
+            print()
+            print(dim(separator("─", 60)))
+            print(f"  💡 提示: 有 {result['has_updates_count']} 位博主更新了内容")
+            print(f"     选择 '2' 可快速下载所有更新")
+            print(dim(separator("─", 60)))
+            print()
+        else:
+            print()
+            print("  ✓ 所有博主均为最新状态")
+            print()
+
+    except Exception as e:
+        print()
+        print(f"  ⚠️  检查更新时出错: {e}")
+        print()
+
+
+def cmd_check_updates():
+    """检查更新"""
+    from scripts.core.update_checker import check_all_updates
+
+    print()
+    check_all_updates()
+    print()
+    _wait_for_key()
+
+
+def cmd_download_updates():
+    """下载所有更新"""
+    from scripts.core.update_checker import check_all_updates
+    from scripts.core.downloader import download_by_uid
+    from scripts.core.ui import info, success, error
+
+    print()
+    result = check_all_updates()
+
+    if result["total_new"] == 0:
+        print(info("✓ 所有博主均为最新，无需下载更新"))
+        print()
+        _wait_for_key()
+        return
+
+    print()
+    confirm = input(f"确认下载 {result['total_new']} 个新视频？(y/N): ").strip().lower()
+    if confirm != "y":
+        print(info("已取消"))
+        print()
+        _wait_for_key()
+        return
+
+    success_count = 0
+    failed_count = 0
+
+    for user in result["users"]:
+        if user["has_update"]:
+            uid = user["uid"]
+            name = user["name"]
+            new_count = user["new_count"]
+
+            print()
+            print(info(f"下载: {name} ({new_count} 个新视频)"))
+            ok = download_by_uid(uid)
+            if ok:
+                success_count += 1
+            else:
+                failed_count += 1
+
+    print()
+    print_header("更新下载完成")
+    print(success(f"成功: {success_count} 位博主"))
+    print(error(f"失败: {failed_count} 位博主"))
+    print()
+    _wait_for_key()
 
 
 def cmd_env_check():
