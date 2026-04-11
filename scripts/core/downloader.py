@@ -318,12 +318,20 @@ def _rename_videos_in_downloads(nickname: str, uid: str, downloads_path: Path) -
                 if not dest.exists():
                     shutil.move(str(f), str(dest))
                     processed_count += 1
-    
-    conn.close()
-    
+
     if processed_count > 0:
         print(info(f"  [整理] 已处理 {processed_count} 个文件到 {folder_name}/（{renamed_count} 个已重命名）"))
-    
+        
+        # 更新数据库中的 local_filename 字段
+        cursor.execute(
+            "UPDATE video_metadata SET local_filename = ? WHERE uid = ?",
+            (folder_name, uid)
+        )
+        conn.commit()
+        print(info(f"  [更新] 已更新 {folder_name} 的 local_filename"))
+
+    conn.close()
+
     return folder_name
 
 
@@ -594,7 +602,29 @@ async def _download_with_stats(url: str, max_counts: int = None):
     if user_path.exists():
         existing_videos = {f.stem for f in user_path.glob("*.mp4")}
         if existing_videos:
-            print(info(f"[本地] 已有 {len(existing_videos)} 个视频，将跳过已下载的"))
+            print(info(f"[本地] 已有 {len(existing_videos)} 个视频文件，将跳过已下载的"))
+
+    # 同时从数据库获取已下载的视频 ID（防止文件被删除后重复下载）
+    config = get_config()
+    db_path = config.get_db_path()
+    try:
+        conn = sqlite3.connect(str(db_path))
+        cursor = conn.cursor()
+        cursor.execute(
+            "SELECT aweme_id FROM video_metadata WHERE uid = ? AND aweme_id != ''",
+            (uid,)
+        )
+        db_videos = {row[0] for row in cursor.fetchall() if row[0]}
+        conn.close()
+        
+        if db_videos:
+            # 合并本地文件和数据库记录
+            new_from_db = db_videos - existing_videos
+            if new_from_db:
+                print(info(f"[数据库] 发现 {len(new_from_db)} 条历史记录（文件可能已删除）"))
+            existing_videos.update(db_videos)
+    except Exception as e:
+        logger.warning(f"查询数据库失败: {e}")
 
     # 收集所有视频数据
     total_downloaded = 0
