@@ -47,12 +47,13 @@ def main_menu():
         print(f"  {bold('4')}. 📺 视频下载")
         print(f"  {bold('5')}. 🗜️  视频压缩")
         print(f"  {bold('6')}. 📊 生成数据看板")
+        print(f"  {bold('7')}. ⚙️  系统设置")
         print()
         print(f"  {bold('0')}. 退出程序")
         print()
 
         try:
-            choice = input("请输入选项 (0-6): ").strip()
+            choice = input("请输入选项 (0-7): ").strip()
         except (EOFError, KeyboardInterrupt):
             print()
             print(success("感谢使用，再见！"))
@@ -75,6 +76,8 @@ def main_menu():
             cmd_compress()
         elif choice == "6":
             cmd_generate_data()
+        elif choice == "7":
+            cmd_system_settings()
         else:
             print()
             print(warning("无效的选项，请重新选择"))
@@ -163,6 +166,34 @@ def cmd_download_updates():
     print(error(f"失败: {failed_count} 位博主"))
     print()
     _wait_for_key()
+
+
+def cmd_system_settings():
+    """系统设置子菜单"""
+    from scripts.core.ui import bold, info, print_header, warning
+
+    while True:
+        print_header("⚙️  系统设置")
+        print(f"  {bold('1')}. 🔍 环境检测与初始化")
+        print(f"  {bold('2')}. 🔑 扫码登录获取 Cookie")
+        print(f"  {bold('0')}. 返回主菜单")
+        print()
+
+        try:
+            choice = input("请输入选项 (0-2): ").strip()
+        except (EOFError, KeyboardInterrupt):
+            print()
+            return
+
+        if choice == "0":
+            return
+        elif choice == "1":
+            cmd_env_check()
+        elif choice == "2":
+            cmd_login()
+        else:
+            print()
+            print(warning("无效的选项，请重新选择"))
 
 
 def cmd_env_check():

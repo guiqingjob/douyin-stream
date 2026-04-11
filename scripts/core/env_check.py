@@ -62,23 +62,19 @@ def check_playwright_browsers():
     Returns:
         (is_ok, message) 元组
     """
-    try:
-        result = subprocess.run(
-            ["python", "-m", "playwright", "install", "--dry-run"],
-            capture_output=True,
-            text=True,
-        )
-        # 如果命令失败，说明浏览器未安装
-        if result.returncode != 0:
-            return False, "未安装（运行 python -m playwright install chromium）"
-        return True, "已安装"
-    except Exception:
-        # 备用检查方式
-        home = Path.home()
-        cache_dir = home / ".cache" / "ms-playwright"
-        if cache_dir.exists():
+    # 检查 Playwright 浏览器缓存目录
+    home = Path.home()
+    cache_dir = home / ".cache" / "ms-playwright"
+
+    if cache_dir.exists():
+        # 检查是否有 chromium
+        chromium_dir = cache_dir / "chromium-*"
+        chromium_dirs = list(cache_dir.glob("chromium-*"))
+        if chromium_dirs:
             return True, "已安装"
-        return False, "未安装（运行 python -m playwright install chromium）"
+        return False, "未安装 chromium（运行 python -m playwright install chromium）"
+
+    return False, "未安装（运行 python -m playwright install chromium）"
 
 
 def check_ffmpeg():

@@ -189,8 +189,14 @@ def compress_user_dir(user_folder, crf=32, preset="fast", replace=True):
                 )
 
                 if replace:
-                    video.unlink()
-                    output.rename(video)
+                    # 原子性替换：先重命名新文件覆盖原文件，成功则无需删除旧文件
+                    # Path.replace() 在 POSIX 上是原子操作
+                    try:
+                        output.replace(video)
+                    except OSError:
+                        # 如果 replace 失败，回退到传统方法
+                        video.unlink()
+                        output.rename(video)
             else:
                 failed_count += 1
 
