@@ -8,6 +8,8 @@
 本文件仅为向后兼容保留，将在未来版本中移除。
 """
 
+import os
+import subprocess
 import sys
 from pathlib import Path
 
@@ -27,6 +29,7 @@ print("正在启动新 CLI...")
 print()
 
 # 启动新 CLI
-cli_path = Path(__file__).parent.parent / "cli.py"
-sys.argv[0] = str(cli_path)
-exec(open(cli_path, "r", encoding="utf-8").read())
+project_root = Path(__file__).parent.parent.parent
+cli_script = project_root / "cli.py"
+os.chdir(project_root)
+sys.exit(subprocess.run([sys.executable, str(cli_script)]).returncode)

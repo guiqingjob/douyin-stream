@@ -8,6 +8,8 @@
 本文件仅为向后兼容保留，将在未来版本中移除。
 """
 
+import os
+import subprocess
 import sys
 from pathlib import Path
 
@@ -18,9 +20,16 @@ print()
 print("请使用新的 CLI 统一入口：")
 print("  python cli.py")
 print()
+print("新功能：")
+print("  ✓ 交互式菜单，只需运行一个命令")
+print("  ✓ 统一配置和日志管理")
+print("  ✓ 更友好的错误提示")
+print()
 print("正在启动新 CLI...")
 print()
 
-cli_path = Path(__file__).parent.parent / "cli.py"
-sys.argv[0] = str(cli_path)
-exec(open(cli_path, "r", encoding="utf-8").read())
+# 启动新 CLI
+project_root = Path(__file__).parent.parent.parent
+cli_script = project_root / "cli.py"
+os.chdir(project_root)
+sys.exit(subprocess.run([sys.executable, str(cli_script)]).returncode)
