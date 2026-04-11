@@ -623,17 +623,103 @@ def _cmd_pipeline_from_following():
             "返回",
         ]
     ).ask()
-    
+
     if choice == "返回":
         return
     
     print()
-    print("开始批量下载并转写...")
     
-    # TODO: 实现批量下载和转写逻辑
-    # 这里先给出提示
-    print("⚠️  批量 Pipeline 功能开发中...")
-    print("建议：先用选项 4 转写已下载的视频文件")
+    # 询问每个博主下载数量
+    try:
+        count_input = input("每个博主最多下载几个视频？(直接回车=3个): ").strip()
+        max_counts = int(count_input) if count_input.isdigit() else 3
+    except (EOFError, KeyboardInterrupt):
+        max_counts = 3
+    
+    print(f"\n开始批量下载并转写（每个博主最多 {max_counts} 个）...")
+    print("=" * 60)
+    
+    # 确定要处理的博主
+    if choice == f"全部关注 ({len(users)} 位博主)":
+        target_users = users
+    else:
+        # 提取 UID
+        uid = choice.split("(")[-1].rstrip(")")
+        target_users = [u for u in users if u["uid"] == uid]
+    
+    total_downloaded = 0
+    total_transcribed = 0
+    total_errors = 0
+    
+    for i, user in enumerate(target_users, 1):
+        uid = user["uid"]
+        name = user.get("name", uid)
+        
+        print(f"\n{'='*60}")
+        print(f"[{i}/{len(target_users)}] 处理: {name}")
+        print(f"{'='*60}")
+        
+        # 步骤1：下载
+        try:
+            print(f"\n📥 下载视频（最多 {max_counts} 个）...")
+            result = download_by_uid(uid, max_counts=max_counts)
+            
+            if not result:
+                print(f"⚠️  {name} 下载失败，跳过")
+                total_errors += 1
+                continue
+            
+            total_downloaded += max_counts  # 约略计数
+            
+        except Exception as e:
+            print(f"❌ {name} 下载出错: {e}")
+            total_errors += 1
+            continue
+        
+        # 步骤2：找到下载的视频并转写
+        try:
+            user_dir = Path("downloads") / name
+            if not user_dir.exists():
+                # 尝试用 UID 查找
+                user_dir = Path("downloads") / uid
+            
+            if not user_dir.exists():
+                print(f"⚠️  未找到 {name} 的下载目录")
+                continue
+            
+            video_files = list(user_dir.glob("*.mp4"))
+            if not video_files:
+                print(f"⚠️  {name} 没有下载到视频")
+                continue
+            
+            print(f"\n🎙️  转写 {len(video_files)} 个视频...")
+            
+            from src.media_tools.pipeline.orchestrator import run_pipeline_single
+            
+            for j, video in enumerate(video_files, 1):
+                print(f"  [{j}/{len(video_files)}] {video.name[:50]}...")
+                result = run_pipeline_single(video)
+                
+                if result.success:
+                    total_transcribed += 1
+                    print(f"  ✅ 成功: {result.transcript_path.name}")
+                else:
+                    total_errors += 1
+                    print(f"  ❌ 失败: {result.error}")
+        
+        except Exception as e:
+            print(f"❌ {name} 转写出错: {e}")
+            total_errors += 1
+    
+    # 打印汇总
+    print(f"\n{'='*60}")
+    print(f"📊 批量 Pipeline 完成")
+    print(f"{'='*60}")
+    print(f"  处理博主: {len(target_users)} 位")
+    print(f"  下载视频: ~{total_downloaded} 个")
+    print(f"  转写成功: {total_transcribed} 个")
+    print(f"  失败/跳过: {total_errors} 个")
+    print(f"{'='*60}")
     
     print()
     _wait_for_key()
@@ -642,18 +728,85 @@ def _cmd_pipeline_from_following():
 def _cmd_pipeline_sync():
     """同步模式：只处理新视频"""
     from scripts.core.update_checker import check_all_updates
-    
+    from scripts.core.downloader import download_by_uid
+    from pathlib import Path
+    from src.media_tools.pipeline.orchestrator import run_pipeline_single
+
     print()
-    print("检查更新...")
+    print("🔍 检查更新...")
     result = check_all_updates()
-    
+
     if result["total_new"] == 0:
-        print("✓ 所有博主均为最新，无需处理")
+        print("✅ 所有博主均为最新，无需处理")
+        _wait_for_key()
+        return
+
+    print(f"\n📊 发现 {result['total_new']} 个新视频")
+    print(f"   涉及 {result['has_updates_count']} 位博主")
+    print()
+    
+    # 确认是否处理
+    try:
+        confirm = input("是否下载并转写这些新视频？(y/N): ").strip().lower()
+    except (EOFError, KeyboardInterrupt):
+        return
+    
+    if confirm != 'y':
+        print("已取消")
         _wait_for_key()
         return
     
-    print(f"发现 {result['total_new']} 个新视频")
-    print("⚠️  同步 Pipeline 功能开发中...")
+    print("\n开始同步 Pipeline...")
+    print("=" * 60)
+    
+    total_transcribed = 0
+    total_errors = 0
+    
+    # 遍历有新视频的博主
+    for user in result["users"]:
+        if not user["has_update"]:
+            continue
+        
+        uid = user["uid"]
+        name = user["name"]
+        new_count = user["new_count"]
+        
+        print(f"\n📥 {name}: {new_count} 个新视频")
+        
+        # 下载新视频（只下载新视频数量）
+        try:
+            download_by_uid(uid, max_counts=new_count)
+            
+            # 找到并转写新视频
+            user_dir = Path("downloads") / name
+            if user_dir.exists():
+                # 按修改时间排序，取最新的 new_count 个
+                video_files = sorted(user_dir.glob("*.mp4"), 
+                                    key=lambda p: p.stat().st_mtime, 
+                                    reverse=True)[:new_count]
+                
+                for video in video_files:
+                    print(f"  🎙️  转写: {video.name[:50]}...")
+                    result = run_pipeline_single(video)
+                    
+                    if result.success:
+                        total_transcribed += 1
+                        print(f"  ✅ {result.transcript_path.name}")
+                    else:
+                        total_errors += 1
+                        print(f"  ❌ {result.error}")
+        
+        except Exception as e:
+            print(f"  ❌ {name} 处理失败: {e}")
+            total_errors += 1
+    
+    # 打印汇总
+    print(f"\n{'='*60}")
+    print(f"📊 同步完成")
+    print(f"{'='*60}")
+    print(f"  转写成功: {total_transcribed} 个")
+    print(f"  失败: {total_errors} 个")
+    print(f"{'='*60}")
     
     print()
     _wait_for_key()
