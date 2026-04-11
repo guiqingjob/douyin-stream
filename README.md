@@ -1,148 +1,289 @@
-# 🚀 抖音短视频自动下载管家 (Douyin Stream)
+# 🎬 Media Tools - 抖音下载 + 智能转写一体化管家
 
 [![License](https://img.shields.io/badge/license-MIT-blue.svg)](LICENSE.txt)
-[![Python Version](https://img.shields.io/badge/python-3.9%2B-brightgreen.svg)](https://www.python.org/)
-[![CI Status](https://github.com/guiqingjob/douyin-stream/actions/workflows/ci.yml/badge.svg)](https://github.com/guiqingjob/douyin-stream/actions)
+[![Python Version](https://img.shields.io/badge/python-3.11%2B-brightgreen.svg)](https://www.python.org/)
 
-一款专为自媒体创作者、运营人员和数据分析师打造的**全自动抖音无水印视频下载与数据分析管家**。
+一款专为自媒体创作者打造的**全自动抖音无水印视频下载 + AI 智能转写**一体化管家。
 
-本项目基于 **F2 框架**实现，提供高效、稳定、可增量的抖音视频批量下载能力，并附带完善的数据统计与可视化 Web 管理界面。
+本项目集成了两大核心功能：
+1. **抖音下载**：基于 F2 框架，原画质批量下载无水印视频
+2. **智能转写**：基于 Qwen AI，自动上传视频并输出文稿（md/docx）
 
 ---
 
 ## ✨ 核心特性
 
+### 🎬 抖音下载功能
+
 - **🎬 自动下载无水印视频**：原画质提取，支持单个博主下载、全量批量下载、交互式选择下载及快速采样下载。
-- **🧠 智能增量更新**：自动跳过已下载的视频，支持差量更新，只拉取博主最新发布的内容，极大节省时间和带宽。
-- **🤖 自动化 Cookie 管理**：内置基于 Playwright 的扫码登录脚本，自动获取并持久化保存 Cookie，内置防风控设计。
-- **📊 完善的关注列表管理**：支持从主页链接一键添加用户、批量导入、实时搜索与移除。
-- **💾 元数据与统计入库**：下载视频时自动抓取点赞、评论、收藏、分享等数据，存入本地 SQLite 数据库。
-- **🌐 可视化 Web 界面**：纯前端（Glassmorphism 毛玻璃风格）实现的 Web 数据面板，可直观浏览博主、播放视频并按多维度排序筛选。
-- **🧹 一键清理与取关**：提供优雅的数据清理命令，不再关注的博主可一键清空数据库记录及本地视频文件。
-- **📦 智能视频压缩**：集成 FFmpeg，支持单文件/多用户/全量视频压缩，智能跳过小文件与低分辨率视频。
+- **🧠 智能增量更新**：自动对比本地已有视频，跳过已下载的，只拉取博主最新发布的内容，节省时间和带宽。
+- **🤖 自动化 Cookie 管理**：内置基于 Playwright 的扫码登录脚本，自动获取并持久化保存 Cookie。
+- **📊 关注列表管理**：支持从主页链接一键添加用户、批量导入、实时搜索与移除。
+- **💾 元数据与统计入库**：自动抓取点赞、评论、收藏、分享等数据，存入本地 SQLite 数据库。
+- **🌐 可视化 Web 界面**：纯前端毛玻璃风格数据面板，可直观浏览博主、播放视频并按多维度排序筛选。
+- **📦 智能视频压缩**：集成 FFmpeg，支持单文件/多用户/全量视频压缩。
+
+### 🎙️ AI 转写功能
+
+- **🔄 一键 Pipeline**：下载视频 → 自动上传 → AI 转写 → 输出文稿，全自动化流程。
+- **📂 批量转写**：支持从关注列表批量下载并转写，自动统计汇总。
+- **🔍 同步模式**：只检查并处理新视频，避免重复转写。
+- **📝 多格式输出**：支持 Markdown 和 DOCX 格式，含说话人识别和时间戳。
+- **🔑 多账号管理**：支持多账号轮换，自动配额管理。
+
+---
 
 ## 🎯 典型使用场景
 
 - **服务器自动化下载**：部署在服务器上，定时批量抓取目标博主的最新视频内容。
 - **本地视频库构建**：分类存储视频，使用博主昵称命名文件夹，便于后续剪辑与素材管理。
+- **AI 智能转写**：自动将抖音视频转为文字稿，用于内容整理、文案参考、字幕制作等。
 - **自媒体竞品分析**：依托抓取到的点赞、评论、收藏等结构化数据，进行竞品数据可视化分析。
 
-## 📚 文档导航
+---
 
-我们为不同技术背景的用户提供了详尽的说明文档，请根据您的需求查阅：
-
-- 👶 **[零基础小白说明书 (USER_MANUAL)](references/USER_MANUAL_ZERO_BASIS.md)**：专门为非技术人员编写的“保姆级”图文操作指南。
-- ⚙️ **[安装指南 (INSTALLATION)](references/INSTALLATION.md)**：系统要求、依赖安装及环境配置步骤。
-- 📖 **[使用说明 (USAGE)](references/USAGE.md)**：所有脚本的详细命令参数、配置项说明及完整工作流。
-- 🔌 **[API 与架构文档 (API_DOCS)](references/API.md)**：供开发者参考的二次开发、API 调用与数据库结构说明。
-- 🤝 **[贡献指南 (CONTRIBUTING)](CONTRIBUTING.md)**：参与本项目开发的代码规范、PR 提交流程指南。
-- ❓ **[常见问题解答 (FAQ)](references/FAQ.md)**：常见报错排查及解决方案。
-- 📜 **[变更日志 (CHANGELOG)](CHANGELOG.md)**：历史版本更新记录。
-
-## 🛠️ 快速开始
-
-> **💡 新版 CLI 已上线！** 现在只需运行 **一个命令**，通过交互式菜单即可完成所有操作，无需再记忆复杂命令。
+## 📚 快速开始
 
 ### 1. 环境准备
-请确保您的电脑已安装 Python 3.9 - 3.13，然后执行：
+
 ```bash
-# 安装 Python 依赖
+# 克隆项目
+cd /Users/gq/Projects/media-tools
+
+# 安装依赖
 pip install -r requirements.txt
 
-# 安装 Playwright 浏览器内核 (用于扫码登录)
+# 安装 Playwright 浏览器内核（用于扫码登录）
 playwright install chromium
 ```
 
-### 2. 启动统一 CLI
+### 2. 初始化配置
+
+```bash
+# 复制配置模板
+cp config/config.yaml.example config/config.yaml
+cp config/following.json.example config/following.json
+cp config/transcribe/.env.example config/transcribe/.env
+```
+
+### 3. 启动 CLI
+
 ```bash
 python cli.py
 ```
-启动后按菜单提示选择功能即可：
-- **1** - 🔍 检查博主更新（启动时自动执行）
-- **2** - 📥 下载所有更新
-- **3** - 👤 关注列表管理
-- **4** - 📺 视频下载
-- **5** - 🗜️  视频压缩
-- **6** - 📊 生成数据看板
-- **7** - ⚙️  系统设置（环境检测/扫码登录）
 
 ---
 
-<details>
-<summary>📜 旧版命令（已废弃，点击展开）</summary>
+## 📋 CLI 菜单说明
 
-> ⚠️ 以下旧版命令已迁移至 `scripts/deprecated/`，运行时会提示使用新 CLI。
+启动后显示统一交互式菜单：
+
+```
+╔══════════════════════════════════════════════╗
+║        🎬 Media Tools 媒体工具                ║
+╠══════════════════════════════════════════════╣
+║  ━━ 抖音功能 ━━                              ║
+║  1. 🔍 检查博主更新                           ║
+║  2. 📥 下载所有更新                           ║
+║  3. 👤 关注列表管理                           ║
+║  4. 📺 视频下载                               ║
+║  5. 🔄 下载并自动转写（Pipeline）              ║
+║  6. 🗜️  视频压缩                              ║
+║  7. 📊 生成数据看板                           ║
+║                                              ║
+║  ━━ 转写功能 ━━                              ║
+║  8. 🎙️  视频/音频转写                         ║
+║  9. 📂 批量转写                               ║
+║  10. 🔑 转写认证管理                          ║
+║  11. 📊 账号状态/配额                         ║
+║                                              ║
+║  ━━ 系统设置 ━━                              ║
+║  12. ⚙️  系统设置                             ║
+║  13. 🗑️  数据清理                             ║
+║  0. 退出程序                                  ║
+╚══════════════════════════════════════════════╝
+```
+
+### 功能说明
+
+| 选项 | 功能 | 说明 |
+|------|------|------|
+| 1 | 检查博主更新 | 检查已关注博主是否有新视频 |
+| 2 | 下载所有更新 | 批量下载所有博主的新视频 |
+| 3 | 关注列表管理 | 添加/移除/批量导入博主 |
+| 4 | 视频下载 | 单博主/全量/选择/采样下载 |
+| **5** | **Pipeline** | **下载 → 上传 → 转写 → 文稿** |
+| 6 | 视频压缩 | FFmpeg 压缩视频 |
+| 7 | 数据看板 | 生成 Web 可视化面板 |
+| 8 | 单文件转写 | 选择本地视频/音频文件转写 |
+| 9 | 批量转写 | 选择目录批量转写所有视频 |
+| 10 | 认证管理 | 扫码登录 Qwen AI |
+| 11 | 账号状态 | 查看配额/领取配额 |
+| 12 | 系统设置 | 环境检测/抖音扫码登录 |
+| 13 | 数据清理 | 清理数据库和本地文件 |
+
+---
+
+## 🔄 Pipeline 功能详解
+
+### 选项 5：下载并自动转写
+
+进入后有三个子选项：
+
+| 子选项 | 功能 | 说明 |
+|--------|------|------|
+| 1 | 输入抖音链接，下载并转写 | 单个视频一键转写 |
+| 2 | 从关注列表批量下载并转写 | 批量处理，可设置每个博主下载数量 |
+| 3 | 同步模式（只处理新视频） | 自动检查更新，只转写新增内容 |
+| 4 | 指定本地视频文件转写 | 转写已下载的视频文件 |
+
+### 完整流程
+
+```
+┌─────────────┐     ┌──────────────┐     ┌────────────┐
+│  抖音视频下载  │ ──> │  Qwen AI 转写 │ ──> │  文稿输出   │
+│  (MP4)      │     │  (上传→转写)  │     │  (md/docx) │
+└─────────────┘     └──────────────┘     └────────────┘
+```
+
+### 输出示例
+
+转写完成后，文稿保存在 `transcripts/` 目录：
+
+```
+transcripts/
+└── 视频名-2026-04-11T09-17-45.md
+```
+
+文稿内容包含：
+- 标题（视频名）
+- 转写时间
+- 说话人识别
+- 时间戳
+- 完整文字内容
+
+---
+
+## 📂 目录结构
+
+```
+media-tools/
+├── cli.py                      # 🎬 统一 CLI 入口
+├── pyproject.toml              # 📦 项目配置
+├── requirements.txt            # 📋 依赖清单
+│
+├── scripts/                    # 抖音下载模块
+│   ├── core/                   # 核心业务逻辑
+│   │   ├── downloader.py       # 视频下载（含增量逻辑）
+│   │   ├── following_mgr.py    # 关注管理
+│   │   ├── compressor.py       # 视频压缩
+│   │   └── ...
+│   └── utils/                  # 工具模块
+│
+├── src/media_tools/            # 转写 + Pipeline 模块
+│   ├── transcribe/             # Qwen 转写核心
+│   │   ├── flow.py             # 转写流程（上传→转写→导出）
+│   │   ├── cli/                # 转写 CLI 命令
+│   │   └── ...
+│   └── pipeline/               # Pipeline 编排
+│       ├── orchestrator.py     # 流程编排器
+│       └── config.py           # Pipeline 配置
+│
+├── config/                     # 配置目录
+│   ├── config.yaml             # 抖音配置
+│   ├── following.json          # 关注列表
+│   └── transcribe/             # 转写配置
+│       ├── .env.example
+│       └── accounts.example.json
+│
+├── downloads/                  # 📥 视频下载输出
+├── transcripts/                # 📝 转写文稿输出
+├── .auth/                      # 🔑 认证状态
+└── logs/                       # 📋 日志目录
+```
+
+---
+
+## 🔑 首次使用指南
+
+### 1. 抖音认证（下载视频）
 
 ```bash
-# 环境检测
-python scripts/check_env.py
-
-# 扫码登录
-python scripts/login.py --persist
-
-# 添加关注博主
-python scripts/manage-following.py --add "https://www.douyin.com/user/MS4wLjABAAAA..."
-
-# 下载视频
-python scripts/batch-download.py
-python scripts/download.py "https://www.douyin.com/user/MS4wLjABAAAA..."
-
-# 生成数据看板
-python scripts/generate-data.py
+python cli.py
+# 选择: 12. 系统设置 → 1. 环境检测 → 2. 扫码登录
 ```
 
-</details>
+### 2. Qwen 认证（AI 转写）
+
+```bash
+python cli.py
+# 选择: 10. 转写认证管理 → 1. 浏览器扫码登录
+```
+
+### 3. 添加关注博主
+
+```bash
+python cli.py
+# 选择: 3. 关注列表管理 → 2. 添加博主链接
+```
+
+### 4. 开始使用 Pipeline
+
+```bash
+python cli.py
+# 选择: 5. 下载并自动转写（Pipeline）
+# 选择: 4. 指定本地视频文件转写（测试用）
+```
 
 ---
 
-## 📂 核心目录结构
+## 📖 文档导航
 
-```text
-douyin-stream/
-├── cli.py                      # 🆕 统一 CLI 入口（用户唯一需要运行的脚本）
-├── scripts/
-│   ├── core/                   # 🆕 业务逻辑层（CLI 调用的核心模块）
-│   │   ├── ui.py               # 终端美化输出（颜色/进度条/表格）
-│   │   ├── config_mgr.py       # 统一配置管理
-│   │   ├── env_check.py        # 环境检测
-│   │   ├── auth.py             # 登录认证
-│   │   ├── following_mgr.py    # 关注列表管理
-│   │   ├── downloader.py       # 视频下载
-│   │   ├── compressor.py       # 视频压缩
-│   │   └── data_generator.py   # 数据看板生成
-│   ├── deprecated/             # ⚠️ 已废弃的旧脚本（向后兼容）
-│   │   ├── check_env.py
-│   │   ├── login.py
-│   │   ├── download.py
-│   │   ├── batch-download.py
-│   │   ├── manage-following.py
-│   │   ├── compress.py
-│   │   ├── generate-data.py
-│   │   └── sync-following.py
-│   ├── utils/                  # 通用工具模块（基础设施）
-│   │   ├── config.py
-│   │   ├── following.py
-│   │   ├── auth_parser.py
-│   │   └── logger.py
-│   └── templates/              # Web 模板目录
-├── config/                     # 配置目录
-│   ├── config.yaml             # 主配置文件（含 Cookie、下载路径等）
-│   └── following.json          # 关注博主名单库
-├── downloads/                  # 下载文件存储目录
-└── douyin_users.db             # SQLite 数据库（自动生成）
-```
+- 👶 **[零基础小白说明书](references/USER_MANUAL_ZERO_BASIS.md)**：非技术人员操作指南
+- ⚙️ **[安装指南](references/INSTALLATION.md)**：环境配置步骤
+- 📖 **[使用说明](references/USAGE.md)**：详细命令参数
+- 🔌 **[API 文档](references/API.md)**：二次开发参考
+- ❓ **[常见问题](references/FAQ.md)**：报错排查
+- 📜 **[变更日志](CHANGELOG.md)**：更新记录
+- 📋 **[功能清单](FEATURES.md)**：完整功能验证
+- 📝 **[项目规划](PLAN.md)**：架构设计和开发计划
+- 📦 **[交付说明](DELIVERABLES.md)**：交付产物清单
+- 🧪 **[测试报告](TEST_REPORT.md)**：功能测试结果
 
-## 👨‍💻 架构与二次开发
+---
 
-本项目的核心逻辑位于 `scripts/` 目录下，按功能进行了高度解耦。如需将本项目进一步改造为 SaaS API 接口、接入 FastAPI 或对接 MySQL/PostgreSQL 数据库集群，请查阅 [API_DOCS.md](references/API.md)。
+## 🛠️ 依赖
 
-## 🤝 参与贡献
+- **Python 3.11+**
+- **F2**：抖音下载框架
+- **Playwright**：浏览器自动化（扫码登录）
+- **Rich**：终端美化输出
+- **Questionary**：交互式命令行
 
-我们非常欢迎来自社区的贡献！无论是报告 Bug、提出新功能建议，还是提交 Pull Request。
-请在提交代码前，务必阅读我们的 [贡献指南 (CONTRIBUTING.md)](CONTRIBUTING.md)，以了解我们的代码规范（Black & Flake8）和提交流程。
+---
 
 ## 📄 开源协议
 
 本项目基于 [MIT 协议](LICENSE.txt) 开源。
 
-> **免责声明**：本项目仅供编程学习与本地个人数据整理分析使用，请遵守相关法律法规及抖音平台的服务条款，严禁用于任何非法商业用途、恶意爬取或侵犯他人隐私与知识产权的行为。
+> **免责声明**：本项目仅供编程学习与本地个人数据整理分析使用，请遵守相关法律法规及抖音平台的服务条款，严禁用于任何非法商业用途。
+
+---
+
+## 🎉 快速测试
+
+```bash
+# 运行端到端测试（下载→转写→清理）
+python test_e2e_pipeline.py
+```
+
+测试会：
+1. 下载 3 个测试视频
+2. 验证下载成功
+3. 测试转写（需要认证）
+4. 生成数据看板
+5. **自动清理所有测试文件**
+
+---
+
+**🎬 一个 CLI，两个功能，完整测试通过！**
