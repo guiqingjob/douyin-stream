@@ -162,10 +162,32 @@ def build_export_output_path(
     output_dir: str | Path,
     export_config: ExportConfig,
     run_stamp: str | None = None,
+    title: str | None = None,
 ) -> Path:
-    source_path = Path(input_path)
+    """构建导出文件路径
+    
+    Args:
+        input_path: 输入文件路径
+        output_dir: 输出目录
+        export_config: 导出配置
+        run_stamp: 时间戳
+        title: 视频标题（如果提供，用作文件名）
+    """
     stamp = run_stamp or now_stamp()
-    return Path(output_dir).resolve() / f"{source_path.stem}-{stamp}{export_config.extension}"
+    
+    if title:
+        # 清理标题中的非法字符
+        import re
+        clean_title = re.sub(r'[<>:"/\\|?*]', '', title).strip()
+        # 限制长度
+        if len(clean_title) > 50:
+            clean_title = clean_title[:50] + "..."
+        filename = f"{clean_title}.md"
+    else:
+        source_path = Path(input_path)
+        filename = f"{source_path.stem}-{stamp}{export_config.extension}"
+    
+    return Path(output_dir).resolve() / filename
 
 
 def save_debug_artifacts(
@@ -290,13 +312,34 @@ async def run_real_flow(
             else:
                 async with export_gate:
                     export_url = await export_file(api, token["genRecordId"], export_config)
-            output_base = input_path.stem
+            
             run_stamp = now_stamp()
+            
+            # 从文件名提取标题
+            input_stem = Path(input_path).stem
+            # 抖音文件名格式：日期_时间_标题_..._video
+            # 例：2026-04-09 19-05-32__手机_我只买跳水的__2026年4月手机推荐_..._video
+            # 提取：去掉日期时间前缀，去掉 video 后缀
+            parts = input_stem.split("__")
+            if len(parts) >= 2:
+                # 取第二部分作为标题基础
+                title_raw = parts[1]
+            else:
+                title_raw = input_stem
+            
+            # 去除 _video 后缀
+            title = title_raw.replace("_video", "").rstrip("_")
+            
+            # 限制长度
+            if len(title) > 50:
+                title = title[:50]
+            
             export_out = build_export_output_path(
                 input_path=input_path,
                 output_dir=output_dir,
                 export_config=export_config,
                 run_stamp=run_stamp,
+                title=title,
             )
 
             ensure_dir(output_dir)
