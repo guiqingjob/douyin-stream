@@ -1,0 +1,30 @@
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "media-tools"
+version = "0.1.0"
+description = "抖音下载 + Qwen 转写一体化媒体工具"
+readme = "README.md"
+requires-python = ">=3.11"
+dependencies = [
+  "f2>=1.0.0",
+  "playwright>=1.40.0,<2",
+  "pyyaml>=6.0.0",
+  "questionary>=2.0.0,<3",
+  "rich>=13.0.0,<14",
+]
+
+[project.scripts]
+# 抖音交互式 CLI
+media-tools = "cli:main"
+# Qwen 转写 CLI（保留原有命令）
+qwen-transcribe = "media_tools.transcribe.cli.main:main"
+qwt = "media_tools.transcribe.cli.main:main"
+
+[tool.setuptools]
+package-dir = {"" = "src"}
+
+[tool.setuptools.packages.find]
+where = ["src"]
