@@ -220,6 +220,114 @@ def _clean_video_title(raw_title: str) -> str:
     return clean
 
 
+def _rename_videos_in_downloads(nickname: str, uid: str, downloads_path: Path) -> str:
+    """重命名下载目录下的视频文件（包括已在目标子目录的情况）"""
+    import re
+    import sqlite3
+    
+    config = get_config()
+    db_path = config.get_db_path()
+    
+    # 博主文件夹
+    folder_name = nickname or uid
+    user_dir = downloads_path / folder_name
+    user_dir.mkdir(parents=True, exist_ok=True)
+    
+    # 连接数据库获取该博主最近的视频标题
+    conn = sqlite3.connect(str(db_path))
+    cursor = conn.cursor()
+    
+    # 查询该博主最近下载的视频标题
+    cursor.execute(
+        "SELECT aweme_id, desc FROM video_metadata WHERE uid = ? ORDER BY fetch_time DESC LIMIT 10",
+        (uid,)
+    )
+    recent_videos = cursor.fetchall()
+    
+    if not recent_videos:
+        conn.close()
+        return None
+    
+    # 构建 aweme_id -> 标题 映射
+    title_map = {row[0]: row[1] for row in recent_videos}
+    
+    renamed_count = 0
+    processed_count = 0
+    
+    # 递归查找下载目录下的所有视频文件
+    for f in downloads_path.rglob("*.mp4"):
+        # 跳过 douyin/post 临时目录
+        if "/douyin/post/" in str(f):
+            continue
+            
+        stem = f.stem
+        
+        # 方法1：尝试从文件名提取 aweme_id
+        aweme_id = None
+        for vid in title_map.keys():
+            if vid in stem:
+                aweme_id = vid
+                break
+        
+        # 方法2：如果文件名不包含 aweme_id，使用标题关键词匹配
+        if not aweme_id:
+            for vid, title in title_map.items():
+                # 提取标题中的中文关键词（前20个字符中的中文字符）
+                clean_title = _clean_video_title(title)
+                # 检查标题中的连续中文是否出现在文件名中
+                import re
+                chinese_words = re.findall(r'[\u4e00-\u9fa5]{2,}', clean_title)
+                for word in chinese_words[:3]:  # 取前3个关键词
+                    if word in stem:
+                        aweme_id = vid
+                        break
+                if aweme_id:
+                    break
+        
+        if aweme_id and aweme_id in title_map:
+            title = title_map[aweme_id]
+            clean_title = _clean_video_title(title)
+            clean_title = re.sub(r'[<>:"/\\|?*]', '', clean_title).strip()
+            if len(clean_title) > 60:
+                clean_title = clean_title[:60]
+            
+            new_name = f"{clean_title}{f.suffix}"
+            dest = user_dir / new_name
+            
+            # 如果文件名已经是清洗后的（与新名相同），跳过
+            if f.name == new_name and f.parent == user_dir:
+                continue
+            
+            if not dest.exists():
+                shutil.move(str(f), str(dest))
+                processed_count += 1
+                renamed_count += 1
+                print(info(f"  [重命名] {f.name[:40]}... → {new_name[:40]}..."))
+            else:
+                counter = 1
+                while dest.exists():
+                    new_name = f"{clean_title}_{counter}{f.suffix}"
+                    dest = user_dir / new_name
+                    counter += 1
+                shutil.move(str(f), str(dest))
+                processed_count += 1
+                renamed_count += 1
+        else:
+            # 无法匹配，直接移动到目标目录
+            if f.parent != user_dir:
+                dest = user_dir / f.name
+                if not dest.exists():
+                    shutil.move(str(f), str(dest))
+                    processed_count += 1
+    
+    conn.close()
+    
+    if processed_count > 0:
+        print(info(f"  [整理] 已处理 {processed_count} 个文件到 {folder_name}/（{renamed_count} 个已重命名）"))
+    
+    return folder_name
+
+
 def _reorganize_files(nickname: str, uid: str) -> str:
     """整理文件到下载目录/{博主昵称}/，并重命名为清洗后的标题"""
     import re
@@ -510,14 +618,25 @@ async def _download_with_stats(url: str, max_counts: int = None):
     async with AsyncUserDB(str(config.get_db_path())) as db:
         user_path = await handler.get_or_add_user_data(kwargs, sec_user_id, db)
 
-    # 从数据库获取用户信息（昵称）
+    # 从数据库获取用户信息（通过 sec_user_id 查找）
     conn = sqlite3.connect(str(config.get_db_path()))
     cursor = conn.cursor()
     cursor.execute(
-        "SELECT uid, nickname FROM user_info_web ORDER BY ROWID DESC LIMIT 1"
+        "SELECT uid, nickname FROM user_info_web WHERE sec_user_id LIKE ? LIMIT 1",
+        (f"{sec_user_id[:20]}%",)
     )
     user_info = cursor.fetchone()
     conn.close()
+    
+    # 如果没找到，使用最新记录（向后兼容）
+    if not user_info:
+        conn = sqlite3.connect(str(config.get_db_path()))
+        cursor = conn.cursor()
+        cursor.execute(
+            "SELECT uid, nickname FROM user_info_web ORDER BY ROWID DESC LIMIT 1"
+        )
+        user_info = cursor.fetchone()
+        conn.close()
 
     uid = user_info[0] if user_info else ""
     nickname = user_info[1] if user_info else ""
@@ -591,10 +710,15 @@ async def _download_with_stats(url: str, max_counts: int = None):
     print(info("[整理] 重新组织文件..."))
     post_path = downloads_path / "douyin" / "post"
     folder_name = None
+    
+    # 先处理 douyin/post 下的文件
     if post_path.exists():
         for folder in post_path.iterdir():
             if folder.is_dir():
                 folder_name = _reorganize_files(folder.name, uid)
+    
+    # 再处理直接在下载目录或子目录下的文件
+    folder_name = _rename_videos_in_downloads(nickname, uid, downloads_path) or folder_name
 
     # 更新 last_fetch_time
     if folder_name:
