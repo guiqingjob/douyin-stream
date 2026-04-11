@@ -272,10 +272,9 @@ def _rename_videos_in_downloads(nickname: str, uid: str, downloads_path: Path) -
         # 方法2：如果文件名不包含 aweme_id，使用标题关键词匹配
         if not aweme_id:
             for vid, title in title_map.items():
-                # 提取标题中的中文关键词（前20个字符中的中文字符）
+                # 提取标题中的中文关键词
                 clean_title = _clean_video_title(title)
                 # 检查标题中的连续中文是否出现在文件名中
-                import re
                 chinese_words = re.findall(r'[\u4e00-\u9fa5]{2,}', clean_title)
                 for word in chinese_words[:3]:  # 取前3个关键词
                     if word in stem:
@@ -329,14 +328,10 @@ def _rename_videos_in_downloads(nickname: str, uid: str, downloads_path: Path) -
 
 
 def _reorganize_files(nickname: str, uid: str) -> str:
-    """整理文件到下载目录/{博主昵称}/，并重命名为清洗后的标题"""
-    import re
-    import sqlite3
-    
+    """整理文件到下载目录/{博主昵称}/"""
     config = get_config()
     downloads_path = config.get_download_path()
     old_path = downloads_path / "douyin" / "post" / nickname
-    db_path = config.get_db_path()
 
     if not old_path.exists():
         return None
@@ -346,65 +341,14 @@ def _reorganize_files(nickname: str, uid: str) -> str:
     new_path = downloads_path / folder_name
     new_path.mkdir(parents=True, exist_ok=True)
 
-    # 连接数据库获取视频标题
-    conn = sqlite3.connect(str(db_path))
-    cursor = conn.cursor()
-
-    # 移动并重命名文件
+    # 移动文件（文件名已经在下载时清洗过，无需重命名）
     moved_count = 0
-    renamed_count = 0
     for pattern in ["*.mp4", "*.jpg", "*.webp"]:
         for f in old_path.glob(pattern):
-            # 从文件名提取 aweme_id（F2 命名格式：{desc}_{aweme_id}.{ext}）
-            stem = f.stem
-            aweme_id = stem.split('_')[-1] if '_' in stem else None
-            
-            if aweme_id and len(aweme_id) > 10:
-                # 查询数据库获取原始标题
-                cursor.execute("SELECT desc FROM video_metadata WHERE aweme_id = ?", (aweme_id,))
-                row = cursor.fetchone()
-                
-                if row and row[0]:
-                    # 清洗标题并重命名
-                    clean_title = _clean_video_title(row[0])
-                    # 清理文件名非法字符
-                    clean_title = re.sub(r'[<>:"/\\|?*]', '', clean_title).strip()
-                    # 限制长度
-                    if len(clean_title) > 60:
-                        clean_title = clean_title[:60]
-                    
-                    new_name = f"{clean_title}{f.suffix}"
-                    dest = new_path / new_name
-                    
-                    if not dest.exists():
-                        shutil.move(str(f), str(dest))
-                        moved_count += 1
-                        renamed_count += 1
-                        print(info(f"  [重命名] {f.name[:40]}... → {new_name[:40]}..."))
-                    else:
-                        # 如果目标已存在，加序号
-                        counter = 1
-                        while dest.exists():
-                            new_name = f"{clean_title}_{counter}{f.suffix}"
-                            dest = new_path / new_name
-                            counter += 1
-                        shutil.move(str(f), str(dest))
-                        moved_count += 1
-                        renamed_count += 1
-                else:
-                    # 数据库中没找到，直接移动不重命名
-                    dest = new_path / f.name
-                    if not dest.exists():
-                        shutil.move(str(f), str(dest))
-                        moved_count += 1
-            else:
-                # 无法提取 aweme_id，直接移动
-                dest = new_path / f.name
-                if not dest.exists():
-                    shutil.move(str(f), str(dest))
-                    moved_count += 1
-
-    conn.close()
+            dest = new_path / f.name
+            if not dest.exists():
+                shutil.move(str(f), str(dest))
+                moved_count += 1
 
     # 清理旧文件夹
     if old_path.exists():
@@ -414,7 +358,7 @@ def _reorganize_files(nickname: str, uid: str) -> str:
             pass
 
     if moved_count > 0:
-        print(info(f"  [移动] {nickname} -> {folder_name} ({moved_count} 文件，{renamed_count} 个已重命名）"))
+        print(info(f"  [移动] {nickname} -> {folder_name} ({moved_count} 文件)"))
 
     return folder_name
 
@@ -675,10 +619,10 @@ async def _download_with_stats(url: str, max_counts: int = None):
                 # 增量下载：过滤已存在的视频
                 new_videos = []
                 for video in video_list:
-                    aweme_id = video.get("aweme_id", "")
+                    aweme_id = video.get('aweme_id', '') if isinstance(video, dict) else getattr(video, 'aweme_id', '')
                     if aweme_id and aweme_id not in existing_videos:
                         new_videos.append(video)
-                        existing_videos.add(aweme_id)  # 添加到集合，避免后续重复
+                        existing_videos.add(aweme_id)
                     else:
                         total_skipped += 1
 
@@ -711,13 +655,13 @@ async def _download_with_stats(url: str, max_counts: int = None):
     post_path = downloads_path / "douyin" / "post"
     folder_name = None
     
-    # 先处理 douyin/post 下的文件
+    # 处理 douyin/post 下的文件
     if post_path.exists():
         for folder in post_path.iterdir():
             if folder.is_dir():
                 folder_name = _reorganize_files(folder.name, uid)
     
-    # 再处理直接在下载目录或子目录下的文件
+    # 处理直接在下载目录或子目录下的文件（兼容不同 F2 版本的下载路径）
     folder_name = _rename_videos_in_downloads(nickname, uid, downloads_path) or folder_name
 
     # 更新 last_fetch_time
