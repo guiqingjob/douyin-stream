@@ -17,6 +17,15 @@
       "lastEquityBeforeRemaining": null,
       "lastEquityAfterRemaining": null,
       "updatedAt": "2026-04-11T16:13:01+00:00"
+    },
+    "2026-04-12": {
+      "consumedMinutes": 0,
+      "lastBeforeRemaining": 3880,
+      "lastAfterRemaining": 3880,
+      "lastEquityClaimAt": "",
+      "lastEquityBeforeRemaining": null,
+      "lastEquityAfterRemaining": null,
+      "updatedAt": "2026-04-12T16:25:49+00:00"
     }
   },
   "account-a": {

@@ -1,0 +1,11 @@
+{
+  "users": [
+    {
+      "uid": "import_test",
+      "nickname": "导入测试用户",
+      "folder": "导入测试用户",
+      "last_updated": "2026-04-12T22:39:55.139354",
+      "last_fetch_time": null
+    }
+  ]
+}
