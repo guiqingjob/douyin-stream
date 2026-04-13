@@ -55,11 +55,79 @@ def render_highlight_card(title: str, main_text: str, meta_lines: Iterable[str] 
                 st.caption(line)
 
 
-def render_empty_state(message: str, hint: str | None = None) -> None:
-    """渲染统一空状态"""
-    st.info(message)
-    if hint:
-        st.caption(hint)
+def render_empty_state(message: str, hint: str | None = None, icon: str = "✨") -> None:
+    """渲染带图标/插画占位的统一空状态"""
+    st.markdown(
+        f"""
+        <div style="text-align: center; padding: 3rem 1rem; background: var(--mt-bg0); border-radius: 8px; border: 1px dashed var(--mt-border); margin: 1rem 0;">
+            <div style="font-size: 3rem; margin-bottom: 1rem; opacity: 0.8;">{icon}</div>
+            <h4 style="margin: 0 0 0.5rem 0; color: var(--mt-text); font-weight: 500;">{message}</h4>
+            {f'<p style="margin: 0; color: var(--mt-text2); font-size: 14px;">{hint}</p>' if hint else ''}
+        </div>
+        """,
+        unsafe_allow_html=True
+    )
+
+
+def render_cta_section(title: str, description: str, button_text: str, button_key: str, on_click=None) -> bool:
+    """渲染统一的 CTA (Call To Action) 引导区"""
+    with st.container(border=True):
+        col1, col2 = st.columns([3, 1], gap="large", vertical_alignment="center")
+        with col1:
+            st.markdown(f"#### {title}")
+            st.caption(description)
+        with col2:
+            return st.button(button_text, type="primary", use_container_width=True, key=button_key, on_click=on_click)
+
+
+def render_danger_zone(title: str, description: str, button_text: str, button_key: str) -> bool:
+    """渲染危险操作区 (Danger Zone)，带二次确认逻辑"""
+    with st.container(border=True):
+        st.markdown(f"**{title}**")
+        st.caption(description)
+        
+        # 使用 session_state 管理二次确认状态
+        confirm_key = f"confirm_{button_key}"
+        if confirm_key not in st.session_state:
+            st.session_state[confirm_key] = False
+            
+        if not st.session_state[confirm_key]:
+            if st.button(button_text, key=f"init_{button_key}", help="该操作可能无法撤销"):
+                st.session_state[confirm_key] = True
+                st.rerun()
+            return False
+        else:
+            st.warning("⚠️ 确认执行该操作？此操作不可逆。")
+            col1, col2 = st.columns(2)
+            with col1:
+                if st.button("取消", key=f"cancel_{button_key}", use_container_width=True):
+                    st.session_state[confirm_key] = False
+                    st.rerun()
+            with col2:
+                if st.button("确认执行", type="primary", key=f"exec_{button_key}", use_container_width=True):
+                    st.session_state[confirm_key] = False
+                    return True
+            return False
+
+
+def render_status_badge(status: str, label: str) -> None:
+    """渲染状态标签 (Status Badge)"""
+    colors = {
+        "success": "#5CF2D6",
+        "error": "#FF5C7A",
+        "warning": "#FFCC66",
+        "info": "#68A6FF",
+        "neutral": "rgba(230,237,247,.5)"
+    }
+    color = colors.get(status, colors["neutral"])
+    st.markdown(
+        f'<span style="display: inline-flex; align-items: center; gap: 6px; padding: 2px 8px; '
+        f'border-radius: 4px; background: {color}15; color: {color}; border: 1px solid {color}30; '
+        f'font-size: 13px; font-weight: 500;">'
+        f'<span style="width: 6px; height: 6px; border-radius: 50%; background: {color};"></span>'
+        f'{label}</span>',
+        unsafe_allow_html=True
+    )
 
 
 def render_table_section(rows: list[dict], empty_message: str, hint: str | None = None) -> bool:

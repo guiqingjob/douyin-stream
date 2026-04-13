@@ -64,6 +64,17 @@ apply_global_theme()
 # 显示新手引导（仅首次访问）
 render_onboarding()
 
+# 如果正在进行新手引导，只显示引导相关的精简导航
+from web.constants import PROJECT_ROOT
+from pathlib import Path
+_FIRST_VISIT_FILE = PROJECT_ROOT / ".first_visit_done"
+
+if not _FIRST_VISIT_FILE.exists() or st.session_state.get("onboarding_step") is not None:
+    st.sidebar.title("🎬 Media Tools")
+    st.sidebar.caption("欢迎使用本地内容工作台")
+    st.sidebar.info("请先完成右侧的新手引导流程")
+    st.stop()  # 停止渲染其余页面导航，强迫用户完成引导
+
 # ─────────────────────────────────────────────
 # 原生多页导航配置 (st.navigation)
 # ─────────────────────────────────────────────

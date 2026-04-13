@@ -8,7 +8,7 @@ from pathlib import Path
 import streamlit as st
 
 from web.constants import DB_FILE, DOWNLOADS_DIR, LOGS_DIR, PROJECT_ROOT
-from web.components.ui_patterns import render_page_header
+from web.components.ui_patterns import render_page_header, render_danger_zone
 from web.utils import format_size
 
 from media_tools.logger import get_logger
@@ -28,7 +28,12 @@ def _render_video_cleanup() -> None:
 
         st.info(f"共 {len(video_files)} 个视频文件，占用 {format_size(total_size)}")
 
-        if st.button("清理已删除视频的数据库记录", type="primary"):
+        if render_danger_zone(
+            "清理已删除视频的数据库记录",
+            "同步本地文件和数据库状态，删除数据库中存在但本地已删除的视频记录。",
+            "清理记录",
+            "clean_db_video"
+        ):
             with st.spinner("正在清理..."):
                 ok = _clean_deleted_videos()
                 if ok:
@@ -51,7 +56,12 @@ def _render_db_cleanup() -> None:
         if db_stats:
             st.info(f"数据库记录: {db_stats['video_count']} 条视频, {db_stats['user_count']} 个用户")
 
-        if st.button("清理过期数据库记录", type="primary"):
+        if render_danger_zone(
+            "清理过期数据库记录",
+            "彻底删除无效的、不再存在的视频记录，释放数据库空间。",
+            "清理记录",
+            "clean_db_records"
+        ):
             with st.spinner("正在清理..."):
                 cleaned, skipped = _clean_db_records()
                 if cleaned > 0:
@@ -72,7 +82,12 @@ def _render_log_cleanup() -> None:
 
         st.info(f"共 {len(log_files)} 个日志文件，占用 {format_size(total_size)}")
 
-        if st.button("清理 30 天前的旧日志", type="primary"):
+        if render_danger_zone(
+            "清理 30 天前的旧日志",
+            "自动删除 30 天前的历史日志文件以释放磁盘空间。",
+            "清理日志",
+            "clean_logs"
+        ):
             _clean_old_logs()
             st.success("清理完成")
     else:

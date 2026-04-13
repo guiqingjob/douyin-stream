@@ -24,6 +24,7 @@ def _is_first_visit() -> bool:
 def _mark_first_visit_done():
     """标记首次访问已完成"""
     _FIRST_VISIT_FILE.touch()
+    st.session_state.onboarding_step = None
 
 
 def render_onboarding() -> None:
@@ -182,17 +183,16 @@ def render_onboarding() -> None:
         
         if st.button("开始使用", type="primary"):
             _mark_first_visit_done()
-            st.session_state.onboarding_step = None
             st.rerun()
     
     # 导航按钮
     st.divider()
     col1, col2 = st.columns(2)
     with col1:
-        if step > 1 and st.button("← 上一步"):
+        if step > 1 and st.button("← 上一步", key="onboarding_prev"):
             st.session_state.onboarding_step = step - 1
             st.rerun()
     with col2:
-        if step < 4 and st.button("下一步 →"):
+        if step < 4 and st.button("下一步 →", key="onboarding_next"):
             st.session_state.onboarding_step = step + 1
             st.rerun()
