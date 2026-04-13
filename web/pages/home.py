@@ -15,26 +15,25 @@ from web.constants import (
 )
 
 
-def render_home() -> None:
-    """渲染工作台首页"""
-    st.title("🏠 工作台")
-    st.caption("先确认系统状态，再开始下载素材或转写文稿。")
+# 渲染工作台首页
+st.title("🏠 工作台")
+st.caption("先确认系统状态，再开始下载素材或转写文稿。")
 
-    status = render_home_status_cards()
+status = render_home_status_cards()
 
-    st.divider()
-    _render_next_step(status)
+st.divider()
+_render_next_step(status)
 
-    st.divider()
-    _render_quick_actions(status)
+st.divider()
+_render_quick_actions(status)
 
-    st.divider()
-    st.subheader("📌 最近任务")
-    st.caption("这里只显示最近 5 条历史，方便快速确认刚刚做了什么。")
-    render_task_table(limit=5)
+st.divider()
+st.subheader("📌 最近任务")
+st.caption("这里只显示最近 5 条历史，方便快速确认刚刚做了什么。")
+render_task_table(limit=5)
 
-    st.divider()
-    render_storage_chart()
+st.divider()
+render_storage_chart()
 
 
 def _render_next_step(status: dict) -> None:
@@ -62,8 +61,7 @@ def _render_next_step(status: dict) -> None:
     st.info("建议先完成配置，再进入下载或转写流程，这样更容易一次跑通。")
 
     if st.button("⚙️ 去系统配置", type="primary", use_container_width=False, key="go_settings_from_home"):
-        st.session_state.current_page = PAGE_SETTINGS
-        st.rerun()
+        st.switch_page("web/pages/settings.py")
 
 
 def _render_quick_actions(status: dict) -> None:
@@ -81,8 +79,7 @@ def _render_quick_actions(status: dict) -> None:
             disabled=download_disabled,
             help="需要先配置抖音 Cookie" if download_disabled else None,
         ):
-            st.session_state.current_page = PAGE_DOWNLOAD
-            st.rerun()
+            st.switch_page("web/pages/download_center.py")
 
     with col2:
         transcribe_disabled = not status["qwen_ok"]
@@ -93,15 +90,12 @@ def _render_quick_actions(status: dict) -> None:
             disabled=transcribe_disabled,
             help="需要先完成 Qwen 认证" if transcribe_disabled else None,
         ):
-            st.session_state.current_page = PAGE_TRANSCRIBE
-            st.rerun()
+            st.switch_page("web/pages/transcribe_center.py")
 
     with col3:
         if st.button("👥 管理来源", use_container_width=True):
-            st.session_state.current_page = PAGE_FOLLOWING
-            st.rerun()
+            st.switch_page("web/pages/following_mgmt.py")
 
     with col4:
         if st.button("⚙️ 检查配置", use_container_width=True):
-            st.session_state.current_page = PAGE_SETTINGS
-            st.rerun()
+            st.switch_page("web/pages/settings.py")

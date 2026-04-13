@@ -46,26 +46,7 @@ def init_project_dirs():
 init_project_dirs()
 
 import streamlit as st
-
 from web.components.onboarding import render_onboarding
-from web.constants import (
-    NAV_PAGES,
-    PAGE_ACCOUNTS,
-    PAGE_CLEANUP,
-    PAGE_DOWNLOAD,
-    PAGE_FOLLOWING,
-    PAGE_HOME,
-    PAGE_SETTINGS,
-    PAGE_TRANSCRIBE,
-)
-from web.pages.accounts import render_accounts
-from web.pages.cleanup import render_cleanup
-from web.pages.download_center import render_download_center
-from web.pages.following_mgmt import render_following_mgmt
-from web.pages.home import render_home
-from web.pages.settings import render_settings
-from web.pages.transcribe_center import render_transcribe_center
-
 
 # ─────────────────────────────────────────────
 # 页面配置
@@ -81,47 +62,30 @@ st.set_page_config(
 render_onboarding()
 
 # ─────────────────────────────────────────────
-# 侧边栏导航
+# 原生多页导航配置 (st.navigation)
 # ─────────────────────────────────────────────
-if "current_page" not in st.session_state:
-    st.session_state.current_page = PAGE_HOME
+pg_home = st.Page("web/pages/home.py", title="仪表盘", icon="🏠", default=True)
+pg_download = st.Page("web/pages/download_center.py", title="下载中心", icon="📥")
+pg_transcribe = st.Page("web/pages/transcribe_center.py", title="转写中心", icon="🎙️")
+
+pg_following = st.Page("web/pages/following_mgmt.py", title="关注管理", icon="👥")
+pg_accounts = st.Page("web/pages/accounts.py", title="账号与认证", icon="🔑")
+pg_cleanup = st.Page("web/pages/cleanup.py", title="存储清理", icon="🧹")
+pg_settings = st.Page("web/pages/settings.py", title="系统配置", icon="⚙️")
+
+pg = st.navigation(
+    {
+        "核心工作流": [pg_home, pg_download, pg_transcribe],
+        "系统与配置": [pg_following, pg_accounts, pg_cleanup, pg_settings]
+    }
+)
 
 with st.sidebar:
     st.title("🎬 Media Tools")
     st.caption("本地内容工作台")
     st.caption("下载素材 → 转写文稿 → 管理结果")
     st.divider()
-
-    page_idx = NAV_PAGES.index(st.session_state.current_page) if st.session_state.current_page in NAV_PAGES else 0
-    page = st.radio(
-        "导航菜单",
-        NAV_PAGES,
-        index=page_idx,
-        label_visibility="collapsed",
-        key="page_radio",
-    )
-    st.session_state.current_page = page
-
-    st.divider()
-    st.markdown("**推荐路径**")
-    st.caption("1. 系统配置\n2. 下载中心\n3. 转写中心")
-    st.divider()
     st.caption(f"项目路径: `{PROJECT_ROOT}`")
 
-# ─────────────────────────────────────────────
-# 页面路由
-# ─────────────────────────────────────────────
-if st.session_state.current_page == PAGE_HOME:
-    render_home()
-elif st.session_state.current_page == PAGE_DOWNLOAD:
-    render_download_center()
-elif st.session_state.current_page == PAGE_TRANSCRIBE:
-    render_transcribe_center()
-elif st.session_state.current_page == PAGE_FOLLOWING:
-    render_following_mgmt()
-elif st.session_state.current_page == PAGE_ACCOUNTS:
-    render_accounts()
-elif st.session_state.current_page == PAGE_CLEANUP:
-    render_cleanup()
-elif st.session_state.current_page == PAGE_SETTINGS:
-    render_settings()
+# 启动页面
+pg.run()

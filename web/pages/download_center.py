@@ -15,25 +15,25 @@ from web.constants import DOWNLOADS_DIR, PAGE_TRANSCRIBE
 from web.utils import format_size, format_timestamp
 
 
-def render_download_center() -> None:
-    """渲染下载中心页面"""
-    st.title("📥 下载中心")
-    st.caption("把抖音链接或关注来源，变成本地素材库中的视频文件。")
+# render_download_center
+"""渲染下载中心页面"""
+st.title("📥 下载中心")
+st.caption("把抖音链接或关注来源，变成本地素材库中的视频文件。")
 
-    tab1, tab2, tab3 = st.tabs(["🚀 创建任务", "📌 当前任务", "🎬 素材库"])
+tab1, tab2, tab3 = st.tabs(["🚀 创建任务", "📌 当前任务", "🎬 素材库"])
 
-    with tab1:
-        _render_new_download()
-    with tab2:
-        _render_current_task()
-    with tab3:
-        _render_material_library()
+with tab1:
+    _render_new_download()
+with tab2:
+    _render_current_task()
+with tab3:
+    _render_material_library()
 
-    st.divider()
-    st.subheader("📜 最近任务历史")
-    st.caption("统一查看最近下载相关任务的结果与状态变化。")
-    if st.button("查看完整历史", key="show_task_history_download_center"):
-        render_task_history()
+st.divider()
+st.subheader("📜 最近任务历史")
+st.caption("统一查看最近下载相关任务的结果与状态变化。")
+if st.button("查看完整历史", key="show_task_history_download_center"):
+    render_task_history()
 
 
 def _render_new_download() -> None:
@@ -120,8 +120,7 @@ def _render_current_task() -> None:
         "通常下一步是去素材库确认结果，或者直接进入转写中心继续处理。",
     )
     if st.button("🎙️ 去转写中心", use_container_width=False, key="go_transcribe_from_download"):
-        st.session_state.current_page = PAGE_TRANSCRIBE
-        st.rerun()
+        st.switch_page("web/pages/transcribe_center.py")
 
 
 def _render_material_library() -> None:
@@ -179,8 +178,7 @@ def _render_material_library() -> None:
         hint="如果素材已经确认无误，下一步通常是进入转写中心生成文稿。",
     )
     if st.button("🎙️ 用这些素材去转写", key="go_to_transcribe_from_library"):
-        st.session_state.current_page = PAGE_TRANSCRIBE
-        st.rerun()
+        st.switch_page("web/pages/transcribe_center.py")
 
 
 def _start_download_task(url: str, max_count: int) -> None:

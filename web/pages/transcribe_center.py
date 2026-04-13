@@ -17,25 +17,25 @@ from web.constants import DOWNLOADS_DIR, QWEN_AUTH_PATH, TEMP_UPLOADS_DIR, TRANS
 from web.utils import format_size, format_timestamp
 
 
-def render_transcribe_center() -> None:
-    """渲染转写中心页面"""
-    st.title("🎙️ 转写中心")
-    st.caption("把视频或音频素材，变成可整理、可搜索、可再利用的文稿。")
+# render_transcribe_center
+"""渲染转写中心页面"""
+st.title("🎙️ 转写中心")
+st.caption("把视频或音频素材，变成可整理、可搜索、可再利用的文稿。")
 
-    tab1, tab2, tab3 = st.tabs(["🚀 发起转写", "📌 当前任务", "📝 文稿库"])
+tab1, tab2, tab3 = st.tabs(["🚀 发起转写", "📌 当前任务", "📝 文稿库"])
 
-    with tab1:
-        _render_new_transcribe()
-    with tab2:
-        _render_current_task()
-    with tab3:
-        _render_transcript_library()
+with tab1:
+    _render_new_transcribe()
+with tab2:
+    _render_current_task()
+with tab3:
+    _render_transcript_library()
 
-    st.divider()
-    st.subheader("📜 最近任务历史")
-    st.caption("统一查看最近转写相关任务的结果与状态变化。")
-    if st.button("查看完整历史", key="show_task_history_transcribe_center"):
-        render_task_history()
+st.divider()
+st.subheader("📜 最近任务历史")
+st.caption("统一查看最近转写相关任务的结果与状态变化。")
+if st.button("查看完整历史", key="show_task_history_transcribe_center"):
+    render_task_history()
 
 
 def _render_new_transcribe() -> None:

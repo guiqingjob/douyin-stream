@@ -10,19 +10,19 @@ from web.components.ui_patterns import render_empty_state, render_highlight_card
 from web.constants import PAGE_DOWNLOAD
 
 
-def render_following_mgmt() -> None:
-    """渲染关注管理页面"""
-    st.title("👥 关注管理")
-    st.caption("把你持续观察的博主整理成来源列表，供后续批量拉取素材使用。")
+# render_following_mgmt
+"""渲染关注管理页面"""
+st.title("👥 关注管理")
+st.caption("把你持续观察的博主整理成来源列表，供后续批量拉取素材使用。")
 
-    tab1, tab2, tab3 = st.tabs(["📋 来源列表", "➕ 添加来源", "📤 导入 / 导出"])
+tab1, tab2, tab3 = st.tabs(["📋 来源列表", "➕ 添加来源", "📤 导入 / 导出"])
 
-    with tab1:
-        _render_following_list()
-    with tab2:
-        _render_add_following()
-    with tab3:
-        _render_import_export()
+with tab1:
+    _render_following_list()
+with tab2:
+    _render_add_following()
+with tab3:
+    _render_import_export()
 
 
 def _render_following_list() -> None:
@@ -99,8 +99,7 @@ def _render_following_list() -> None:
             hint="如果来源已经整理好，下一步通常是去下载中心执行批量拉取。",
         )
         if st.button("📥 去下载中心批量拉取", key="go_download_from_following"):
-            st.session_state.current_page = PAGE_DOWNLOAD
-            st.rerun()
+            st.switch_page("web/pages/download_center.py")
     except Exception as e:
         st.error(f"加载来源列表失败: {e}")
 
