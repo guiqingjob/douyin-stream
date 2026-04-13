@@ -139,26 +139,35 @@ def _render_qwen_auth() -> None:
 
     with st.container(border=True):
         st.subheader("② 转写认证（Qwen）")
-        st.caption("转写链路依赖主账号 Playwright State。这里只回答“能不能转写、额度够不够”。")
+        st.caption("转写链路依赖主账号 Playwright State。这里优先展示“能不能转写”和“当前还剩多少额度”。")
 
-        summary_items = [
-            {"label": "状态", "value": "已就绪" if is_ok else "未认证"},
-            {"label": "认证方式", "value": "Playwright State"},
-        ]
+        header_left, header_right = st.columns([3, 2], vertical_alignment="center")
+        with header_left:
+            st.markdown("**当前认证状态**")
+            if is_ok:
+                st.success("✅ 主账号认证已就绪")
+            else:
+                st.error("❌ 主账号尚未认证")
+        with header_right:
+            st.markdown("**认证方式**")
+            st.info("Playwright State")
+
+        st.caption(f"主认证文件：`.auth/{QWEN_AUTH_PATH.name}`")
+
         if quota:
-            summary_items.extend(
+            render_summary_metrics(
                 [
                     {"label": "剩余额度", "value": quota["remaining_upload"]},
                     {"label": "已用额度", "value": quota["used_upload"]},
                     {"label": "总额度", "value": quota["total_upload"]},
-                ]
+                ],
+                max_cols=3,
             )
-        render_summary_metrics(summary_items)
-
-        st.caption(f"主认证文件：`.auth/{QWEN_AUTH_PATH.name}`")
-        st.caption("当前展示的是 upload 配额视图；如后续底层字段变化，页面文案应保持中性，不再假定单位为分钟。")
-        if quota is None and is_ok:
+            st.caption("当前展示的是 upload 配额视图；页面文案保持中性，不强绑定为“分钟”单位。")
+        elif is_ok:
             st.info("当前已检测到认证文件，但无法读取配额。常见原因是 Cookie 过期或状态文件失效。")
+        else:
+            st.caption("完成主账号认证后，这里会显示额度摘要和认证状态。")
 
         with st.expander("更新主账号认证", expanded=not is_ok):
             st.markdown(

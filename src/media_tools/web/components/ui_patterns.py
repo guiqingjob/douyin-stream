@@ -28,18 +28,23 @@ def render_section_intro(index: str, title: str, description: str) -> None:
     st.caption(description)
 
 
-def render_summary_metrics(items: Sequence[dict]) -> None:
+def render_summary_metrics(items: Sequence[dict], max_cols: int | None = None) -> None:
     if not items:
         return
 
-    cols = st.columns(len(items))
-    for col, item in zip(cols, items):
-        col.metric(
-            item.get('label', '-'),
-            item.get('value', '-'),
-            delta=item.get('delta'),
-            border=True,
-        )
+    if max_cols is None or max_cols <= 0:
+        max_cols = len(items)
+
+    for start in range(0, len(items), max_cols):
+        chunk = items[start:start + max_cols]
+        cols = st.columns(len(chunk))
+        for col, item in zip(cols, chunk):
+            col.metric(
+                item.get('label', '-'),
+                item.get('value', '-'),
+                delta=item.get('delta'),
+                border=True,
+            )
 
 
 def render_highlight_card(title: str, main_text: str, meta_lines: Iterable[str] | None = None) -> None:
