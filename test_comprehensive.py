@@ -28,9 +28,6 @@ from datetime import datetime, timedelta
 from pathlib import Path
 from unittest.mock import MagicMock, patch
 
-# 确保 PYTHONPATH 包含 src
-sys.path.insert(0, str(Path(__file__).resolve().parent / "src"))
-
 # 统计计数器
 TOTAL = 0
 PASSED = 0
@@ -82,7 +79,8 @@ def test_auth_module():
     print("=" * 60)
 
     # 1.1 检查 .auth/ 目录状态
-    auth_dir = Path("/Users/gq/Projects/media-tools/.auth")
+    from media_tools.douyin.core.config_mgr import get_config
+    auth_dir = get_config().project_root / ".auth"
     if auth_dir.exists():
         auth_files = list(auth_dir.iterdir())
         if auth_files:
@@ -980,7 +978,8 @@ def main():
     print("媒体工具 - 认证/配额/异常/日志/健康/性能/统计 综合测试")
     print(f"测试时间: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}")
     print(f"Python: {sys.version}")
-    print(f"项目路径: /Users/gq/Projects/media-tools")
+    from media_tools.douyin.core.config_mgr import get_config
+    print(f"项目路径: {get_config().project_root}")
     print("=" * 60)
 
     test_auth_module()

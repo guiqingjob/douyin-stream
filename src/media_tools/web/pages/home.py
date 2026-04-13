@@ -10,6 +10,7 @@ from media_tools.web.components.task_table import render_task_table
 from media_tools.logger import get_logger
 logger = get_logger('web')
 from media_tools.web.components.ui_patterns import render_page_header
+from media_tools.web.utils import get_page_path
 
 
 # 渲染工作台首页
@@ -38,7 +39,7 @@ def _render_next_step(status: dict) -> None:
     st.info("建议先完成配置，再进入下载或转写流程，这样更容易一次跑通。")
 
     if st.button("⚙️ 去系统配置", type="primary", use_container_width=False, key="go_settings_from_home"):
-        st.switch_page("web/pages/settings.py")
+        st.switch_page(get_page_path("settings.py"))
 
 
 def _render_quick_actions(status: dict) -> None:
@@ -56,7 +57,7 @@ def _render_quick_actions(status: dict) -> None:
             disabled=download_disabled,
             help="需要先配置抖音 Cookie" if download_disabled else None,
         ):
-            st.switch_page("web/pages/download_center.py")
+            st.switch_page(get_page_path("download_center.py"))
 
     with col2:
         transcribe_disabled = not status["qwen_ok"]
@@ -67,15 +68,15 @@ def _render_quick_actions(status: dict) -> None:
             disabled=transcribe_disabled,
             help="需要先完成 Qwen 认证" if transcribe_disabled else None,
         ):
-            st.switch_page("web/pages/transcribe_center.py")
+            st.switch_page(get_page_path("transcribe_center.py"))
 
     with col3:
         if st.button("👥 管理来源", use_container_width=True):
-            st.switch_page("web/pages/following_mgmt.py")
+            st.switch_page(get_page_path("following_mgmt.py"))
 
     with col4:
         if st.button("⚙️ 检查配置", use_container_width=True):
-            st.switch_page("web/pages/settings.py")
+            st.switch_page(get_page_path("settings.py"))
 render_page_header("🏠 工作台", "先确认系统状态，再开始下载素材或转写文稿。")
 
 status = render_home_status_cards()
@@ -93,4 +94,3 @@ render_task_table(limit=5)
 
 st.divider()
 render_storage_chart()
-

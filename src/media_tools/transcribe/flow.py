@@ -1,6 +1,3 @@
-
-from media_tools.logger import get_logger
-logger = get_logger(__name__)
 from __future__ import annotations
 
 import asyncio
@@ -8,6 +5,9 @@ import json
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
+
+from media_tools.logger import get_logger
+logger = get_logger(__name__)
 
 from playwright.async_api import async_playwright
 

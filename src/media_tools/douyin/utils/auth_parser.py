@@ -5,9 +5,10 @@ from typing import Any, Dict, Tuple
 
 import yaml
 from .logger import logger
+from media_tools.douyin.core.config_mgr import get_config
 
-SKILL_DIR = Path(__file__).parent.parent.parent.parent.parent.resolve()
-RULES_PATH = SKILL_DIR / "config" / "auth_rules.yaml"
+PROJECT_ROOT = get_config().project_root
+RULES_PATH = PROJECT_ROOT / "config" / "auth_rules.yaml"
 
 
 class AuthParser:

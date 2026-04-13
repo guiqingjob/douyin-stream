@@ -49,9 +49,7 @@ async def douyin_login(persist=False, cookies_path=None):
         config = get_config()
         cookies_path = config.config_path
 
-    # 切换到脚本所在目录
-    skill_dir = Path(__file__).parent.parent.parent
-    os.chdir(skill_dir)
+    skill_dir = get_config().project_root
 
     logger.info(info("📱 正在启动浏览器..."))
     logger.info(info("请使用手机抖音 APP 扫描二维码登录"))
@@ -204,6 +202,4 @@ def login_sync(persist=False):
     Returns:
         (success, cookie_str) 元组
     """
-    skill_dir = Path(__file__).parent.parent.parent
-    os.chdir(skill_dir)
     return asyncio.run(douyin_login(persist=persist))

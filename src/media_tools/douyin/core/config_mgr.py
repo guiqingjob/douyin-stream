@@ -20,14 +20,31 @@ class ConfigManager:
         Args:
             config_path: 配置文件路径，默认使用项目根目录的 config/config.yaml
         """
+        self.project_root = self._detect_project_root(config_path)
         if config_path is None:
-            # 自动检测项目根目录（src/media_tools/douyin/core/ 的上 4 级）
-            project_root = Path(__file__).parent.parent.parent.parent.parent.resolve()
-            config_path = project_root / "config" / "config.yaml"
-
-        self.config_path = Path(config_path)
+            config_path = self.project_root / "config" / "config.yaml"
+        self.config_path = Path(config_path).expanduser().resolve()
         self._config = {}
         self._load_config()
+
+    def _detect_project_root(self, config_path=None) -> Path:
+        env_root = os.getenv("MEDIA_TOOLS_PROJECT_ROOT")
+        if env_root:
+            return Path(env_root).expanduser().resolve()
+
+        if config_path:
+            p = Path(config_path).expanduser().resolve()
+            if p.name.endswith(".yaml"):
+                return p.parent.parent
+            return p.parent
+
+        cwd = Path.cwd().resolve()
+        for candidate in [cwd, *cwd.parents]:
+            if (candidate / "config" / "config.yaml").exists():
+                return candidate
+            if (candidate / "pyproject.toml").exists():
+                return candidate
+        return cwd
 
     def _load_config(self):
         """加载配置文件"""
@@ -107,21 +124,17 @@ class ConfigManager:
         """获取下载路径"""
         path = self.get("download.path")
         if path:
-            return Path(path)
+            return Path(path).expanduser()
 
-        # 默认使用项目根目录下的 downloads/
-        project_root = Path(__file__).parent.parent.parent.parent.parent.resolve()
-        return project_root / "downloads"
+        return self.project_root / "downloads"
 
     def get_db_path(self):
         """获取数据库路径"""
         path = self.get("database.path")
         if path:
-            return Path(path)
+            return Path(path).expanduser()
 
-        # 默认使用项目根目录下的 media_tools.db
-        project_root = Path(__file__).parent.parent.parent.parent.parent.resolve()
-        return project_root / "media_tools.db"
+        return self.project_root / "media_tools.db"
 
     def get_naming(self):
         """获取文件命名格式"""

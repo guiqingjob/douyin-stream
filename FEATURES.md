@@ -213,7 +213,7 @@ media-tools/
 ### 5.1 抖音交互式 CLI
 ```bash
 # 方式1：直接运行
-cd /Users/gq/Projects/media-tools
+cd /path/to/media-tools
 python cli.py
 
 # 方式2：模块方式

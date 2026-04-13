@@ -158,7 +158,7 @@ rich>=13.0.0           # 终端美化输出
 
 ```bash
 # 1. 克隆项目
-cd /Users/gq/Projects/media-tools
+cd /path/to/media-tools
 
 # 2. 创建虚拟环境
 python3 -m venv venv

@@ -11,9 +11,6 @@ import tempfile
 from pathlib import Path
 from unittest.mock import MagicMock, patch
 
-# 设置 PYTHONPATH
-sys.path.insert(0, str(Path(__file__).parent / "src"))
-
 PASS = 0
 FAIL = 0
 WARN = 0

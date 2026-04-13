@@ -37,7 +37,6 @@ def cmd_pipeline_run(
         config = PipelineConfig(
             export_format=export_format or config.export_format,
             output_dir=output_dir,
-            export_format=config.export_format,
             delete_after_export=config.delete_after_export,
             account_id=account_id or config.account_id,
             remove_video=remove_video,

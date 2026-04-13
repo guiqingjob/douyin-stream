@@ -15,9 +15,10 @@ from typing import Any, Dict, Optional
 
 import yaml
 from .logger import logger
+from media_tools.douyin.core.config_mgr import get_config
 
-# 项目根目录（src/media_tools/douyin/utils/ 的上 4 级）
-PROJECT_ROOT = Path(__file__).parent.parent.parent.parent.parent.resolve()
+# 项目根目录
+PROJECT_ROOT = get_config().project_root
 CONFIG_PATH = PROJECT_ROOT / "config" / "config.yaml"
 
 

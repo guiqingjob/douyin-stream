@@ -11,9 +11,6 @@ import sys
 import time
 from pathlib import Path
 
-# 添加项目路径
-sys.path.insert(0, str(Path(__file__).parent))
-
 
 def test_wizard():
     """测试首次使用向导"""
@@ -21,7 +18,7 @@ def test_wizard():
     print("测试 1/9: 首次使用向导")
     print("="*60)
 
-    from src.media_tools.wizard import check_first_run, mark_config_initialized
+    from media_tools.wizard import check_first_run, mark_config_initialized
 
     # 测试检测
     is_first = check_first_run()
@@ -50,7 +47,7 @@ def test_config_presets():
     print("测试 2/9: 配置预设模板")
     print("="*60)
 
-    from src.media_tools.config_presets import PRESETS, apply_preset
+    from media_tools.config_presets import PRESETS, apply_preset
 
     # 测试预设存在
     assert "beginner" in PRESETS
@@ -80,7 +77,7 @@ def test_stats_panel():
     print("测试 3/9: 创作数据统计")
     print("="*60)
 
-    from src.media_tools.stats_panel import StatsCollector
+    from media_tools.stats_panel import StatsCollector
 
     # 创建收集器
     collector = StatsCollector()
@@ -117,7 +114,7 @@ def test_progress_panel():
     print("测试 4/9: 任务进度可视化")
     print("="*60)
 
-    from src.media_tools.progress_panel import (
+    from media_tools.progress_panel import (
         TaskProgressPanel,
         TaskItem,
         TaskStatus,
@@ -158,7 +155,7 @@ def test_error_diagnosis():
     print("测试 5/9: 智能错误诊断")
     print("="*60)
 
-    from src.media_tools.error_diagnosis import (
+    from media_tools.error_diagnosis import (
         classify_error,
         ErrorCategory,
         SOLUTIONS,
@@ -193,7 +190,7 @@ def test_batch_report():
     print("测试 6/9: 批量操作报告")
     print("="*60)
 
-    from src.media_tools.batch_report import BatchReport
+    from media_tools.batch_report import BatchReport
 
     # 创建报告
     report = BatchReport("测试批量操作")
@@ -245,7 +242,7 @@ def test_config_manager():
     print("测试 7/9: 统一配置管理")
     print("="*60)
 
-    from src.media_tools.config_manager import ConfigManager
+    from media_tools.config_manager import ConfigManager
 
     # 创建管理器
     manager = ConfigManager()
@@ -270,14 +267,14 @@ def test_pipeline_v2():
     print("测试 8/9: 增强版Pipeline")
     print("="*60)
 
-    from src.media_tools.pipeline.orchestrator_v2 import (
+    from media_tools.pipeline.orchestrator_v2 import (
         PipelineStateManager,
         BatchReport as V2BatchReport,
         create_orchestrator,
     )
 
     # 测试RetryConfig
-    from src.media_tools.pipeline.orchestrator_v2 import RetryConfig
+    from media_tools.pipeline.orchestrator_v2 import RetryConfig
     retry_config = RetryConfig(max_retries=3, base_delay=1.0)
     assert retry_config.max_retries == 3
     print(f"  ✓ RetryConfig 创建成功")
@@ -306,13 +303,13 @@ def test_integration():
 
     # 测试模块导入
     print("  测试模块导入...")
-    from src.media_tools import wizard
-    from src.media_tools import config_presets
-    from src.media_tools import stats_panel
-    from src.media_tools import progress_panel
-    from src.media_tools import error_diagnosis
-    from src.media_tools import batch_report
-    from src.media_tools import config_manager
+    from media_tools import wizard
+    from media_tools import config_presets
+    from media_tools import stats_panel
+    from media_tools import progress_panel
+    from media_tools import error_diagnosis
+    from media_tools import batch_report
+    from media_tools import config_manager
     print(f"  ✓ 所有模块导入成功")
 
     # 测试CLI V2导入

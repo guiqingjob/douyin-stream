@@ -16,6 +16,7 @@ from media_tools.web.components.ui_patterns import (
     render_cta_section,
 )
 from media_tools.web.constants import PAGE_DOWNLOAD
+from media_tools.web.utils import get_page_path
 
 from media_tools.logger import get_logger
 logger = get_logger('web')
@@ -129,7 +130,7 @@ def _render_following_list() -> None:
             "📥 去下载中心", 
             "go_download_from_following"
         ):
-            st.switch_page("web/pages/download_center.py")
+            st.switch_page(get_page_path("download_center.py"))
     except Exception as e:
         logger.exception('发生异常')
         st.error(f"加载来源列表失败: {e}")
@@ -261,4 +262,3 @@ with tab2:
     _render_add_following()
 with tab3:
     _render_import_export()
-

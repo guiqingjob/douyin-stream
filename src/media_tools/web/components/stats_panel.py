@@ -47,7 +47,7 @@ def _get_stats() -> dict:
 
     # 关注数
     try:
-        from media_tools.douyin.utils.following import list_users
+        from media_tools.douyin.core.following_mgr import list_users
 
         users = list_users()
         stats["following_count"] = len(users)

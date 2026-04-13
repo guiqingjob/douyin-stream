@@ -119,7 +119,7 @@
 如果删除 `.first_visit_done` 文件后刷新：
 
 ```bash
-rm /Users/gq/Projects/media-tools/.first_visit_done
+rm /path/to/media-tools/.first_visit_done
 ```
 
 - [ ] 显示 4 步引导

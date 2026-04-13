@@ -49,7 +49,7 @@
 **设计优势**：用户在左侧点击“开始”后，视线自然右移即可看到进度。同时，左侧的表单立刻清空待命，用户可以**毫无阻碍地连续发起下一个任务**，而不需要切换回“当前任务” Tab。
 
 ### 2.3 资产大盘：聚合视图 (Asset Dashboard)
-新建 [asset_library.py](file:///Users/gq/Projects/media-tools/web/pages/asset_library.py)，作为所有本地产出物的最终归宿。
+新建 asset_library.py（src/media_tools/web/pages/asset_library.py），作为所有本地产出物的最终归宿。
 - **顶部数据卡片 (Metrics Cards)**：直观展示总数量、总占用、最近活跃时间。
 - **底部数据表格 (Dataframe/Table)**：列表化展示素材和文稿。
 - **跨模块联动 (Cross-linking)**：在视频素材库下方，直接提供 `[🎙️ 用这些素材去转写]` 的跳转按钮，打通了“下载 -> 转写”的业务断层。
@@ -85,7 +85,7 @@ def _poll_download_task() -> None:
 - 彻底抛弃了阻塞主线程的 `time.sleep()`。
 
 ### 3.3 异步事件循环安全 (Asyncio Thread Safety)
-在转写中心 ([transcribe_center.py](file:///Users/gq/Projects/media-tools/web/pages/transcribe_center.py)) 的后台线程中，原先直接在 `for` 循环中调用 `asyncio.run()`，这在密集并发下极易导致 `RuntimeError: Event loop is closed`。
+在转写中心（src/media_tools/web/pages/transcribe_center.py）的后台线程中，原先直接在 `for` 循环中调用 `asyncio.run()`，这在密集并发下极易导致 `RuntimeError: Event loop is closed`。
 重构后，将整个批量任务包装在一个外层的 `async def _run_batch():` 协程中，由一个全局的 `asyncio.run()` 启动，确保了底层的异步 HTTP 客户端（如 Qwen API）能安全复用连接池。
 
 ---

@@ -22,9 +22,6 @@ from io import StringIO
 from pathlib import Path
 from unittest.mock import AsyncMock, MagicMock, patch
 
-# 确保 src 在路径中
-sys.path.insert(0, str(Path(__file__).parent / "src"))
-
 from media_tools.pipeline.orchestrator_v2 import (
     ErrorType,
     classify_error,

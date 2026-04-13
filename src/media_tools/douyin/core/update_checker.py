@@ -9,13 +9,6 @@ logger = get_logger(__name__)
 
 import asyncio
 import sqlite3
-import sys
-from pathlib import Path
-
-# 确保 utils 可以导入
-skill_dir = Path(__file__).parent.parent
-if str(skill_dir) not in sys.path:
-    sys.path.insert(0, str(skill_dir))
 
 import f2
 from f2.apps.douyin.handler import DouyinHandler
@@ -381,7 +374,7 @@ def download_updates_for_user(uid, max_counts=None):
     Returns:
         是否成功
     """
-    from ..utils.following import get_user
+    from .following_mgr import get_user
 
     user = get_user(uid)
     if not user:

@@ -31,7 +31,7 @@ from .config_mgr import get_config
 
 def _get_skill_dir():
     """获取项目根目录"""
-    return Path(__file__).parent.parent.parent
+    return get_config().project_root
 
 
 def list_users():
@@ -65,6 +65,34 @@ def list_users():
         logger.error(f"读取关注列表失败: {e}")
         
     return users
+
+
+def get_user(uid: str):
+    config = get_config()
+    db_path = config.get_db_path()
+    try:
+        with sqlite3.connect(str(db_path)) as conn:
+            conn.row_factory = sqlite3.Row
+            cursor = conn.cursor()
+            cursor.execute(
+                "SELECT uid, sec_user_id, nickname, platform, sync_status, last_fetch_time FROM creators WHERE uid = ?",
+                (uid,),
+            )
+            row = cursor.fetchone()
+            if not row:
+                return None
+            return {
+                "uid": row["uid"],
+                "sec_user_id": row["sec_user_id"],
+                "nickname": row["nickname"] or row["uid"],
+                "name": row["nickname"] or row["uid"],
+                "platform": row["platform"],
+                "sync_status": row["sync_status"],
+                "last_fetch_time": row["last_fetch_time"],
+            }
+    except Exception as e:
+        logger.error(f"读取用户失败: {e}")
+        return None
 
 
 def add_user(url):

@@ -21,7 +21,7 @@ from media_tools.web.components.ui_patterns import (
     render_cta_section,
 )
 from media_tools.web.constants import DOWNLOADS_DIR, QWEN_AUTH_PATH, TEMP_UPLOADS_DIR, TRANSCRIPTS_DIR
-from media_tools.web.utils import format_size, format_timestamp
+from media_tools.web.utils import format_size, format_timestamp, get_page_path
 
 from media_tools.logger import get_logger
 logger = get_logger('web')
@@ -170,7 +170,7 @@ def _render_current_task() -> None:
             "📥 去下载中心", 
             "go_download_from_transcribe"
         ):
-            st.switch_page("web/pages/download_center.py")
+            st.switch_page(get_page_path("download_center.py"))
 
 
 def _start_transcribe_task(file_path: str) -> None:
@@ -292,4 +292,3 @@ st.divider()
 st.subheader("📜 最近任务历史")
 st.caption("统一查看最近转写相关任务的结果与状态变化。")
 render_task_history()
-

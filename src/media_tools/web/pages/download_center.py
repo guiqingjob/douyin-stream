@@ -19,7 +19,7 @@ from media_tools.web.components.ui_patterns import (
     render_cta_section,
 )
 from media_tools.web.constants import DOWNLOADS_DIR, PAGE_TRANSCRIBE
-from media_tools.web.utils import format_size, format_timestamp
+from media_tools.web.utils import format_size, format_timestamp, get_page_path
 
 from media_tools.logger import get_logger
 logger = get_logger('web')
@@ -129,7 +129,7 @@ def _render_current_task() -> None:
             "🎙️ 去转写中心", 
             "go_transcribe_from_download"
         ):
-            st.switch_page("web/pages/transcribe_center.py")
+            st.switch_page(get_page_path("transcribe_center.py"))
 
 
 def _start_download_task(url: str, max_count: int) -> None:
@@ -232,4 +232,3 @@ st.divider()
 st.subheader("📜 最近任务历史")
 st.caption("统一查看最近下载相关任务的结果与状态变化。")
 render_task_history()
-

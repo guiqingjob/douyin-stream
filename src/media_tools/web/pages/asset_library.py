@@ -13,7 +13,7 @@ from media_tools.web.components.ui_patterns import (
     render_table_section,
     render_cta_section,
 )
-from media_tools.web.utils import format_size, format_timestamp
+from media_tools.web.utils import format_size, format_timestamp, get_page_path
 from media_tools.douyin.core.config_mgr import get_config
 
 from media_tools.logger import get_logger
@@ -85,7 +85,7 @@ with tab1:
             "🎙️ 去转写中心",
             "go_to_transcribe_from_library"
         ):
-            st.switch_page("web/pages/transcribe_center.py")
+            st.switch_page(get_page_path("transcribe_center.py"))
 
 with tab2:
     st.subheader("📝 转写文稿库")

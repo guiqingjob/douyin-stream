@@ -12,10 +12,6 @@ import tempfile
 import traceback
 from pathlib import Path
 
-# 设置环境变量
-os.environ["PYTHONPATH"] = "src"
-sys.path.insert(0, str(Path(__file__).parent / "src"))
-
 # 测试项目根目录
 PROJECT_ROOT = Path(__file__).parent
 # 备份路径
@@ -754,7 +750,8 @@ def test_other_modules():
 def main():
     print("\n" + "#" * 70)
     print("# 抖音下载模块全功能测试报告")
-    print("# 项目: /Users/gq/Projects/media-tools")
+    from media_tools.douyin.core.config_mgr import get_config
+    print(f"# 项目: {get_config().project_root}")
     print(f"# Python: {sys.version}")
     print(f"# 日期: 2026-04-12")
     print("#" * 70)

@@ -91,10 +91,10 @@ downloads/
 transcripts/
 logs/
 douyin_users.db
+media_tools.db
 
 # 配置（敏感信息）
 config/config.yaml
-config/following.json
 config/transcribe/.env
 config/transcribe/accounts.json
 config/backups/
@@ -121,6 +121,4 @@ test_report.txt
 # 导出
 config_export/
 
-web/.first_visit_done
-web/.task_state.json
-web/.task_history.jsonl
+.first_visit_done

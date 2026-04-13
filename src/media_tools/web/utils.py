@@ -3,6 +3,7 @@ Web 管理面板公共工具函数
 """
 
 from datetime import datetime
+from pathlib import Path
 
 import streamlit as st
 
@@ -80,3 +81,8 @@ def safe_json_display(data):
     except TypeError as e:
         st.warning(f"JSON 序列化失败，显示为文本: {e}")
         st.code(str(data))
+
+
+def get_page_path(page_filename: str) -> str:
+    base_dir = Path(__file__).resolve().parent
+    return str(base_dir / "pages" / page_filename)

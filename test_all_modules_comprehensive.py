@@ -11,12 +11,6 @@ import time
 from datetime import datetime, timedelta
 from pathlib import Path
 
-# 设置 PYTHONPATH
-sys.path.insert(0, str(Path(__file__).parent / "src"))
-
-# 确保工作目录在项目根
-os.chdir(Path(__file__).parent)
-
 # 测试结果记录
 test_results = []
 

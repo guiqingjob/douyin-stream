@@ -12,10 +12,10 @@
 **问题**: `config/config.yaml` 中的 `download_path` 指向旧项目路径
 ```yaml
 # 错误
-download_path: /Users/gq/Projects/douyindownload_renew/downloads
+download_path: /path/to/douyindownload_renew/downloads
 
 # 正确
-download_path: /Users/gq/Projects/media-tools/downloads
+download_path: /path/to/media-tools/downloads
 ```
 
 **影响**: 下载功能无法正常工作，文件会下载到不存在的路径

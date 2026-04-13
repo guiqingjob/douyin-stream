@@ -116,6 +116,6 @@ python scripts/generate-data.py
 download_path: ""
 
 # 或者设置绝对路径：
-# download_path: "/Users/maoking/Movies/Douyin"
+# download_path: "~/Movies/Douyin"
 ```
 视频将会以 `{download_path}/{博主昵称}/` 的目录结构自动分拣。

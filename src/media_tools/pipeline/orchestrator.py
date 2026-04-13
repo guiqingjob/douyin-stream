@@ -4,14 +4,14 @@
 下载视频(MP4) → 上传转写 → 输出文稿(md/docx)
 """
 
-from media_tools.logger import get_logger
-logger = get_logger(__name__)
-
 from __future__ import annotations
 
 import asyncio
 from pathlib import Path
 from typing import Optional
+
+from media_tools.logger import get_logger
+logger = get_logger(__name__)
 
 from ..transcribe.flow import run_real_flow
 from ..transcribe.runtime import get_export_config, ensure_dir, now_stamp

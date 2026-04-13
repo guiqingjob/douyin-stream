@@ -60,7 +60,7 @@ URL: https://www.douyin.com/user/MS4wLjABAAAA01GAbsnQGvWiIZw8BU_XFvVbc0_tNcTQOA_
 **下载结果:**
 ```
 ✓ 共下载 5 个视频
-位置: /Users/gq/Projects/media-tools/downloads/玄离199/
+位置: /path/to/media-tools/downloads/玄离199/
 
 文件列表:
 - AI味儿太重？只需一条终极指令写出人味儿！.mp4 (17.7 MB)
@@ -85,7 +85,7 @@ URL: https://www.douyin.com/user/MS4wLjABAAAA01GAbsnQGvWiIZw8BU_XFvVbc0_tNcTQOA_
 
 **转写文稿示例:**
 ```
-位置: /Users/gq/Projects/media-tools/transcripts/
+位置: /path/to/media-tools/transcripts/
 
 生成的文稿:
 - 打字速度提升两倍？比五笔还快！2024你可以尝试学一下双拼输入法.md (3.6 KB)

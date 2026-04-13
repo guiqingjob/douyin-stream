@@ -53,7 +53,7 @@ media-tools/
 - **任务状态**: 单文件 `.task_state.json`（轮询机制，2秒刷新）
 - **数据持久化**: JSON 文件 + SQLite（下载元数据）
 - **路径约定**: 
-  - 项目根目录: `/Users/gq/Projects/media-tools`
+  - 项目根目录: `/path/to/media-tools`
   - 下载目录: `downloads/`
   - 转写目录: `transcripts/`
   - 临时文件: `temp_uploads/`
@@ -387,7 +387,7 @@ media-tools/
 ### 4.1 启动开发环境
 
 ```bash
-cd /Users/gq/Projects/media-tools
+cd /path/to/media-tools
 source .venv/bin/activate  # 如果有虚拟环境
 streamlit run web_app.py --server.port 8501
 ```

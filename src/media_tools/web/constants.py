@@ -7,10 +7,11 @@ from pathlib import Path
 
 from media_tools.logger import get_logger
 logger = get_logger('web')
+from media_tools.douyin.core.config_mgr import get_config
 
 
 # 项目根目录
-PROJECT_ROOT = Path(__file__).parent.parent
+PROJECT_ROOT = get_config().project_root
 
 # 认证路径
 QWEN_AUTH_PATH = PROJECT_ROOT / ".auth" / "qwen-storage-state.json"
