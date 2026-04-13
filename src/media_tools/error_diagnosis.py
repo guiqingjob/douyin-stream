@@ -17,6 +17,8 @@ from rich.console import Console
 from rich.panel import Panel
 from rich.markdown import Markdown
 
+from media_tools.transcribe.auth_state import has_qwen_auth_state
+
 console = Console()
 
 
@@ -354,12 +356,11 @@ def run_diagnostic() -> dict:
 
     # 3. Qwen认证检查
     console.print("\n3. 检查Qwen认证...")
-    auth_file = Path(".auth/playwright_state.json")
-    if auth_file.exists():
-        console.print(f"   [green]✓ 认证文件存在: {auth_file}[/green]")
+    if has_qwen_auth_state():
+        console.print("   [green]✓ Qwen 认证已配置[/green]")
         results["auth_qwen"] = True
     else:
-        console.print("   [yellow]⚠  认证文件不存在[/yellow]")
+        console.print("   [yellow]⚠  Qwen 认证未配置或无效[/yellow]")
 
     # 4. 配置检查
     console.print("\n4. 检查配置文件...")

@@ -707,16 +707,11 @@ def cmd_transcribe_auth():
         elif choice == "2":
             print()
             try:
-                import sqlite3
-                from media_tools.douyin.core.config_mgr import get_config
-                db_path = get_config().get_db_path()
-                with sqlite3.connect(db_path) as conn:
-                    cursor = conn.cursor()
-                    cursor.execute("SELECT 1 FROM auth_credentials WHERE platform = 'qwen' AND is_valid = 1")
-                    if cursor.fetchone():
-                        print("✅ Qwen 认证已保存在数据库中，状态有效")
-                    else:
-                        print("❌ Qwen 认证在数据库中未找到或无效，请重新扫码登录")
+                from media_tools.transcribe.auth_state import has_qwen_auth_state
+                if has_qwen_auth_state():
+                    print("✅ Qwen 认证已就绪（已检测到有效认证状态）")
+                else:
+                    print("❌ 未检测到有效的 Qwen 认证，请重新扫码登录或重新粘贴 Cookie")
             except Exception as e:
                 print(f"❌ 检查状态失败: {e}")
             _wait_for_key()

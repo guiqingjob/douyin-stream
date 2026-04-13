@@ -1,9 +1,9 @@
 from __future__ import annotations
 
-from pathlib import Path
 from typing import Any
 
 from .accounts import load_accounts_config, resolve_auth_state_path
+from .auth_state import has_qwen_auth_state
 from .config import load_config
 from .quota import get_daily_quota_record, get_quota_snapshot
 
@@ -48,7 +48,7 @@ async def collect_account_statuses() -> list[dict[str, Any]]:
     rows: list[dict[str, Any]] = []
 
     for account in targets:
-        auth_exists = Path(account.auth_state_path).exists()
+        auth_exists = has_qwen_auth_state(account.auth_state_path)
         daily = get_daily_quota_record(account.account_id)
 
         quota = None

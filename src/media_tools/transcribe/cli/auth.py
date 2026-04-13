@@ -6,8 +6,9 @@ import asyncio
 from playwright.async_api import async_playwright
 
 from ..accounts import resolve_auth_state_path
+from ..auth_state import persist_qwen_auth_state
 from ..config import load_config
-from ..runtime import enable_live_output, ensure_dir, load_dotenv
+from ..runtime import enable_live_output, load_dotenv
 
 
 def build_parser() -> argparse.ArgumentParser:
@@ -44,8 +45,8 @@ async def run(argv: list[str] | None = None) -> int:
 
         await asyncio.to_thread(input, "登录完成后按回车继续保存 storageState...")
 
-        ensure_dir(account.auth_state_path.parent)
-        await context.storage_state(path=str(account.auth_state_path))
+        state = await context.storage_state()
+        persist_qwen_auth_state(state, account.auth_state_path)
 
         print("")
         if account.account_id:

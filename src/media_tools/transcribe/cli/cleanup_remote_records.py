@@ -9,6 +9,7 @@ from typing import Any
 
 from playwright.async_api import async_playwright
 
+from ..auth_state import resolve_qwen_auth_state_for_playwright
 from ..errors import InputValidationError
 from ..flow import delete_record
 from ..http import api_json
@@ -122,12 +123,10 @@ async def run(argv: list[str] | None = None) -> int:
     parser = build_parser()
     args = parser.parse_args(argv)
     auth_state_path = as_absolute(args.auth_state)
-    if not auth_state_path.exists():
-        raise InputValidationError(
-            f"auth state file does not exist: {auth_state_path}. Run `qwen-transcribe auth` first."
-        )
-    if not auth_state_path.is_file():
-        raise InputValidationError(f"auth state path is not a file: {auth_state_path}")
+    try:
+        resolved_auth = resolve_qwen_auth_state_for_playwright(auth_state_path)
+    except FileNotFoundError as exc:
+        raise InputValidationError(f"{exc}. Run `qwen-transcribe auth` first.") from exc
 
     metadata_files = discover_metadata_files(args.metadata_file, args.results_dir)
     record_ids = load_record_ids(metadata_files)
@@ -136,7 +135,7 @@ async def run(argv: list[str] | None = None) -> int:
         return 0
 
     async with async_playwright() as p:
-        api = await p.request.new_context(storage_state=str(auth_state_path))
+        api = await p.request.new_context(storage_state=resolved_auth.storage_state)
         try:
             records = await fetch_all_records(api, args.page_size)
             matched = [record for record in records if str(record.get("recordId", "")).strip() in record_ids]

@@ -24,6 +24,8 @@ from rich.console import Console
 from rich.table import Table
 from rich.panel import Panel
 
+from media_tools.transcribe.auth_state import has_qwen_auth_state
+
 console = Console()
 
 
@@ -104,13 +106,11 @@ class HealthChecker:
             console.print("  [yellow]⚠️  抖音认证: 未配置或Cookie过期[/yellow]")
 
         # Qwen认证
-        auth_file = Path(".auth/playwright_state.json")
-        if auth_file.exists():
+        qwen_auth = has_qwen_auth_state()
+        if qwen_auth:
             console.print("  [green]✓[/green] Qwen认证: 已配置")
-            qwen_auth = True
         else:
             console.print("  [yellow]⚠️  Qwen认证: 未配置[/yellow]")
-            qwen_auth = False
 
         self.add_check("认证状态", douyin_auth or qwen_auth, "至少一个认证已配置")
 

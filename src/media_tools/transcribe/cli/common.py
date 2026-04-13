@@ -6,6 +6,7 @@ from dataclasses import dataclass
 from pathlib import Path
 
 from ..accounts import ExecutionAccount, ExecutionAccounts, normalize_account_strategy, resolve_execution_accounts
+from ..auth_state import has_qwen_auth_state
 from ..config import load_config
 from ..errors import AuthenticationRequiredError, InputValidationError
 from ..runtime import ExportConfig, as_absolute, get_export_config
@@ -154,7 +155,7 @@ def chunk_paths(paths: list[Path], group_size: int) -> list[list[Path]]:
 
 
 def ensure_auth_state_exists(account: ExecutionAccount) -> None:
-    if account.auth_state_path.exists():
+    if has_qwen_auth_state(account.auth_state_path):
         return
     if account.account_id:
         raise AuthenticationRequiredError(
