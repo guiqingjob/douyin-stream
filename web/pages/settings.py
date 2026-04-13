@@ -3,6 +3,7 @@
 """
 
 import streamlit as st
+from pathlib import Path
 
 from web.constants import QWEN_AUTH_PATH
 from web.utils import format_size
@@ -92,21 +93,52 @@ def _render_presets() -> None:
     """预设模板"""
     st.subheader("📋 预设模板")
 
-    presets = {
-        "beginner": "🌱 新手模式 - 最简配置",
-        "pro": "🚀 专业模式 - 全部功能",
-        "server": "🖥️ 服务器模式 - 后台运行",
-    }
+    # 从配置文件加载预设
+    presets = _load_presets()
 
-    selected = st.radio("选择预设", list(presets.values()), index=0)
-    preset_key = [k for k, v in presets.items() if v == selected][0]
+    if not presets:
+        st.info("未配置预设模板")
+        return
+
+    preset_options = {v["label"]: k for k, v in presets.items()}
+    selected_label = st.radio("选择预设", list(preset_options.keys()), index=0)
+    preset_key = preset_options[selected_label]
 
     if st.button("应用预设", type="primary"):
         ok = _apply_preset(preset_key)
         if ok:
-            st.success(f"已应用预设: {selected}")
+            st.success(f"已应用预设: {selected_label}")
         else:
             st.error("应用失败")
+
+
+def _load_presets() -> dict:
+    """从配置文件加载预设模板"""
+    import yaml
+
+    # 默认预设
+    default_presets = {
+        "beginner": {"label": "🌱 新手模式 - 最简配置"},
+        "pro": {"label": "🚀 专业模式 - 全部功能"},
+        "server": {"label": "🖥️ 服务器模式 - 后台运行"},
+    }
+
+    # 尝试从 config.yaml 加载
+    config_path = Path(__file__).parent.parent.parent / "config.yaml"
+    if config_path.exists():
+        try:
+            with open(config_path, "r", encoding="utf-8") as f:
+                config = yaml.safe_load(f)
+            if "presets" in config:
+                # 合并配置，默认预设作为后备
+                for key, preset in config["presets"].items():
+                    if "label" not in preset:
+                        preset["label"] = default_presets.get(key, {}).get("label", key)
+                return {**default_presets, **config["presets"]}
+        except Exception:
+            pass
+
+    return default_presets
 
 
 def _check_python_version() -> tuple[bool, str]:

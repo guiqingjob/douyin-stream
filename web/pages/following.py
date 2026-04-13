@@ -61,7 +61,10 @@ def _render_user_list() -> None:
 
         selected = st.selectbox("选择要删除的博主", list(user_options.keys()))
 
-        if st.button("删除选中", type="primary"):
+        # 添加确认步骤
+        confirm_delete = st.checkbox(f"⚠️ 确认删除 {selected}？")
+
+        if st.button("删除选中", type="primary", disabled=not confirm_delete):
             uid = user_options[selected]
             ok = _remove_user(uid)
             if ok:

@@ -2,8 +2,11 @@
 统计面板组件
 """
 
+import logging
 import streamlit as st
-from pathlib import Path
+
+from web.constants import DOWNLOADS_DIR, TRANSCRIPTS_DIR
+from web.utils import format_size
 
 
 def render_stats_panel() -> None:
@@ -24,8 +27,19 @@ def render_stats_panel() -> None:
         st.metric("磁盘占用", stats.get("disk_usage", "0 MB"))
 
 
+@st.cache_data(ttl=60)  # 60秒缓存
+def _get_cached_stats():
+    """获取统计数据（带缓存）"""
+    return _get_stats_internal()
+
+
 def _get_stats() -> dict:
-    """获取统计数据"""
+    """获取统计数据（使用缓存）"""
+    return _get_cached_stats()
+
+
+def _get_stats_internal() -> dict:
+    """内部统计逻辑"""
     stats = {
         "following_count": 0,
         "downloaded_videos": 0,
@@ -39,32 +53,34 @@ def _get_stats() -> dict:
 
         users = list_users()
         stats["following_count"] = len(users)
-    except Exception:
-        pass
+    except Exception as e:
+        logging.warning(f"获取关注列表失败: {e}")
 
     # 已下载视频数
-    downloads_dir = Path("downloads")
-    if downloads_dir.exists():
-        video_files = list(downloads_dir.rglob("*.mp4"))
-        stats["downloaded_videos"] = len(video_files)
+    if DOWNLOADS_DIR.exists():
+        try:
+            video_files = list(DOWNLOADS_DIR.rglob("*.mp4"))
+            stats["downloaded_videos"] = len(video_files)
+        except Exception as e:
+            logging.warning(f"扫描下载目录失败: {e}")
 
     # 已转写文稿数
-    transcripts_dir = Path("transcripts")
-    if transcripts_dir.exists():
-        md_files = list(transcripts_dir.rglob("*.md"))
-        stats["transcripts_count"] = len(md_files)
+    if TRANSCRIPTS_DIR.exists():
+        try:
+            md_files = list(TRANSCRIPTS_DIR.rglob("*.md"))
+            stats["transcripts_count"] = len(md_files)
+        except Exception as e:
+            logging.warning(f"扫描转写目录失败: {e}")
 
     # 磁盘占用
     total_size = 0
-    for d in [downloads_dir, transcripts_dir]:
+    for d in [DOWNLOADS_DIR, TRANSCRIPTS_DIR]:
         if d.exists():
-            total_size += sum(f.stat().st_size for f in d.rglob("*") if f.is_file())
+            try:
+                total_size += sum(f.stat().st_size for f in d.rglob("*") if f.is_file())
+            except Exception as e:
+                logging.warning(f"计算目录大小失败: {e}")
 
-    if total_size > 1024 * 1024 * 1024:
-        stats["disk_usage"] = f"{total_size / (1024**3):.2f} GB"
-    elif total_size > 1024 * 1024:
-        stats["disk_usage"] = f"{total_size / (1024**2):.2f} MB"
-    else:
-        stats["disk_usage"] = f"{total_size / 1024:.2f} KB"
+    stats["disk_usage"] = format_size(total_size)
 
     return stats
