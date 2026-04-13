@@ -102,28 +102,40 @@ class MediaLogger:
             except Exception as e:
                 self.logger.warning(f"清理日志失败: {e}")
 
-    def debug(self, message: str, *args, **kwargs):
+    def debug(self, message: str = "", *args, **kwargs):
         """DEBUG级别日志"""
+        if message is None:
+            message = ""
         self.logger.debug(message, *args, **kwargs)
 
-    def info(self, message: str, *args, **kwargs):
+    def info(self, message: str = "", *args, **kwargs):
         """INFO级别日志"""
+        if message is None:
+            message = ""
         self.logger.info(message, *args, **kwargs)
 
-    def warning(self, message: str, *args, **kwargs):
+    def warning(self, message: str = "", *args, **kwargs):
         """WARNING级别日志"""
+        if message is None:
+            message = ""
         self.logger.warning(message, *args, **kwargs)
 
-    def error(self, message: str, *args, exc_info=False, **kwargs):
+    def error(self, message: str = "", *args, exc_info=False, **kwargs):
         """ERROR级别日志"""
+        if message is None:
+            message = ""
         self.logger.error(message, *args, exc_info=exc_info, **kwargs)
 
-    def critical(self, message: str, *args, **kwargs):
+    def critical(self, message: str = "", *args, **kwargs):
         """CRITICAL级别日志"""
+        if message is None:
+            message = ""
         self.logger.critical(message, *args, **kwargs)
 
-    def exception(self, message: str, *args, **kwargs):
+    def exception(self, message: str = "", *args, **kwargs):
         """异常日志（自动包含堆栈信息）"""
+        if message is None:
+            message = ""
         self.logger.exception(message, *args, **kwargs)
 
     def log_operation(

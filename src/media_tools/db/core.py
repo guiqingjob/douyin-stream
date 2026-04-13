@@ -5,6 +5,13 @@ from media_tools.logger import get_logger
 
 logger = get_logger('db')
 
+def _ensure_column(conn: sqlite3.Connection, table: str, column: str, column_def: str) -> None:
+    cursor = conn.cursor()
+    cursor.execute(f"PRAGMA table_info({table})")
+    existing = {row[1] for row in cursor.fetchall()}
+    if column not in existing:
+        cursor.execute(f"ALTER TABLE {table} ADD COLUMN {column} {column_def}")
+
 def init_db(db_path: str | Path):
     """
     初始化 V2 架构所需的数据表
@@ -72,6 +79,7 @@ def init_db(db_path: str | Path):
             progress REAL DEFAULT 0.0,
             error_msg TEXT,
             create_time DATETIME,
+            update_time DATETIME,
             start_time DATETIME,
             end_time DATETIME
         )
@@ -92,6 +100,8 @@ def init_db(db_path: str | Path):
         cursor.execute("CREATE INDEX IF NOT EXISTS idx_media_assets_video_status ON media_assets(video_status)")
         cursor.execute("CREATE INDEX IF NOT EXISTS idx_media_assets_transcript_status ON media_assets(transcript_status)")
         cursor.execute("CREATE INDEX IF NOT EXISTS idx_task_queue_status ON task_queue(status)")
+
+        _ensure_column(conn, "task_queue", "update_time", "DATETIME")
         
         conn.commit()
         logger.info("V2 架构数据库初始化完成")
