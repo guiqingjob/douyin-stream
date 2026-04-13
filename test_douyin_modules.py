@@ -63,7 +63,7 @@ except Exception as e:
 
 # 测试错误处理: 空关注列表
 try:
-    with patch("media_tools.douyin.core.update_checker.list_users", return_value=[]):
+    with patch("media_tools.douyin.core.following_mgr.list_users", return_value=[]):
         result = check_all_updates()
         if isinstance(result, dict) and "users" in result:
             record("PASS", "update_checker", "空关注列表处理正常")

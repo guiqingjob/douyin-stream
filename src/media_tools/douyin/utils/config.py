@@ -171,14 +171,7 @@ def get_db_path() -> Path:
     return PROJECT_ROOT / "media_tools.db"
 
 
-def get_following_path() -> Path:
-    """
-    获取 following.json 路径
 
-    Returns:
-        following.json 路径
-    """
-    return PROJECT_ROOT / "config" / "following.json"
 
 
 # 导出常用路径（延迟计算）
@@ -188,7 +181,7 @@ class Paths:
     _download_path: Optional[Path] = None
     _data_output_path: Optional[Path] = None
     _db_path: Optional[Path] = None
-    _following_path: Optional[Path] = None
+
 
     @classmethod
     @property
@@ -214,13 +207,7 @@ class Paths:
             cls._db_path = get_db_path()
         return cls._db_path
 
-    @classmethod
-    @property
-    def FOLLOWING(cls) -> Path:
-        """following.json 路径"""
-        if cls._following_path is None:
-            cls._following_path = get_following_path()
-        return cls._following_path
+
 
     @classmethod
     def reset(cls):
@@ -228,7 +215,7 @@ class Paths:
         cls._download_path = None
         cls._data_output_path = None
         cls._db_path = None
-        cls._following_path = None
+
 
 
 if __name__ == "__main__":
@@ -238,7 +225,7 @@ if __name__ == "__main__":
     logger.info(f"默认下载路径: {get_default_download_path()}")
     logger.info(f"实际下载路径: {get_download_path()}")
     logger.info(f"数据库路径: {get_db_path()}")
-    logger.info(f"following.json 路径: {get_following_path()}")
+
 
     # 测试文件夹名称清理
     test_names = [

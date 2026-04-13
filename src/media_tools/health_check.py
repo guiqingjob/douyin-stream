@@ -71,7 +71,6 @@ class HealthChecker:
 
         config_files = {
             "config/config.yaml": "抖音配置",
-            "config/following.json": "关注列表",
             "config/transcribe/.env": "转写环境变量",
         }
 

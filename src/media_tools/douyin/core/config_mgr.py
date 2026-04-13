@@ -142,15 +142,7 @@ class ConfigManager:
             return val.lower() in ('true', '1', 'yes')
         return bool(val)
 
-    def get_following_path(self):
-        """获取关注列表路径"""
-        path = self.get("following.path")
-        if path:
-            return Path(path)
 
-        # 默认使用项目根目录下的 config/following.json
-        project_root = Path(__file__).parent.parent.parent.parent.parent.resolve()
-        return project_root / "config" / "following.json"
 
     def validate(self):
         """

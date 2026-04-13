@@ -22,8 +22,7 @@ DOWNLOADS_DIR = PROJECT_ROOT / "downloads"
 TRANSCRIPTS_DIR = PROJECT_ROOT / "transcripts"
 LOGS_DIR = PROJECT_ROOT / "logs"
 
-# 任务状态文件
-TASK_STATE_FILE = PROJECT_ROOT / ".task_state.json"
+
 
 # 数据库文件
 DB_FILE = PROJECT_ROOT / "media_tools.db"

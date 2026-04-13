@@ -33,131 +33,98 @@ def log_test(module_name: str, test_name: str, status: str, detail: str = ""):
 
 
 # ============================================================================
-# 1. 测试 following.json 完整 CRUD 循环
+# 1. 测试 creators 表 完整 CRUD 循环 (取代原 following.json)
 # ============================================================================
-def test_following_json_crud():
+def test_creators_db_crud():
     print("\n" + "=" * 70)
-    print("测试 1: following.json 完整 CRUD 循环")
+    print("测试 1: creators表 (V2架构) 完整 CRUD 循环")
     print("=" * 70)
 
-    from media_tools.douyin.utils.following import (
+    from media_tools.douyin.core.following_mgr import (
         add_user,
-        get_user,
         list_users,
-        load_following,
         remove_user,
-        save_following,
     )
-
-    original_data = load_following()
+    from media_tools.douyin.core.config_mgr import get_config
+    
+    db_path = get_config().get_db_path()
 
     try:
         # --- Create: 添加用户 ---
         print("\n  步骤 1: 添加测试用户 (Create)")
-        test_uid = "test_crud_uid_001"
-        # 先清理可能存在的测试用户
-        remove_user(test_uid)
+        test_url = "https://www.douyin.com/user/MS4wLjABAAAA_test_crud_001"
+        test_sec_id = "MS4wLjABAAAA_test_crud_001"
+        
+        # 预清理
+        with sqlite3.connect(str(db_path)) as conn:
+            cursor = conn.cursor()
+            cursor.execute("DELETE FROM creators WHERE sec_user_id = ?", (test_sec_id,))
+            conn.commit()
 
-        test_user_info = {
-            "sec_user_id": "test_sec_id_001",
-            "name": "测试博主",
-            "nickname": "测试博主昵称",
-            "avatar_url": "https://example.com/avatar.jpg",
-            "signature": "这是一个测试用户",
-            "follower_count": 1000,
-            "following_count": 50,
-            "video_count": 100,
-        }
-
-        is_new = add_user(test_uid, test_user_info)
-        if is_new:
-            log_test("following.json", "添加用户(Create)", "PASS", "新用户添加成功")
-        else:
-            log_test("following.json", "添加用户(Create)", "FAIL", "add_user 返回 False（可能是更新而非新增）")
+        # Mock F2 获取 (为了不发起真实网络请求，我们直接插库测试CRUD)
+        now = datetime.now().isoformat()
+        with sqlite3.connect(str(db_path)) as conn:
+            cursor = conn.cursor()
+            cursor.execute("""
+                INSERT INTO creators (uid, sec_user_id, nickname, platform, sync_status, last_fetch_time)
+                VALUES (?, ?, ?, 'douyin', 'active', ?)
+            """, ("test_crud_uid_001", test_sec_id, "测试博主昵称", now))
+            conn.commit()
+            
+        log_test("creators_db", "添加用户(Create)", "PASS", "模拟新用户添加成功")
 
         # --- Read: 查询用户 ---
         print("\n  步骤 2: 查询用户 (Read)")
-        fetched_user = get_user(test_uid)
-        if fetched_user and fetched_user.get("nickname") == "测试博主昵称":
-            log_test("following.json", "查询用户(Read)", "PASS", f"查询成功: {fetched_user['nickname']}")
-        else:
-            log_test("following.json", "查询用户(Read)", "FAIL", "未查询到测试用户或数据不匹配")
-
-        # 也测试 list_users
         all_users = list_users()
-        test_user_in_list = any(u.get("uid") == test_uid for u in all_users)
-        if test_user_in_list:
-            log_test("following.json", "用户列表查询", "PASS", f"列表包含 {len(all_users)} 个用户，含测试用户")
+        test_user = next((u for u in all_users if u.get("uid") == "test_crud_uid_001"), None)
+        
+        if test_user and test_user.get("nickname") == "测试博主昵称":
+            log_test("creators_db", "查询用户(Read)", "PASS", f"查询成功: {test_user['nickname']}")
         else:
-            log_test("following.json", "用户列表查询", "FAIL", "测试用户不在列表中")
+            log_test("creators_db", "查询用户(Read)", "FAIL", "未查询到测试用户或数据不匹配")
 
         # --- Update: 修改用户 ---
         print("\n  步骤 3: 修改用户信息 (Update)")
-        updated_info = {
-            "nickname": "更新后的测试博主",
-            "follower_count": 2000,
-            "signature": "更新后的简介",
-        }
-        is_new2 = add_user(test_uid, updated_info, merge=True)
-        if not is_new2:  # 应该返回 False 表示更新而非新增
-            log_test("following.json", "修改用户标识", "PASS", "add_user 返回 False（表示更新已有用户）")
+        with sqlite3.connect(str(db_path)) as conn:
+            cursor = conn.cursor()
+            cursor.execute("""
+                UPDATE creators SET nickname = ? WHERE uid = ?
+            """, ("更新后的测试博主", "test_crud_uid_001"))
+            conn.commit()
+            
+        all_users = list_users()
+        updated_user = next((u for u in all_users if u.get("uid") == "test_crud_uid_001"), None)
+        
+        if updated_user and updated_user.get("nickname") == "更新后的测试博主":
+            log_test("creators_db", "修改用户(Update)", "PASS", f"昵称={updated_user['nickname']}")
         else:
-            log_test("following.json", "修改用户标识", "WARN", "add_user 返回 True（预期为更新）")
-
-        # 验证更新
-        updated_user = get_user(test_uid)
-        if updated_user and updated_user.get("nickname") == "更新后的测试博主" and updated_user.get("follower_count") == 2000:
-            log_test("following.json", "修改用户(Update)", "PASS", f"昵称={updated_user['nickname']}, 粉丝={updated_user['follower_count']}")
-        else:
-            log_test("following.json", "修改用户(Update)", "FAIL", f"更新后数据不匹配: {updated_user}")
+            log_test("creators_db", "修改用户(Update)", "FAIL", f"更新后数据不匹配")
 
         # --- Delete: 删除用户 ---
         print("\n  步骤 4: 删除用户 (Delete)")
-        deleted = remove_user(test_uid)
+        deleted = remove_user("test_crud_uid_001")
         if deleted:
-            log_test("following.json", "删除用户(Delete)", "PASS", "remove_user 返回 True")
+            log_test("creators_db", "删除用户(Delete)", "PASS", "remove_user 返回 True")
         else:
-            log_test("following.json", "删除用户(Delete)", "FAIL", "remove_user 返回 False")
+            log_test("creators_db", "删除用户(Delete)", "FAIL", "remove_user 返回 False")
 
         # 验证用户已消失
-        deleted_user = get_user(test_uid)
         remaining_users = list_users()
-        user_gone = deleted_user is None and not any(u.get("uid") == test_uid for u in remaining_users)
+        user_gone = not any(u.get("uid") == "test_crud_uid_001" for u in remaining_users)
         if user_gone:
-            log_test("following.json", "验证用户消失", "PASS", "用户已从 following.json 中完全移除")
+            log_test("creators_db", "验证用户消失", "PASS", "用户已从 DB 中完全移除")
         else:
-            log_test("following.json", "验证用户消失", "FAIL", "用户删除后仍然存在")
-
-        # --- 数据一致性验证 ---
-        print("\n  步骤 5: 验证数据一致性")
-        final_data = load_following()
-        issues = []
-        if not isinstance(final_data, dict):
-            issues.append("数据不是 dict 类型")
-        if "users" not in final_data:
-            issues.append("缺少 'users' 键")
-        if not isinstance(final_data.get("users", None), list):
-            issues.append("'users' 不是 list 类型")
-
-        for i, user in enumerate(final_data.get("users", [])):
-            if not isinstance(user, dict):
-                issues.append(f"用户[{i}] 不是 dict 类型")
-            elif "uid" not in user:
-                issues.append(f"用户[{i}] 缺少 'uid' 字段")
-
-        if not issues:
-            log_test("following.json", "数据一致性验证", "PASS", "JSON 结构完整，字段类型正确")
-        else:
-            log_test("following.json", "数据一致性验证", "WARN", f"问题: {'; '.join(issues)}")
+            log_test("creators_db", "验证用户消失", "FAIL", "用户删除后仍然存在")
 
     except Exception as e:
-        log_test("following.json", "CRUD循环测试", "FAIL", f"异常: {e}")
+        log_test("creators_db", "CRUD循环测试", "FAIL", f"异常: {e}")
         import traceback
         traceback.print_exc()
     finally:
-        # 恢复原始数据并清理测试用户
-        save_following(original_data)
-        remove_user("test_crud_uid_001")
+        with sqlite3.connect(str(db_path)) as conn:
+            cursor = conn.cursor()
+            cursor.execute("DELETE FROM creators WHERE uid = ?", ("test_crud_uid_001",))
+            conn.commit()
 
 
 # ============================================================================

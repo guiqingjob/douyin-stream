@@ -35,7 +35,6 @@ class ConfigManager:
         # 配置文件列表
         self.config_files = {
             "抖音配置": self.config_dir / "config.yaml",
-            "关注列表": self.config_dir / "following.json",
             "转写环境变量": self.config_dir / "transcribe" / ".env",
             "转写账号配置": self.config_dir / "transcribe" / "accounts.json",
             "激活预设": self.config_dir / "active_preset.txt",
@@ -274,7 +273,6 @@ class ConfigManager:
         # 2. 从模板创建缺失的配置
         templates = {
             "config.yaml": "config/config.yaml.example",
-            "following.json": "config/following.json.example",
             "transcribe/.env": "config/transcribe/.env.example",
             "transcribe/accounts.json": "config/transcribe/accounts.example.json",
         }
@@ -287,21 +285,6 @@ class ConfigManager:
                 shutil.copy2(template_path, target_path)
                 console.print(f"[green]✓[/green] 从模板创建: {target_path}")
                 fixed += 1
-
-        # 3. 修复following.json格式
-        following_file = self.config_dir / "following.json"
-        if following_file.exists():
-            try:
-                with open(following_file, "r", encoding="utf-8") as f:
-                    data = json.load(f)
-                if "users" not in data:
-                    data = {"users": data if isinstance(data, list) else []}
-                    with open(following_file, "w", encoding="utf-8") as f:
-                        json.dump(data, f, ensure_ascii=False, indent=2)
-                    console.print(f"[green]✓[/green] 修复 following.json 格式")
-                    fixed += 1
-            except Exception:
-                pass
 
         if fixed > 0:
             console.print(f"\n[green]✅ 修复完成！共修复 {fixed} 个问题[/green]\n")

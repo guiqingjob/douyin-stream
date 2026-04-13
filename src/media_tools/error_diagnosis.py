@@ -365,7 +365,6 @@ def run_diagnostic() -> dict:
     console.print("\n4. 检查配置文件...")
     config_files = [
         Path("config/config.yaml"),
-        Path("config/following.json"),
     ]
     missing = [f for f in config_files if not f.exists()]
     if not missing:

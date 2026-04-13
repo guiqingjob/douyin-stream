@@ -437,137 +437,23 @@ def _sync_media_assets(uid: str, nickname: str, folder_name: str):
             conn.close()
 
 def _update_last_fetch_time(uid: str, nickname: str = ""):
-    """更新 following.json 中的 last_fetch_time"""
+    """更新 SQLite 中的 last_fetch_time"""
     try:
-        from ..utils.following import update_fetch_time
-
-        update_fetch_time(uid, nickname)
-        logger.info(info(f"  [更新] last_fetch_time for {nickname or uid}"))
-    except ImportError:
-        pass
-
-
-def _sync_following():
-    """同步 following.json：从数据库更新用户信息"""
-    from ..utils.following import (
-        list_users,
-        load_following,
-        save_following,
-    )
-
-    config = get_config()
-    db_path = config.get_db_path()
-    downloads_path = config.get_download_path()
-
-    # 加载旧数据
-    old_data = load_following()
-    old_users = {u.get("uid"): u for u in old_data.get("users", [])}
-
-    new_users_dict = {}  # 用 dict 去重
-
-    # 遍历下载目录找用户
-    try:
-        folders = list(downloads_path.iterdir())
-    except PermissionError as e:
-        logger.info(error(f"  [错误] 无法访问下载目录: {e}"))
-        return
-    except OSError as e:
-        logger.info(error(f"  [错误] 文件系统错误: {e}"))
-        return
-
-    for folder in folders:
-        if not folder.is_dir():
-            continue
-
-        folder_name = folder.name
-
-        # 从数据库查找用户
-        try:
-            conn = sqlite3.connect(str(db_path))
+        config = get_config()
+        db_path = config.get_db_path()
+        with sqlite3.connect(str(db_path)) as conn:
             cursor = conn.cursor()
             cursor.execute(
-                "SELECT uid, sec_user_id, nickname, avatar_url, signature, follower_count, following_count FROM user_info_web WHERE nickname = ? OR uid = ?",
-                (folder_name, folder_name),
+                "UPDATE creators SET last_fetch_time = ? WHERE uid = ?",
+                (datetime.now().isoformat(), uid)
             )
-            user_data = cursor.fetchone()
-            conn.close()
-        except Exception:
-            continue
+            conn.commit()
+        logger.info(info(f"  [更新] last_fetch_time for {nickname or uid}"))
+    except Exception as e:
+        logger.error(f"更新 last_fetch_time 失败: {e}")
 
-        if not user_data:
-            continue
 
-        uid = str(user_data[0])
 
-        # 如果已经处理过该用户，合并视频数量
-        try:
-            existing_video_count = new_users_dict[uid].get("video_count", 0)
-            new_video_count = len(list(folder.glob("*.mp4")))
-            new_users_dict[uid]["video_count"] = max(existing_video_count, new_video_count)
-            continue
-        except Exception:
-            pass
-
-        try:
-            video_count = len(list(folder.glob("*.mp4")))
-        except (PermissionError, OSError):
-            video_count = 0
-
-        # 保留旧数据中的 last_fetch_time
-        old_user = old_users.get(uid, {})
-        last_fetch = old_user.get("last_fetch_time")
-
-        user_info = {
-            "uid": uid,
-            "sec_user_id": user_data[1],
-            "name": user_data[2],
-            "nickname": user_data[2],
-            "avatar_url": user_data[3] or "",
-            "signature": user_data[4] or "",
-            "follower_count": user_data[5] or 0,
-            "following_count": user_data[6] or 0,
-            "video_count": video_count,
-            "last_updated": datetime.now().isoformat(),
-            "last_fetch_time": last_fetch,
-        }
-        new_users_dict[uid] = user_info
-        logger.info(info(f"  [同步] {user_data[2]} ({video_count} 视频)"))
-
-    # 保留 following.json 中但目录中没有的用户
-    for uid, old_user in old_users.items():
-        if uid not in new_users_dict:
-            try:
-                conn = sqlite3.connect(str(db_path))
-                cursor = conn.cursor()
-                cursor.execute(
-                    "SELECT uid, sec_user_id, nickname, avatar_url, signature, follower_count, following_count FROM user_info_web WHERE uid = ?",
-                    (uid,),
-                )
-                user_data = cursor.fetchone()
-                conn.close()
-
-                if user_data:
-                    user_info = {
-                        "uid": uid,
-                        "sec_user_id": user_data[1],
-                        "name": user_data[2],
-                        "nickname": user_data[2],
-                        "avatar_url": user_data[3] or "",
-                        "signature": user_data[4] or "",
-                        "follower_count": user_data[5] or 0,
-                        "following_count": user_data[6] or 0,
-                        "video_count": 0,
-                        "last_updated": datetime.now().isoformat(),
-                        "last_fetch_time": old_user.get("last_fetch_time"),
-                    }
-                    new_users_dict[uid] = user_info
-            except Exception:
-                pass
-
-    new_users = list(new_users_dict.values())
-    if new_users:
-        save_following({"users": new_users})
-        logger.info(info(f"\n[同步] following.json 已更新，共 {len(new_users)} 个博主"))
 
 
 def _generate_data():
@@ -762,10 +648,6 @@ async def _download_with_stats(url: str, max_counts: int = None):
     # 更新 last_fetch_time
     if folder_name:
         _update_last_fetch_time(uid, nickname or folder_name)
-
-    # 同步 following.json
-    logger.info(info("[同步] 更新 following.json..."))
-    _sync_following()
 
     # 同步 V2 资产库
     if folder_name:

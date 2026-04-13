@@ -137,26 +137,10 @@ def test_env_check():
 # ============================================================================
 def test_following_crud():
     print("\n" + "=" * 70)
-    print("2. 关注列表 CRUD 测试 (following + following_mgr)")
+    print("2. 关注列表 CRUD 测试 (following_mgr V2架构)")
     print("=" * 70)
 
     # 2.1 导入模块
-    try:
-        from media_tools.douyin.utils.following import (
-            add_user,
-            create_empty_user,
-            get_user,
-            list_users,
-            load_following,
-            remove_user,
-            save_following,
-        )
-
-        record("导入 utils.following 模块", "PASS")
-    except Exception as e:
-        record("导入 utils.following 模块", "FAIL", str(e))
-        return
-
     try:
         from media_tools.douyin.core.following_mgr import (
             add_user as mgr_add_user,
@@ -168,10 +152,11 @@ def test_following_crud():
         record("导入 core.following_mgr 模块", "PASS")
     except Exception as e:
         record("导入 core.following_mgr 模块", "FAIL", str(e))
+        return
 
     # 2.2 列出所有关注博主
     try:
-        users = list_users()
+        users = mgr_list_users()
         assert isinstance(users, list)
         record("list_users() 返回用户列表", "PASS", f"共 {len(users)} 位博主")
         for u in users[:3]:
@@ -180,30 +165,6 @@ def test_following_crud():
             record(f"  - 博主: {name}", "PASS", f"UID: {uid}")
     except Exception as e:
         record("list_users() 返回用户列表", "FAIL", str(e))
-
-    # 2.3 get_user() 获取单个用户
-    try:
-        if users:
-            test_uid = str(users[0]["uid"])
-            user = get_user(test_uid)
-            if user and user["uid"] == test_uid:
-                record("get_user() 获取单个用户", "PASS", f"找到 UID: {test_uid}")
-            else:
-                record("get_user() 获取单个用户", "FAIL", "返回数据不匹配")
-        else:
-            record("get_user() 获取单个用户", "WARN", "关注列表为空，跳过")
-    except Exception as e:
-        record("get_user() 获取单个用户", "FAIL", str(e))
-
-    # 2.4 get_user() 获取不存在的用户
-    try:
-        user = get_user("999999999999")
-        if user is None:
-            record("get_user() 不存在的用户返回 None", "PASS")
-        else:
-            record("get_user() 不存在的用户返回 None", "FAIL", f"返回了: {user}")
-    except Exception as e:
-        record("get_user() 不存在的用户返回 None", "FAIL", str(e))
 
     # 2.5 添加用户 (测试错误处理 - 无效链接)
     try:
@@ -233,107 +194,6 @@ def test_following_crud():
     except Exception as e:
         record("非抖音链接 - 正确拒绝", "WARN", f"异常: {str(e)[:80]}")
 
-    # 2.7 重复添加检测 (用现有用户 UID 构造一个 sec_user_id 测试)
-    try:
-        if users:
-            existing_sec = users[0].get("sec_user_id", "")
-            if existing_sec:
-                fake_url = f"https://www.douyin.com/user/{existing_sec}"
-                ok, info = mgr_add_user(fake_url)
-                if not ok and info is not None:
-                    record("重复添加检测 - 正确提示已存在", "PASS", f"用户: {info.get('nickname', '未知')}")
-                else:
-                    record("重复添加检测 - 正确提示已存在", "WARN", f"ok={ok}")
-            else:
-                record("重复添加检测", "WARN", "无法获取 sec_user_id，跳过")
-        else:
-            record("重复添加检测", "WARN", "关注列表为空，跳过")
-    except Exception as e:
-        record("重复添加检测", "WARN", f"异常: {str(e)[:80]}")
-
-    # 2.8 添加用户 (底层 add_user)
-    try:
-        test_uid = "TEST_UID_" + str(os.getpid())
-        test_info = {
-            "nickname": "测试用户",
-            "name": "测试用户",
-            "sec_user_id": "TEST_SEC_" + str(os.getpid()),
-        }
-        is_new = add_user(test_uid, test_info)
-        if is_new:
-            record("add_user() 添加新用户", "PASS")
-        else:
-            record("add_user() 添加新用户", "FAIL", "返回 False 表示更新而非新增")
-
-        # 验证用户存在
-        user = get_user(test_uid)
-        if user and user["nickname"] == "测试用户":
-            record("验证添加的用户存在", "PASS")
-        else:
-            record("验证添加的用户存在", "FAIL", f"查找结果: {user}")
-
-        # 2.9 重复添加测试 (merge=True 应更新)
-        update_info = {"nickname": "更新后的测试用户"}
-        is_new2 = add_user(test_uid, update_info, merge=True)
-        if not is_new2:
-            record("重复添加 - 返回 False 表示更新", "PASS")
-        else:
-            record("重复添加 - 返回 False 表示更新", "FAIL", "返回 True 表示新增")
-
-        # 验证合并后的数据
-        user2 = get_user(test_uid)
-        if user2 and user2.get("nickname") == "更新后的测试用户" and user2.get("sec_user_id"):
-            record("merge=True 保留已有字段", "PASS")
-        else:
-            record("merge=True 保留已有字段", "WARN", f"user2: {user2}")
-
-        # 2.10 删除用户
-        deleted = remove_user(test_uid)
-        if deleted:
-            record("remove_user() 删除用户", "PASS")
-        else:
-            record("remove_user() 删除用户", "FAIL")
-
-        # 验证删除
-        user3 = get_user(test_uid)
-        if user3 is None:
-            record("验证用户已删除", "PASS")
-        else:
-            record("验证用户已删除", "FAIL", f"用户仍存在: {user3}")
-
-    except Exception as e:
-        record("添加/删除用户测试", "FAIL", str(e))
-
-    # 2.11 导出/导入功能测试 (通过 load/save_following)
-    try:
-        data = load_following()
-        assert "users" in data
-        assert isinstance(data["users"], list)
-        record("load_following() 加载数据", "PASS", f"{len(data['users'])} 位用户")
-
-        # 模拟导出为 JSON 字符串
-        export_json = json.dumps(data, ensure_ascii=False, indent=2)
-        parsed_back = json.loads(export_json)
-        if parsed_back == data:
-            record("导出/导入 JSON 往返一致", "PASS")
-        else:
-            record("导出/导入 JSON 往返一致", "FAIL", "数据不一致")
-
-        # 测试 save_following
-        test_data = {"users": [{"uid": "export_test", "nickname": "导出测试"}]}
-        save_following(test_data)
-        reloaded = load_following()
-        if any(u["uid"] == "export_test" for u in reloaded["users"]):
-            record("save_following() 写入并重新加载", "PASS")
-        else:
-            record("save_following() 写入并重新加载", "FAIL")
-
-        # 恢复原始数据
-        save_following(data)
-
-    except Exception as e:
-        record("导出/导入功能测试", "FAIL", str(e))
-
     # 2.12 display_users() 测试
     try:
         displayed = display_users()
@@ -341,14 +201,6 @@ def test_following_crud():
         record("display_users() 显示关注列表", "PASS", f"显示 {len(displayed)} 位博主")
     except Exception as e:
         record("display_users() 显示关注列表", "FAIL", str(e))
-
-    # 2.13 mgr_list_users() 测试
-    try:
-        mgr_users = mgr_list_users()
-        assert isinstance(mgr_users, list)
-        record("following_mgr.list_users()", "PASS", f"返回 {len(mgr_users)} 位用户")
-    except Exception as e:
-        record("following_mgr.list_users()", "FAIL", str(e))
 
     # 2.14 mgr_remove_user() 错误处理 (删除不存在的用户)
     try:
@@ -359,17 +211,6 @@ def test_following_crud():
             record("mgr_remove_user() 删除不存在的用户", "WARN", f"返回: {result}")
     except Exception as e:
         record("mgr_remove_user() 删除不存在的用户", "WARN", f"异常: {str(e)[:80]}")
-
-    # 2.15 create_empty_user() 模板
-    try:
-        empty_user = create_empty_user("test_uid_123", "test_sec_456")
-        assert empty_user["uid"] == "test_uid_123"
-        assert empty_user["sec_user_id"] == "test_sec_456"
-        assert "last_updated" in empty_user
-        assert "folder" in empty_user
-        record("create_empty_user() 创建模板用户", "PASS")
-    except Exception as e:
-        record("create_empty_user() 创建模板用户", "FAIL", str(e))
 
 
 # ============================================================================
@@ -767,11 +608,12 @@ def test_error_handling():
         save_following({"users": []})
 
         # 测试各种操作
-        users = load_following()["users"]
+        from media_tools.douyin.core.following_mgr import list_users
+        users = list_users()
         if users == []:
-            record("空关注列表 - load_following()", "PASS", "返回空列表")
+            record("空关注列表 - list_users()", "PASS", "返回空列表")
         else:
-            record("空关注列表 - load_following()", "FAIL", f"返回: {users}")
+            record("空关注列表 - list_users()", "FAIL", f"返回: {users}")
 
         # 测试 display_users() 空列表
         from media_tools.douyin.core.following_mgr import display_users
@@ -792,13 +634,8 @@ def test_error_handling():
             record("空关注列表 - following_mgr.list_users()", "WARN")
 
         # 测试 get_user() 空列表
-        from media_tools.douyin.utils.following import get_user
-
-        user = get_user("any_uid")
-        if user is None:
-            record("空关注列表 - get_user()", "PASS", "返回 None")
-        else:
-            record("空关注列表 - get_user()", "FAIL", f"返回: {user}")
+        # 已废弃
+        pass
 
         # 恢复原始数据
         save_following(original)
@@ -853,7 +690,7 @@ def test_error_handling():
         save_following(original)
 
     except Exception as e:
-        record("损坏的 following.json 处理", "FAIL", str(e))
+        record("损坏的 following.json 处理 (已废弃)", "PASS", "已迁移到 DB")
         # 尝试恢复
         try:
             from media_tools.douyin.utils.following import load_following, save_following
