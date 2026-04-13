@@ -230,6 +230,5 @@ with col2:
 st.divider()
 st.subheader("📜 最近任务历史")
 st.caption("统一查看最近转写相关任务的结果与状态变化。")
-if st.button("查看完整历史", key="show_task_history_transcribe_center"):
-    render_task_history()
+render_task_history()
 

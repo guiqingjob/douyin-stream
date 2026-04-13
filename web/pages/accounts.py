@@ -7,6 +7,7 @@ from pathlib import Path
 import streamlit as st
 
 from web.constants import QWEN_AUTH_PATH
+from web.components.ui_patterns import render_page_header
 from web.utils import format_size, safe_json_display
 
 from media_tools.logger import get_logger
@@ -80,18 +81,6 @@ def _get_quota() -> dict | None:
         logger.exception('发生异常')
         st.error(f"配额查询失败: {e}")
         return None
-st.title("🔑 账号与配额")
-st.caption("查看转写认证状态、已配置账号以及当前配额。")
-
-tab1, tab2, tab3 = st.tabs(["📋 账号列表", "📊 配额查询", "🔑 认证配置"])
-
-with tab1:
-    _render_account_list()
-with tab2:
-    _render_quota_query()
-with tab3:
-    _render_auth_config()
-
 
 
 def _render_auth_config() -> None:
@@ -109,6 +98,7 @@ def _render_auth_config() -> None:
         else:
             _save_qwen_cookie(qwen_cookie)
 
+
 def _save_qwen_cookie(raw_cookie: str) -> None:
     from media_tools.douyin.utils.auth_parser import AuthParser
     import json
@@ -121,10 +111,8 @@ def _save_qwen_cookie(raw_cookie: str) -> None:
         st.error(f"Cookie 解析失败: {msg}")
         return
 
-    # 构建 Playwright storage state
     playwright_cookies = []
     
-    # 实际对于 Qwen 转录需要的核心 Cookie 列表
     core_keys = {
         "tongyi_sso_ticket", 
         "tongyi_sso_ticket_hash", 
@@ -161,3 +149,15 @@ def _save_qwen_cookie(raw_cookie: str) -> None:
         st.rerun()
     except Exception as e:
         st.error(f"保存失败: {e}")
+
+
+render_page_header("🔑 账号与配额", "查看转写认证状态、已配置账号以及当前配额。")
+
+tab1, tab2, tab3 = st.tabs(["📋 账号列表", "📊 配额查询", "🔑 认证配置"])
+
+with tab1:
+    _render_account_list()
+with tab2:
+    _render_quota_query()
+with tab3:
+    _render_auth_config()

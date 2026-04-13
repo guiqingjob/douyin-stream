@@ -47,18 +47,15 @@ def render_task_table(limit: int = 10) -> None:
     render_table_section(
         table_data,
         empty_message="当前没有可展示的任务记录。",
-        hint="如需查看更多细节，可展开完整历史查看原始任务信息。",
+        hint="如需查看更多细节，可展开下方完整历史查看原始任务信息。",
     )
 
-    if st.button("📜 查看完整历史", key="view_full_history"):
+    with st.expander("📜 查看完整历史数据"):
         _render_full_history(history)
 
 
 def _render_full_history(history: list) -> None:
     """显示完整任务历史"""
-    st.divider()
-    st.subheader("完整任务历史")
-
     for i, task in enumerate(history):
         task_id = task.get("task_id", "未知")[:8]
         task_type = get_task_type_label(task.get("task_type", "未知"))
@@ -72,9 +69,8 @@ def _render_full_history(history: list) -> None:
         if message:
             st.write(message)
 
-        if st.button(f"查看详情 {i}", key=f"history_detail_{i}"):
-            with st.expander("完整任务信息", expanded=True):
-                safe_json_display(task)
+        with st.expander(f"查看详情 {task_id}"):
+            safe_json_display(task)
 
         if i < len(history) - 1:
             st.divider()

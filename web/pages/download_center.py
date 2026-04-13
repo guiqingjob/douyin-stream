@@ -121,7 +121,7 @@ def _render_current_task() -> None:
             "通常下一步是去素材库确认结果，或者直接进入转写中心继续处理。",
         )
         if st.button("🎙️ 去转写中心", use_container_width=False, key="go_transcribe_from_download"):
-            st.switch_page("web/pages/transcribe_center.py")
+            st.switch_page(PAGE_TRANSCRIBE)
 
 
 def _start_download_task(url: str, max_count: int) -> None:
@@ -210,6 +210,5 @@ with col2:
 st.divider()
 st.subheader("📜 最近任务历史")
 st.caption("统一查看最近下载相关任务的结果与状态变化。")
-if st.button("查看完整历史", key="show_task_history_download_center"):
-    render_task_history()
+render_task_history()
 

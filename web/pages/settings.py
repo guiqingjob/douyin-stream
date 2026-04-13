@@ -7,6 +7,7 @@ from pathlib import Path
 import streamlit as st
 
 from web.constants import PROJECT_ROOT, QWEN_AUTH_PATH
+from web.components.ui_patterns import render_page_header
 
 from media_tools.logger import get_logger
 logger = get_logger('web')
@@ -217,8 +218,7 @@ def _apply_preset(preset_name: str) -> bool:
     except Exception:
         logger.exception('发生异常')
         return False
-st.title("⚙️ 系统配置")
-st.caption("先做环境检测，再处理备份修复和预设应用。")
+render_page_header("⚙️ 系统配置", "先做环境检测，再处理备份修复和预设应用。")
 
 tab1, tab2, tab3 = st.tabs(["🔍 环境检测", "💾 配置管理", "📋 预设模板"])
 
@@ -228,5 +228,4 @@ with tab2:
     _render_config_management()
 with tab3:
     _render_presets()
-
 

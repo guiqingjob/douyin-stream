@@ -8,6 +8,7 @@ from pathlib import Path
 import streamlit as st
 
 from web.constants import DB_FILE, DOWNLOADS_DIR, LOGS_DIR, PROJECT_ROOT
+from web.components.ui_patterns import render_page_header
 from web.utils import format_size
 
 from media_tools.logger import get_logger
@@ -203,8 +204,7 @@ def _create_backup() -> tuple[bool, str]:
 
         logging.error(f"备份失败: {e}")
         return False, ""
-st.title("🗑️ 清理与备份")
-st.caption("释放本地空间、清理历史记录，并备份关键配置与数据。")
+render_page_header("🗑️ 清理与备份", "释放本地空间、清理历史记录，并备份关键配置与数据。")
 
 tab1, tab2, tab3, tab4 = st.tabs(["🎬 视频清理", "🗄️ 数据库清理", "📝 日志清理", "💾 备份/恢复"])
 
@@ -216,5 +216,4 @@ with tab3:
     _render_log_cleanup()
 with tab4:
     _render_backup_restore()
-
 
