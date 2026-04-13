@@ -152,7 +152,7 @@ cd /path/to/media-tools
 pip install -e .
 pip install streamlit
 playwright install chromium
-media-tools-web
+media-tools-web 
 ```
 
 启动后访问：`http://localhost:8501`
@@ -219,22 +219,20 @@ cp config/transcribe/.env.example config/transcribe/.env
 
 ```text
 media-tools/
-├── web_app.py                  # Streamlit Web 主入口
-├── cli.py                      # 旧版 CLI
-├── cli_v2.py                   # 场景化 CLI
 ├── pyproject.toml              # 项目配置
 ├── requirements.txt            # 基础依赖
 │
 ├── src/media_tools/
+│   ├── web/                    # Streamlit Web 应用
+│   │   ├── run.py              # Web 主入口 (media-tools-web)
+│   │   ├── pages/              # 页面模块
+│   │   ├── components/         # 通用组件
+│   │   └── utils.py            # Web 公共工具
+│   ├── cli_main.py             # 场景化 CLI (media-tools-cli)
 │   ├── douyin/                 # 抖音下载能力
 │   ├── transcribe/             # 转写能力
 │   ├── pipeline/               # 编排逻辑
 │   └── ...
-│
-├── web/
-│   ├── pages/                  # 页面模块
-│   ├── components/             # 通用组件
-│   └── utils.py                # Web 公共工具
 │
 ├── config/                     # 配置目录
 ├── downloads/                  # 素材输出目录

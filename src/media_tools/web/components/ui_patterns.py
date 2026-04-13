@@ -59,8 +59,8 @@ def render_empty_state(message: str, hint: str | None = None, icon: str = "✨")
     """渲染带图标/插画占位的统一空状态"""
     st.markdown(
         f"""
-        <div style="text-align: center; padding: 3rem 1rem; background: var(--mt-bg0); border-radius: 8px; border: 1px dashed var(--mt-border); margin: 1rem 0;">
-            <div style="font-size: 3rem; margin-bottom: 1rem; opacity: 0.8;">{icon}</div>
+        <div style="text-align: center; padding: 3rem 1rem; background: var(--mt-bg0); border-radius: 8px; border: 1px dashed var(--mt-border2); margin: 1rem 0;">
+            <div style="font-size: 3rem; margin-bottom: 1rem; opacity: 0.6;">{icon}</div>
             <h4 style="margin: 0 0 0.5rem 0; color: var(--mt-text); font-weight: 500;">{message}</h4>
             {f'<p style="margin: 0; color: var(--mt-text2); font-size: 14px;">{hint}</p>' if hint else ''}
         </div>

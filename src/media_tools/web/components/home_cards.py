@@ -92,13 +92,12 @@ def render_home_status_cards() -> dict:
     status["storage_total"] = total_size
 
     # 显示状态卡片
-    col1, col2, col3, col4 = st.columns(4)
-
+    col1, col2 = st.columns(2)
     with col1:
         st.metric(
             "抖音下载认证",
             "已就绪" if status["cookie_ok"] else "待配置",
-            delta="Cookie 可用" if status["cookie_ok"] else "需要 Cookie",
+            delta="Cookie 可用" if status["cookie_ok"] else "缺 Cookie",
             border=True,
         )
 
@@ -106,10 +105,11 @@ def render_home_status_cards() -> dict:
         st.metric(
             "转写认证状态",
             "已就绪" if status["qwen_ok"] else "待配置",
-            delta="Qwen 可用" if status["qwen_ok"] else "需要认证",
+            delta="Qwen 可用" if status["qwen_ok"] else "缺认证",
             border=True,
         )
 
+    col3, col4 = st.columns(2)
     with col3:
         st.metric(
             "本地素材数",
