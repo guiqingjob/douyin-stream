@@ -3,118 +3,155 @@
 """
 
 from pathlib import Path
+import json
+import sqlite3
+import asyncio
+import datetime
 
 import streamlit as st
 
 from media_tools.web.constants import QWEN_AUTH_PATH
 from media_tools.web.components.ui_patterns import render_page_header
 from media_tools.web.utils import format_size, safe_json_display
-
 from media_tools.logger import get_logger
+from media_tools.douyin.core.config_mgr import ConfigManager, get_config
+from media_tools.douyin.utils.auth_parser import AuthParser
+from media_tools.transcribe.quota import get_quota_snapshot
+
 logger = get_logger('web')
 
+# ---- 状态检查函数 ----
 
+def _check_douyin_status() -> bool:
+    """检查抖音是否已配置有效 Cookie"""
+    cfg = ConfigManager()
+    return cfg.has_cookie()
 
-# render_accounts
-"""渲染账号与配额页面"""
-def _render_account_list() -> None:
-    """渲染账号列表"""
-    st.subheader("已配置的转写账号")
-
-    accounts_config = Path("config/transcribe/accounts.json")
-    if accounts_config.exists():
-        import json
-
-        with open(accounts_config, encoding="utf-8") as f:
-            accounts = json.load(f)
-
-        if isinstance(accounts, list) and accounts:
-            st.success(f"已检测到 {len(accounts)} 个转写账号配置")
-            for i, acc in enumerate(accounts):
-                with st.expander(f"账号 {i + 1}: {acc.get('id', 'unknown')}"):
-                    st.json(acc)
-        else:
-            st.info("账号文件存在，但未发现可用的多账号配置。")
-    else:
-        st.info("当前使用默认单账号模式。")
-        if QWEN_AUTH_PATH.exists():
-            st.success(f"✅ 已检测到认证文件：{QWEN_AUTH_PATH.name}")
-            st.caption(f"文件大小：{format_size(QWEN_AUTH_PATH.stat().st_size)}")
-        else:
-            st.error("❌ 未检测到转写认证文件，请先完成认证。")
-
-
-def _render_quota_query() -> None:
-    """渲染配额查询"""
-    st.subheader("转写配额")
-    st.caption("如果查询失败，优先检查认证状态是否有效。")
-
-    if st.button("查询当前配额", type="primary"):
-        with st.spinner("正在查询..."):
-            quota = _get_quota()
-            if quota:
-                safe_json_display(quota)
-            else:
-                st.warning("无法获取配额，请确认已完成认证且认证仍有效。")
-
-
-def _get_quota() -> dict | None:
-    """获取配额信息"""
+def _check_qwen_status() -> bool:
+    """检查 Qwen 是否已配置且有效"""
+    if not QWEN_AUTH_PATH.exists():
+        return False
     try:
-        import asyncio
+        with open(QWEN_AUTH_PATH, 'r', encoding='utf-8') as f:
+            data = json.load(f)
+            return bool(data.get('cookies'))
+    except:
+        return False
 
-        from media_tools.transcribe.quota import get_quota_snapshot
-
-        if not QWEN_AUTH_PATH.exists():
-            return None
-
+def _get_qwen_quota() -> dict | None:
+    """获取 Qwen 配额"""
+    if not _check_qwen_status():
+        return None
+    try:
         async def _fetch():
             return await get_quota_snapshot(auth_state_path=str(QWEN_AUTH_PATH))
-
+        
         snapshot = asyncio.run(_fetch())
         return {
-            "used_minutes": snapshot.used_minutes if hasattr(snapshot, "used_minutes") else 0,
-            "total_minutes": snapshot.total_minutes if hasattr(snapshot, "total_minutes") else 0,
-            "remaining_minutes": snapshot.remaining_minutes if hasattr(snapshot, "remaining_minutes") else 0,
+            "used_minutes": getattr(snapshot, "used_minutes", 0),
+            "total_minutes": getattr(snapshot, "total_minutes", 0),
+            "remaining_minutes": getattr(snapshot, "remaining_minutes", 0),
         }
     except Exception as e:
-        logger.exception('发生异常')
-        st.error(f"配额查询失败: {e}")
+        logger.exception('获取配额异常')
         return None
 
+# ---- 卡片渲染函数 ----
 
-def _render_auth_config() -> None:
-    """渲染手动认证配置"""
-    st.subheader("手动认证配置")
-    st.caption("您可以直接从浏览器复制 Cookie 并粘贴到此处。所有认证信息将统一存储在 `.auth/` 目录下。")
-
-    st.markdown("#### 抖音 Cookie")
-    st.markdown("1. 登录 [抖音网页版](https://www.douyin.com)\n2. 打开开发者工具 (F12) -> Network\n3. 找到任意请求，复制 `Cookie` 请求头\n4. 粘贴到下方：")
+def _render_douyin_card() -> None:
+    is_ok = _check_douyin_status()
+    status_icon = "✅ 正常" if is_ok else "❌ 未认证"
+    status_color = "var(--mt-ok)" if is_ok else "var(--mt-danger)"
     
-    douyin_cookie = st.text_area("抖音 Cookie", placeholder="sessionid=...; ttwid=...", key="douyin_cookie_input")
-    if st.button("保存抖音认证", type="primary"):
-        if not douyin_cookie:
-            st.warning("请输入抖音 Cookie")
-        else:
-            _save_douyin_cookie(douyin_cookie)
+    with st.container(border=True):
+        col1, col2 = st.columns([1, 1])
+        with col1:
+            st.markdown(f"### 🎵 抖音 (Douyin)")
+        with col2:
+            st.markdown(f"<div style='text-align: right; color: {status_color}; font-weight: 600; margin-top: 8px;'>状态：{status_icon}</div>", unsafe_allow_html=True)
             
-    st.divider()
+        st.divider()
+        
+        info_col, _ = st.columns([1, 1])
+        with info_col:
+            st.caption("认证方式：Cookie")
+            st.caption("存储位置：ConfigManager (config/config.yaml)")
+            if is_ok:
+                cfg = ConfigManager()
+                c = cfg.get_cookie() or ""
+                st.caption(f"当前 Cookie: `{c[:30]}...`")
+                
+        with st.expander("更新抖音认证", expanded=not is_ok):
+            st.markdown("1. 登录 [抖音网页版](https://www.douyin.com)\n2. 打开开发者工具 (F12) -> Network\n3. 找到任意请求，复制 `Cookie` 请求头\n4. 粘贴到下方：")
+            douyin_cookie = st.text_area("抖音 Cookie", placeholder="sessionid=...; ttwid=...", key="douyin_cookie_input", label_visibility="collapsed")
+            if st.button("保存并验证抖音认证", type="primary", use_container_width=True):
+                if not douyin_cookie:
+                    st.warning("请输入抖音 Cookie")
+                else:
+                    _save_douyin_cookie(douyin_cookie)
 
-    st.markdown("#### Qwen (通义千问) Cookie")
-    st.markdown("1. 登录 [通义千问](https://www.qianwen.com)\n2. 打开开发者工具 (F12) -> Network\n3. 找到任意请求，复制 `Cookie` 请求头\n4. 粘贴到下方：")
+def _render_qwen_card() -> None:
+    is_ok = _check_qwen_status()
+    status_icon = "✅ 正常" if is_ok else "❌ 未认证"
+    status_color = "var(--mt-ok)" if is_ok else "var(--mt-danger)"
+    
+    with st.container(border=True):
+        col1, col2 = st.columns([1, 1])
+        with col1:
+            st.markdown(f"### 🤖 通义千问 (Qwen)")
+        with col2:
+            st.markdown(f"<div style='text-align: right; color: {status_color}; font-weight: 600; margin-top: 8px;'>状态：{status_icon}</div>", unsafe_allow_html=True)
+            
+        st.divider()
+        
+        # 配额展示区
+        if is_ok:
+            with st.spinner("获取配额中..."):
+                quota = _get_qwen_quota()
+            if quota:
+                q1, q2, q3 = st.columns(3)
+                q1.metric("剩余额度 (分钟)", f"{quota['remaining_minutes']:.1f}")
+                q2.metric("已用额度 (分钟)", f"{quota['used_minutes']:.1f}")
+                q3.metric("总额度 (分钟)", f"{quota['total_minutes']:.1f}")
+            else:
+                st.caption("⚠️ 无法获取当前配额，可能 Cookie 已过期。")
+            st.divider()
+            
+        info_col, account_col = st.columns([1, 1])
+        with info_col:
+            st.caption("认证方式：Playwright State")
+            st.caption(f"存储位置：SQLite & `.auth/{QWEN_AUTH_PATH.name}`")
+            
+        with account_col:
+            # 检查多账号池
+            accounts_config = Path("config/transcribe/accounts.json")
+            if accounts_config.exists():
+                try:
+                    with open(accounts_config, encoding="utf-8") as f:
+                        accs = json.load(f)
+                    if isinstance(accs, list) and len(accs) > 0:
+                        st.caption(f"**多账号池**：检测到 {len(accs)} 个备用账号。")
+                        with st.popover("查看备用账号"):
+                            for i, acc in enumerate(accs):
+                                acc_id = acc.get('id', f'账号_{i+1}')
+                                st.markdown(f"- `{acc_id}`")
+                except:
+                    pass
+            else:
+                st.caption("**多账号池**：当前为单账号模式。")
 
-    qwen_cookie = st.text_area("Qwen Cookie", placeholder="tongyi_sso_ticket=...; login_aliyunid_ticket=...", key="qwen_cookie_input")
-    if st.button("保存 Qwen 认证", type="primary"):
-        if not qwen_cookie:
-            st.warning("请输入 Qwen Cookie")
-        else:
-            _save_qwen_cookie(qwen_cookie)
+        with st.expander("更新主账号认证", expanded=not is_ok):
+            st.markdown("1. 登录 [通义千问](https://www.qianwen.com)\n2. 打开开发者工具 (F12) -> Network\n3. 找到任意请求，复制 `Cookie` 请求头\n4. 粘贴到下方：")
+            qwen_cookie = st.text_area("Qwen Cookie", placeholder="tongyi_sso_ticket=...; login_aliyunid_ticket=...", key="qwen_cookie_input", label_visibility="collapsed")
+            if st.button("保存并验证 Qwen 认证", type="primary", use_container_width=True):
+                if not qwen_cookie:
+                    st.warning("请输入 Qwen Cookie")
+                else:
+                    _save_qwen_cookie(qwen_cookie)
 
+# ---- 保存逻辑 ----
 
 def _save_douyin_cookie(raw_cookie: str) -> None:
-    from media_tools.douyin.utils.auth_parser import AuthParser
-    from media_tools.douyin.core.config_mgr import ConfigManager
-    
     parser = AuthParser()
     success, msg, cookies_dict = parser.validate_data(raw_cookie, "cookie", "douyin")
     
@@ -131,12 +168,7 @@ def _save_douyin_cookie(raw_cookie: str) -> None:
     except Exception as e:
         st.error(f"保存失败: {e}")
 
-
 def _save_qwen_cookie(raw_cookie: str) -> None:
-    from media_tools.douyin.utils.auth_parser import AuthParser
-    import json
-    from media_tools.web.constants import QWEN_AUTH_PATH
-
     parser = AuthParser()
     success, msg, cookies_dict = parser.validate_data(raw_cookie, "cookie", "qwen")
     
@@ -145,39 +177,18 @@ def _save_qwen_cookie(raw_cookie: str) -> None:
         return
 
     playwright_cookies = []
-    
-    core_keys = {
-        "tongyi_sso_ticket", 
-        "tongyi_sso_ticket_hash", 
-        "login_aliyunid_ticket", 
-        "cookie2", 
-        "XSRF-TOKEN", 
-        "atpsida",
-        "cna"
-    }
+    core_keys = {"tongyi_sso_ticket", "tongyi_sso_ticket_hash", "login_aliyunid_ticket", "cookie2", "XSRF-TOKEN", "atpsida", "cna"}
     
     for k, v in cookies_dict.items():
         if k in core_keys or "tongyi" in k.lower():
             playwright_cookies.append({
-                "name": k,
-                "value": v,
-                "domain": ".qianwen.com",
-                "path": "/",
-                "expires": -1,
-                "httpOnly": False,
-                "secure": False,
-                "sameSite": "Lax"
+                "name": k, "value": v, "domain": ".qianwen.com", "path": "/",
+                "expires": -1, "httpOnly": False, "secure": False, "sameSite": "Lax"
             })
 
-    state = {
-        "cookies": playwright_cookies,
-        "origins": []
-    }
+    state = {"cookies": playwright_cookies, "origins": []}
 
     try:
-        import sqlite3
-        import datetime
-        from media_tools.douyin.core.config_mgr import get_config
         db_path = get_config().get_db_path()
         with sqlite3.connect(db_path) as conn:
             cursor = conn.cursor()
@@ -187,24 +198,19 @@ def _save_qwen_cookie(raw_cookie: str) -> None:
             )
             conn.commit()
             
-        # 仍然写入一份兼容性文件，以免旧代码断裂
         QWEN_AUTH_PATH.parent.mkdir(parents=True, exist_ok=True)
         with open(QWEN_AUTH_PATH, "w", encoding="utf-8") as f:
             json.dump(state, f, indent=2)
             
-        st.success("✅ Qwen 认证已保存！(已简化并存入数据库)")
+        st.success("✅ Qwen 认证已保存！")
         st.rerun()
     except Exception as e:
         st.error(f"保存失败: {e}")
 
+# ---- 主渲染逻辑 ----
 
-render_page_header("🔑 账号与配额", "查看转写认证状态、已配置账号以及当前配额。")
+render_page_header("🔑 账号与认证", "管理系统依赖的所有平台账号与 Cookie 授权。")
 
-tab1, tab2, tab3 = st.tabs(["📋 账号列表", "📊 配额查询", "🔑 认证配置"])
-
-with tab1:
-    _render_account_list()
-with tab2:
-    _render_quota_query()
-with tab3:
-    _render_auth_config()
+_render_douyin_card()
+st.write("") # 增加间距
+_render_qwen_card()
