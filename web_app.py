@@ -46,10 +46,10 @@ init_project_dirs()
 
 import streamlit as st
 
-from web.pages.dashboard import render_dashboard
-from web.pages.following import render_following
-from web.pages.download import render_download
-from web.pages.transcribe import render_transcribe
+from web.pages.home import render_home
+from web.pages.following_mgmt import render_following_mgmt
+from web.pages.download_center import render_download_center
+from web.pages.transcribe_center import render_transcribe_center
 from web.pages.accounts import render_accounts
 from web.pages.cleanup import render_cleanup
 from web.pages.settings import render_settings
@@ -73,10 +73,10 @@ render_onboarding()
 # 侧边栏导航
 # ─────────────────────────────────────────────
 PAGES = [
-    "📊 仪表盘",
-    "👤 关注管理",
-    "📥 下载任务",
-    "🎙️ 转写任务",
+    "🏠 首页",
+    "📥 下载中心",
+    "🎙️ 转写中心",
+    "👥 关注管理",
     "🔑 账号管理",
     "🗑️ 数据清理",
     "⚙️ 系统设置",
@@ -109,14 +109,14 @@ with st.sidebar:
 # ─────────────────────────────────────────────
 # 页面路由
 # ─────────────────────────────────────────────
-if st.session_state.current_page == "📊 仪表盘":
-    render_dashboard()
-elif st.session_state.current_page == "👤 关注管理":
-    render_following()
-elif st.session_state.current_page == "📥 下载任务":
-    render_download()
-elif st.session_state.current_page == "🎙️ 转写任务":
-    render_transcribe()
+if st.session_state.current_page == "🏠 首页":
+    render_home()
+elif st.session_state.current_page == "📥 下载中心":
+    render_download_center()
+elif st.session_state.current_page == "🎙️ 转写中心":
+    render_transcribe_center()
+elif st.session_state.current_page == "👥 关注管理":
+    render_following_mgmt()
 elif st.session_state.current_page == "🔑 账号管理":
     render_accounts()
 elif st.session_state.current_page == "🗑️ 数据清理":
