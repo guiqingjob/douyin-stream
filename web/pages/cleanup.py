@@ -150,7 +150,7 @@ def _render_backup_restore() -> None:
     **备份内容包含：**
     - 关注列表 (`config/following.json`)
     - 配置文件 (`config/config.yaml`)
-    - 数据库 (`douyin_users.db`)
+    - 数据库 (`media_tools.db`)
     - 认证文件 (`.auth/` 目录)
     """
     )
@@ -212,7 +212,7 @@ def _restore_backup(uploaded_file) -> tuple[bool, str]:
             
         # 3. 验证并覆盖现有目录
         restored_items = []
-        for item in ["config", ".auth", "douyin_users.db"]:
+        for item in ["config", ".auth", "media_tools.db"]:
             source_item = extract_dir / item
             target_item = PROJECT_ROOT / item
             
@@ -271,7 +271,7 @@ def _create_backup() -> tuple[bool, str]:
         items_to_backup = [
             ("config", "config"),
             (".auth", ".auth"),
-            ("douyin_users.db", "douyin_users.db"),
+            ("media_tools.db", "media_tools.db"),
         ]
 
         with zipfile.ZipFile(backup_filename, "w", zipfile.ZIP_DEFLATED) as zipf:

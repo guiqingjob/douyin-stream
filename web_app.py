@@ -23,6 +23,11 @@ if SCRIPTS_DIR.exists() and str(SCRIPTS_DIR) not in sys.path:
     sys.path.insert(0, str(SCRIPTS_DIR))
 
 
+from media_tools.logger import get_logger
+from media_tools.db.core import init_db
+
+logger = get_logger("web")
+
 # ─────────────────────────────────────────────
 # 项目初始化：自动创建必需目录
 # ─────────────────────────────────────────────
@@ -41,6 +46,13 @@ def init_project_dirs():
         if not dir_path.exists():
             dir_path.mkdir(parents=True, exist_ok=True)
             print(f"✅ 创建目录: {dir_path}")
+            
+    # 初始化 V2 数据库
+    try:
+        from web.constants import DB_FILE
+        init_db(DB_FILE)
+    except Exception as e:
+        print(f"❌ 数据库初始化失败: {e}")
 
 
 init_project_dirs()

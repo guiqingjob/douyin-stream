@@ -140,7 +140,7 @@ class HealthChecker:
         """检查数据库"""
         console.print("\n[bold]🗄️  检查数据库...[/bold]\n")
 
-        db_file = Path("douyin_users.db")
+        db_file = Path("media_tools.db")
         if db_file.exists():
             size = db_file.stat().st_size
             console.print(f"  [green]✓[/green] 数据库文件: {size / 1024:.1f} KB")

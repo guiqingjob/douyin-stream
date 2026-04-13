@@ -168,7 +168,7 @@ def get_db_path() -> Path:
     Returns:
         数据库路径
     """
-    return PROJECT_ROOT / "douyin_users.db"
+    return PROJECT_ROOT / "media_tools.db"
 
 
 def get_following_path() -> Path:

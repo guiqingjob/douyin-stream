@@ -119,9 +119,9 @@ class ConfigManager:
         if path:
             return Path(path)
 
-        # 默认使用项目根目录下的 douyin_users.db
+        # 默认使用项目根目录下的 media_tools.db
         project_root = Path(__file__).parent.parent.parent.parent.parent.resolve()
-        return project_root / "douyin_users.db"
+        return project_root / "media_tools.db"
 
     def get_naming(self):
         """获取文件命名格式"""

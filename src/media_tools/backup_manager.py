@@ -90,9 +90,9 @@ class BackupManager:
 
         # 备份数据库
         if include_database:
-            db_file = self.project_root / "douyin_users.db"
+            db_file = self.project_root / "media_tools.db"
             if db_file.exists():
-                dest = backup_path / "douyin_users.db"
+                dest = backup_path / "media_tools.db"
                 shutil.copy2(db_file, dest)
                 size = dest.stat().st_size
                 total_files += 1
@@ -183,9 +183,9 @@ class BackupManager:
 
         # 恢复数据库
         if restore_database:
-            src = backup_path / "douyin_users.db"
+            src = backup_path / "media_tools.db"
             if src.exists():
-                dest = self.project_root / "douyin_users.db"
+                dest = self.project_root / "media_tools.db"
                 shutil.copy2(src, dest)
                 console.print(f"[green]✓[/green] 恢复数据库")
 

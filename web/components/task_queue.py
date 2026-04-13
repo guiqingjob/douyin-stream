@@ -1,39 +1,28 @@
 """
-后台任务队列组件 - 基于状态文件的轮询机制
+后台任务队列组件 - 基于 SQLite 的多任务队列机制
 
 当前能力：
-1. 页面提交任务 → 写入 task_state.json
-2. 后台线程执行任务，定时更新状态文件
-3. 前端页面轮询状态文件，显示当前任务与历史记录
-
-说明：
-- 当前更接近“单任务后台执行 + 历史记录”，并非完整多任务队列。
+1. 页面提交任务 → 写入 media_tools.db (task_queue)
+2. 后台线程执行任务，更新数据库状态
+3. 前端页面轮询数据库，显示当前任务与历史记录
 """
 
 import json
+import sqlite3
 import threading
 from datetime import datetime
-from pathlib import Path
 from typing import Any, Callable
 
-from web.constants import PROJECT_ROOT, TASK_STATE_FILE
-
+from media_tools.douyin.core.config_mgr import get_config
 from media_tools.logger import get_logger
+
 logger = get_logger('web')
 
-
-
-# 线程锁，防止并发读写状态文件时的竞态条件
-_state_lock = threading.Lock()
-
-# 任务取消标志
+# 任务取消标志（暂保留用于简单的全局单任务取消，若要细化需按 task_id）
 _cancel_flag = threading.Event()
 
-
-def _get_state_file() -> Path:
-    """获取状态文件路径"""
-    return TASK_STATE_FILE
-
+def _get_db_path():
+    return get_config().get_db_path()
 
 def create_task(
     task_id: str,
@@ -41,43 +30,95 @@ def create_task(
     description: str = "",
 ) -> dict:
     """创建新任务状态"""
+    now = datetime.now().isoformat()
     return {
         "task_id": task_id,
         "task_type": task_type,
         "description": description,
-        "status": "pending",  # pending/running/success/failed
-        "progress": 0.0,  # 0.0 - 1.0
+        "status": "pending",
+        "progress": 0.0,
         "message": "等待执行",
         "result": None,
         "error": None,
-        "created_at": datetime.now().isoformat(),
-        "updated_at": datetime.now().isoformat(),
+        "created_at": now,
+        "updated_at": now,
     }
 
-
 def save_task_state(task_state: dict) -> None:
-    """保存任务状态到文件（线程安全）"""
+    """保存任务状态到数据库"""
     task_state["updated_at"] = datetime.now().isoformat()
-    state_file = _get_state_file()
-    state_file.parent.mkdir(parents=True, exist_ok=True)
-    with _state_lock:
-        with open(state_file, "w", encoding="utf-8") as f:
-            json.dump(task_state, f, ensure_ascii=False, indent=2)
-
+    try:
+        with sqlite3.connect(_get_db_path()) as conn:
+            cursor = conn.cursor()
+            
+            # 由于 payload 可能是任意复杂结构，提取需要存入 json 字段的数据
+            payload = {
+                "description": task_state.get("description", ""),
+                "message": task_state.get("message", ""),
+                "result": task_state.get("result"),
+                "error": task_state.get("error"),
+                "completed_at": task_state.get("completed_at")
+            }
+            
+            cursor.execute('''
+                INSERT OR REPLACE INTO task_queue 
+                (task_id, task_type, payload, status, progress, error_msg, create_time, update_time)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+            ''', (
+                task_state["task_id"],
+                task_state["task_type"],
+                json.dumps(payload, ensure_ascii=False),
+                task_state["status"].upper(),
+                task_state.get("progress", 0.0),
+                task_state.get("error", ""),
+                task_state.get("created_at"),
+                task_state["updated_at"]
+            ))
+            conn.commit()
+    except Exception as e:
+        logger.error(f"保存任务状态失败: {e}")
 
 def load_task_state() -> dict | None:
-    """读取当前任务状态（线程安全）"""
-    state_file = _get_state_file()
-    if not state_file.exists():
-        return None
+    """读取当前（最新）任务状态"""
     try:
-        with _state_lock:
-            with open(state_file, encoding="utf-8") as f:
-                return json.load(f)
-    except Exception:
-        logger.exception('发生异常')
+        with sqlite3.connect(_get_db_path()) as conn:
+            cursor = conn.cursor()
+            # 优先获取正在运行或等待的任务，如果没有，取最新的一个
+            cursor.execute('''
+                SELECT task_id, task_type, payload, status, progress, error_msg, create_time, update_time
+                FROM task_queue
+                ORDER BY 
+                    CASE WHEN status IN ('PENDING', 'RUNNING') THEN 0 ELSE 1 END,
+                    update_time DESC
+                LIMIT 1
+            ''')
+            row = cursor.fetchone()
+            if not row:
+                return None
+                
+            payload = {}
+            if row[2]:
+                try:
+                    payload = json.loads(row[2])
+                except:
+                    pass
+                    
+            return {
+                "task_id": row[0],
+                "task_type": row[1],
+                "description": payload.get("description", ""),
+                "status": row[3].lower(),
+                "progress": row[4],
+                "message": payload.get("message", ""),
+                "result": payload.get("result"),
+                "error": row[5] or payload.get("error"),
+                "created_at": row[6],
+                "updated_at": row[7],
+                "completed_at": payload.get("completed_at")
+            }
+    except Exception as e:
+        logger.error(f"读取任务状态失败: {e}")
         return None
-
 
 def update_task_progress(
     progress: float,
@@ -94,7 +135,6 @@ def update_task_progress(
         state["message"] = message
     save_task_state(state)
 
-
 def mark_task_success(result: Any = None, message: str = "任务完成") -> None:
     """标记任务成功"""
     state = load_task_state()
@@ -106,8 +146,6 @@ def mark_task_success(result: Any = None, message: str = "任务完成") -> None
     state["result"] = result
     state["completed_at"] = datetime.now().isoformat()
     save_task_state(state)
-    _save_to_history(state)
-
 
 def mark_task_failed(error: str) -> None:
     """标记任务失败"""
@@ -119,30 +157,26 @@ def mark_task_failed(error: str) -> None:
     state["error"] = error
     state["completed_at"] = datetime.now().isoformat()
     save_task_state(state)
-    _save_to_history(state)
-
 
 def clear_task_state() -> None:
-    """清除任务状态"""
-    state_file = _get_state_file()
-    if state_file.exists():
-        state_file.unlink()
-
+    """清除当前活动任务状态（在 DB 中，可以将其标记为 CANCELLED）"""
+    state = load_task_state()
+    if state and state["status"] in ("pending", "running"):
+        state["status"] = "cancelled"
+        save_task_state(state)
 
 def cancel_task() -> None:
     """取消当前任务"""
     _cancel_flag.set()
-
+    clear_task_state()
 
 def is_task_cancelled() -> bool:
     """检查是否取消"""
     return _cancel_flag.is_set()
 
-
 def reset_cancel_flag() -> None:
     """重置取消标志"""
     _cancel_flag.clear()
-
 
 def run_task_in_background(
     task_func: Callable,
@@ -153,13 +187,7 @@ def run_task_in_background(
     *args,
     **kwargs,
 ) -> None:
-    """在后台线程中执行任务
-
-    约定：
-    - `task_func` 负责执行业务并返回结果
-    - 业务函数内部可调用 `update_task_progress()` 更新进度
-    - 成功/失败状态由此包装器统一写入，避免重复覆盖状态
-    """
+    """在后台线程中执行任务"""
     reset_cancel_flag()
     initial_state = create_task(task_id, task_type, description)
     save_task_state(initial_state)
@@ -175,7 +203,7 @@ def run_task_in_background(
             result = task_func(*args, **kwargs)
 
             current_state = load_task_state()
-            if current_state and current_state.get("status") in {"success", "failed"}:
+            if current_state and current_state.get("status") in {"success", "failed", "cancelled"}:
                 return
 
             if is_task_cancelled():
@@ -186,7 +214,7 @@ def run_task_in_background(
         except Exception as e:
             logger.exception('发生异常')
             current_state = load_task_state()
-            if current_state and current_state.get("status") in {"success", "failed"}:
+            if current_state and current_state.get("status") in {"success", "failed", "cancelled"}:
                 return
 
             if is_task_cancelled():
@@ -197,49 +225,40 @@ def run_task_in_background(
     thread = threading.Thread(target=_worker, daemon=True)
     thread.start()
 
-
-def _get_history_file() -> Path:
-    """获取历史记录文件路径"""
-    return PROJECT_ROOT / ".task_history.jsonl"
-
-
-def _save_to_history(state: dict) -> None:
-    """保存任务状态到历史记录（JSONL 格式）"""
-    try:
-        history_file = _get_history_file()
-        with open(history_file, "a", encoding="utf-8") as f:
-            f.write(json.dumps(state, ensure_ascii=False) + "\n")
-    except Exception:
-        logger.exception('发生异常')
-        pass
-
-
 def load_task_history(limit: int = 10) -> list[dict]:
-    """加载任务历史记录
-
-    Args:
-        limit: 返回最近的 N 条记录
-
-    Returns:
-        任务历史列表（最新在前）
-    """
-    history_file = _get_history_file()
-    if not history_file.exists():
-        return []
-
+    """加载任务历史记录"""
     try:
-        with open(history_file, "r", encoding="utf-8") as f:
-            lines = f.readlines()
-
-        recent_lines = lines[-limit:]
-        history = []
-        for line in reversed(recent_lines):
-            try:
-                history.append(json.loads(line.strip()))
-            except json.JSONDecodeError:
-                continue
-
-        return history
-    except Exception:
-        logger.exception('发生异常')
+        with sqlite3.connect(_get_db_path()) as conn:
+            cursor = conn.cursor()
+            cursor.execute('''
+                SELECT task_id, task_type, payload, status, progress, error_msg, create_time, update_time
+                FROM task_queue
+                ORDER BY update_time DESC
+                LIMIT ?
+            ''', (limit,))
+            
+            history = []
+            for row in cursor.fetchall():
+                payload = {}
+                if row[2]:
+                    try:
+                        payload = json.loads(row[2])
+                    except:
+                        pass
+                history.append({
+                    "task_id": row[0],
+                    "task_type": row[1],
+                    "description": payload.get("description", ""),
+                    "status": row[3].lower(),
+                    "progress": row[4],
+                    "message": payload.get("message", ""),
+                    "result": payload.get("result"),
+                    "error": row[5] or payload.get("error"),
+                    "created_at": row[6],
+                    "updated_at": row[7],
+                    "completed_at": payload.get("completed_at")
+                })
+            return history
+    except Exception as e:
+        logger.error(f"读取任务历史失败: {e}")
         return []

@@ -26,7 +26,7 @@ LOGS_DIR = PROJECT_ROOT / "logs"
 TASK_STATE_FILE = PROJECT_ROOT / ".task_state.json"
 
 # 数据库文件
-DB_FILE = PROJECT_ROOT / "douyin_users.db"
+DB_FILE = PROJECT_ROOT / "media_tools.db"
 
 # 页面标签
 PAGE_HOME = "🏠 工作台"

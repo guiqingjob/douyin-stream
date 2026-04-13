@@ -175,10 +175,24 @@ def _save_qwen_cookie(raw_cookie: str) -> None:
     }
 
     try:
+        import sqlite3
+        import datetime
+        from media_tools.douyin.core.config_mgr import get_config
+        db_path = get_config().get_db_path()
+        with sqlite3.connect(db_path) as conn:
+            cursor = conn.cursor()
+            cursor.execute(
+                "INSERT OR REPLACE INTO auth_credentials (platform, auth_data, is_valid, last_check_time) VALUES (?, ?, ?, ?)",
+                ("qwen", json.dumps(state), True, datetime.datetime.now())
+            )
+            conn.commit()
+            
+        # 仍然写入一份兼容性文件，以免旧代码断裂
         QWEN_AUTH_PATH.parent.mkdir(parents=True, exist_ok=True)
         with open(QWEN_AUTH_PATH, "w", encoding="utf-8") as f:
             json.dump(state, f, indent=2)
-        st.success("✅ Qwen 认证已保存！(已简化为核心 Cookie)")
+            
+        st.success("✅ Qwen 认证已保存！(已简化并存入数据库)")
         st.rerun()
     except Exception as e:
         st.error(f"保存失败: {e}")

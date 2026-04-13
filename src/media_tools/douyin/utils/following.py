@@ -17,7 +17,7 @@ from .logger import logger
 # 获取项目根目录（src/media_tools/douyin/utils/ 的上 4 级）
 PROJECT_ROOT = Path(__file__).parent.parent.parent.parent.parent.resolve()
 FOLLOWING_PATH = PROJECT_ROOT / "config" / "following.json"
-DB_PATH = PROJECT_ROOT / "douyin_users.db"
+DB_PATH = PROJECT_ROOT / "media_tools.db"
 
 # 导入配置工具
 try:

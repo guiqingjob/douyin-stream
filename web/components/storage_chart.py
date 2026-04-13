@@ -74,7 +74,7 @@ def _get_other_size() -> int:
                 pass
     
     # 加上数据库文件
-    db_file = PROJECT_ROOT / "douyin_users.db"
+    db_file = PROJECT_ROOT / "media_tools.db"
     if db_file.exists():
         total += db_file.stat().st_size
     

@@ -123,7 +123,26 @@ async def get_quota_snapshot(
     referer: str = "https://www.qianwen.com/discover/audioread",
 ) -> QuotaSnapshot:
     async with async_playwright() as playwright:
-        api = await playwright.request.new_context(storage_state=str(as_absolute(auth_state_path)))
+        storage_state = None
+        # 首先尝试从 DB 加载 qwen_cookie
+        try:
+            import sqlite3
+            from media_tools.douyin.core.config_mgr import get_config
+            db_path = get_config().get_db_path()
+            with sqlite3.connect(db_path) as conn:
+                cursor = conn.cursor()
+                cursor.execute("SELECT auth_data FROM auth_credentials WHERE platform = 'qwen'")
+                row = cursor.fetchone()
+                if row and row[0]:
+                    import json
+                    storage_state = json.loads(row[0])
+        except Exception as e:
+            logger.warning(f"从 DB 读取 Qwen 认证失败: {e}")
+            
+        if not storage_state:
+            storage_state = str(Path(auth_state_path).resolve())
+            
+        api = await playwright.request.new_context(storage_state=storage_state)
         try:
             quota_json = await api_json(
                 api,
