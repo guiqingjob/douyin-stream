@@ -3,7 +3,9 @@
 """
 
 import streamlit as st
-from pathlib import Path
+
+from web.constants import QWEN_AUTH_PATH
+from web.utils import format_size
 
 
 def render_auth_status_card() -> None:
@@ -42,7 +44,6 @@ def _check_douyin_auth() -> bool:
 
 def _check_qwen_auth() -> bool:
     """检查 Qwen 认证状态"""
-    auth_path = Path(".auth/qwen-storage-state.json")
-    if auth_path.exists():
-        return auth_path.stat().st_size > 1000  # 有效文件应大于1KB
+    if QWEN_AUTH_PATH.exists():
+        return QWEN_AUTH_PATH.stat().st_size > 1000  # 有效文件应大于1KB
     return False

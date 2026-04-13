@@ -104,6 +104,7 @@ def _start_download_task(url: str, max_count: int) -> None:
 def _start_batch_download_task(max_per_user: int) -> None:
     """启动批量下载任务"""
     import uuid
+    import logging
 
     task_id = str(uuid.uuid4())[:8]
     st.info(f"🚀 批量任务已提交 (ID: {task_id})")
@@ -121,6 +122,9 @@ def _start_batch_download_task(max_per_user: int) -> None:
                 return
 
             total = len(users)
+            success_list = []
+            failed_list = []
+
             for i, user in enumerate(users):
                 progress = (i + 1) / total
                 nickname = user.get("nickname", user.get("name", user.get("uid", "")))
@@ -131,10 +135,20 @@ def _start_batch_download_task(max_per_user: int) -> None:
                     url = f"https://www.douyin.com/user/{sec_user_id}"
                     try:
                         download_by_url(url, max_counts=max_per_user)
-                    except Exception:
-                        pass  # 单个失败不影响其他
+                        success_list.append(nickname)
+                    except Exception as e:
+                        failed_list.append({"user": nickname, "error": str(e)})
+                        logging.warning(f"下载失败: {nickname} - {e}")
 
-            mark_task_success({"total_users": total, "max_per_user": max_per_user})
+            # 生成统计报告
+            result = {
+                "total_users": total,
+                "success_count": len(success_list),
+                "failed_count": len(failed_list),
+                "success_list": success_list,
+                "failed_list": failed_list,
+            }
+            mark_task_success(result)
         except Exception as e:
             mark_task_failed(str(e))
 

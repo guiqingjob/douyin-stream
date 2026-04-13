@@ -4,8 +4,10 @@
 
 import streamlit as st
 import uuid
+import logging
 from pathlib import Path
 
+from web.constants import DOWNLOADS_DIR, TRANSCRIPTS_DIR, TEMP_UPLOADS_DIR, QWEN_AUTH_PATH
 from web.components.progress_display import render_task_progress
 from web.components.task_queue import run_task_in_background
 
@@ -33,9 +35,8 @@ def _render_single_transcribe() -> None:
 
     if uploaded:
         # 保存到临时目录
-        temp_dir = Path("temp_uploads")
-        temp_dir.mkdir(exist_ok=True)
-        temp_path = temp_dir / uploaded.name
+        TEMP_UPLOADS_DIR.mkdir(exist_ok=True)
+        temp_path = TEMP_UPLOADS_DIR / uploaded.name
         with open(temp_path, "wb") as f:
             f.write(uploaded.getbuffer())
 
@@ -49,16 +50,12 @@ def _render_batch_transcribe() -> None:
     """批量转写"""
     st.subheader("📂 批量转写本地文件")
 
-    # 扫描下载目录
-    downloads_dir = Path("downloads")
-    transcripts_dir = Path("transcripts")
-
-    if downloads_dir.exists():
-        video_files = list(downloads_dir.rglob("*.mp4"))
+    if DOWNLOADS_DIR.exists():
+        video_files = list(DOWNLOADS_DIR.rglob("*.mp4"))
         audio_files = (
-            list(downloads_dir.rglob("*.mp3"))
-            + list(downloads_dir.rglob("*.wav"))
-            + list(downloads_dir.rglob("*.m4a"))
+            list(DOWNLOADS_DIR.rglob("*.mp3"))
+            + list(DOWNLOADS_DIR.rglob("*.wav"))
+            + list(DOWNLOADS_DIR.rglob("*.m4a"))
         )
         total_files = len(video_files) + len(audio_files)
 
@@ -86,15 +83,14 @@ def _start_transcribe_task(file_path: str) -> None:
             update_task_progress(0.1, "正在初始化...")
 
             config = load_pipeline_config()
-            auth_path = Path(".auth/qwen-storage-state.json")
 
-            if not auth_path.exists():
+            if not QWEN_AUTH_PATH.exists():
                 mark_task_failed("Qwen 认证文件不存在，请先进行认证")
                 return
 
             orchestrator = create_orchestrator(
                 config=config,
-                auth_state_path=str(auth_path),
+                auth_state_path=str(QWEN_AUTH_PATH),
             )
 
             update_task_progress(0.3, "正在上传文件...")
@@ -117,6 +113,9 @@ def _start_transcribe_task(file_path: str) -> None:
 
 def _start_batch_transcribe_task(files: list[Path]) -> None:
     """启动批量转写任务"""
+    import uuid
+    import logging
+
     task_id = str(uuid.uuid4())[:8]
     st.info(f"🚀 批量转写任务已提交 (ID: {task_id})")
 
@@ -129,18 +128,20 @@ def _start_batch_transcribe_task(files: list[Path]) -> None:
             from media_tools.pipeline.config import load_pipeline_config
 
             config = load_pipeline_config()
-            auth_path = Path(".auth/qwen-storage-state.json")
 
-            if not auth_path.exists():
+            if not QWEN_AUTH_PATH.exists():
                 mark_task_failed("Qwen 认证文件不存在")
                 return
 
             orchestrator = create_orchestrator(
                 config=config,
-                auth_state_path=str(auth_path),
+                auth_state_path=str(QWEN_AUTH_PATH),
             )
 
             total = len(files)
+            success_list = []
+            failed_list = []
+
             for i, f in enumerate(files):
                 progress = (i + 1) / total
                 update_task_progress(progress, f"正在转写 {f.name} ({i+1}/{total})")
@@ -149,11 +150,21 @@ def _start_batch_transcribe_task(files: list[Path]) -> None:
                     return await orchestrator.transcribe_with_retry(f)
 
                 try:
-                    asyncio.run(_run())
-                except Exception:
-                    pass  # 单个失败不影响其他
+                    result = asyncio.run(_run())
+                    success_list.append(f.name)
+                except Exception as e:
+                    failed_list.append({"file": f.name, "error": str(e)})
+                    logging.warning(f"转写失败: {f.name} - {e}")
 
-            mark_task_success({"total_files": total})
+            # 生成统计报告
+            result = {
+                "total_files": total,
+                "success_count": len(success_list),
+                "failed_count": len(failed_list),
+                "success_list": success_list,
+                "failed_list": failed_list,
+            }
+            mark_task_success(result)
         except Exception as e:
             mark_task_failed(str(e))
 
@@ -163,10 +174,9 @@ def _start_batch_transcribe_task(files: list[Path]) -> None:
 
 def _cleanup_temp_file(file_path: str) -> None:
     """清理临时文件"""
-    import logging
     try:
         path = Path(file_path)
-        if path.exists() and str(path).startswith("temp_uploads"):
+        if path.exists() and str(path.parent) == str(TEMP_UPLOADS_DIR):
             path.unlink()
             logging.info(f"已清理临时文件: {file_path}")
     except Exception as e:

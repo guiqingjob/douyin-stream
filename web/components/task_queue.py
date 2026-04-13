@@ -20,6 +20,9 @@ _STATE_FILE = Path(".task_state.json")
 # 线程锁，防止并发读写状态文件时的竞态条件
 _state_lock = threading.Lock()
 
+# 任务取消标志
+_cancel_flag = threading.Event()
+
 
 def _get_state_file() -> Path:
     """获取状态文件路径"""
@@ -115,6 +118,21 @@ def clear_task_state() -> None:
         state_file.unlink()
 
 
+def cancel_task() -> None:
+    """取消当前任务"""
+    _cancel_flag.set()
+
+
+def is_task_cancelled() -> bool:
+    """检查是否取消"""
+    return _cancel_flag.is_set()
+
+
+def reset_cancel_flag() -> None:
+    """重置取消标志"""
+    _cancel_flag.clear()
+
+
 def run_task_in_background(
     task_func: Callable,
     task_id: str,
@@ -125,16 +143,32 @@ def run_task_in_background(
 ) -> None:
     """在后台线程中执行任务"""
     # 初始化任务状态
+    reset_cancel_flag()  # 启动时重置取消标志
     initial_state = create_task(task_id, task_type, description)
     save_task_state(initial_state)
 
     def _worker():
         try:
             update_task_progress(0.0, "任务开始执行")
+            
+            # 检查是否取消
+            if is_task_cancelled():
+                mark_task_failed("任务已取消")
+                return
+                
             result = task_func(*args, **kwargs)
+            
+            # 再次检查是否取消
+            if is_task_cancelled():
+                mark_task_failed("任务已取消")
+                return
+                
             mark_task_success(result, "任务完成")
         except Exception as e:
-            mark_task_failed(str(e))
+            if is_task_cancelled():
+                mark_task_failed("任务已取消")
+            else:
+                mark_task_failed(str(e))
 
     thread = threading.Thread(target=_worker, daemon=True)
     thread.start()

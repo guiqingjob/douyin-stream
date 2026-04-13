@@ -3,7 +3,9 @@
 """
 
 import streamlit as st
-from pathlib import Path
+
+from web.constants import QWEN_AUTH_PATH
+from web.utils import format_size
 
 
 def render_settings() -> None:
@@ -152,8 +154,7 @@ def _check_douyin_auth() -> bool:
 
 def _check_qwen_auth() -> bool:
     """检查 Qwen 认证"""
-    auth_path = Path(".auth/qwen-storage-state.json")
-    return auth_path.exists() and auth_path.stat().st_size > 1000
+    return QWEN_AUTH_PATH.exists() and QWEN_AUTH_PATH.stat().st_size > 1000
 
 
 def _backup_configs() -> str | None:

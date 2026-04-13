@@ -5,6 +5,9 @@
 import streamlit as st
 from pathlib import Path
 
+from web.constants import QWEN_AUTH_PATH
+from web.utils import safe_json_display, format_size
+
 
 def render_accounts() -> None:
     """渲染账号管理页面"""
@@ -37,10 +40,9 @@ def _render_account_list() -> None:
             st.info("未配置多账号")
     else:
         st.info("使用默认单账号模式")
-        auth_path = Path(".auth/qwen-storage-state.json")
-        if auth_path.exists():
-            st.success(f"✅ 认证文件存在: {auth_path}")
-            st.caption(f"文件大小: {auth_path.stat().st_size / 1024:.2f} KB")
+        if QWEN_AUTH_PATH.exists():
+            st.success(f"✅ 认证文件存在: {QWEN_AUTH_PATH}")
+            st.caption(f"文件大小: {format_size(QWEN_AUTH_PATH.stat().st_size)}")
         else:
             st.error("❌ 认证文件不存在")
 
@@ -53,7 +55,7 @@ def _render_quota_query() -> None:
         with st.spinner("正在查询..."):
             quota = _get_quota()
             if quota:
-                st.json(quota)
+                safe_json_display(quota)
             else:
                 st.warning("无法获取配额，请确认已认证")
 
@@ -64,12 +66,11 @@ def _get_quota() -> dict | None:
         import asyncio
         from media_tools.transcribe.quota import get_quota_snapshot
 
-        auth_path = Path(".auth/qwen-storage-state.json")
-        if not auth_path.exists():
+        if not QWEN_AUTH_PATH.exists():
             return None
 
         async def _fetch():
-            return await get_quota_snapshot(auth_state_path=str(auth_path))
+            return await get_quota_snapshot(auth_state_path=str(QWEN_AUTH_PATH))
 
         snapshot = asyncio.run(_fetch())
         return {
