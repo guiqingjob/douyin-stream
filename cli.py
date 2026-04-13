@@ -364,17 +364,17 @@ def cmd_following_menu():
 
 def _cmd_list_users():
     """查看关注列表"""
-    from scripts.core.following_mgr import display_users
+    from src.media_tools.douyin.core.following_mgr import display_users
 
     print()
-    display_users()
+    users = display_users()
     print()
     _wait_for_key()
 
 
 def _cmd_add_user():
     """添加博主"""
-    from scripts.core.following_mgr import add_user
+    from src.media_tools.douyin.core.following_mgr import add_user
 
     print()
     try:
@@ -391,7 +391,7 @@ def _cmd_add_user():
 
 def _cmd_remove_user():
     """移除博主"""
-    from scripts.core.following_mgr import display_users, remove_user
+    from src.media_tools.douyin.core.following_mgr import display_users, remove_user
 
     print()
     users = display_users()
@@ -421,7 +421,7 @@ def _cmd_remove_user():
 
 def _cmd_batch_add():
     """批量导入"""
-    from scripts.core.following_mgr import batch_add_urls
+    from src.media_tools.douyin.core.following_mgr import batch_add_urls
 
     print()
     print("请粘贴多个抖音主页 URL（逗号、空格或换行分隔，输入空行结束）")
@@ -726,7 +726,7 @@ def _cmd_pipeline_from_url():
 
 def _cmd_pipeline_from_following():
     """从关注列表批量下载并转写"""
-    from scripts.core.following_mgr import display_users
+    from src.media_tools.douyin.core.following_mgr import display_users
     from scripts.core.downloader import download_by_uid
     from pathlib import Path
     import questionary

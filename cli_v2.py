@@ -229,7 +229,7 @@ def cmd_quick_transcribe():
 def cmd_batch_process():
     """批量处理：从关注列表批量下载转写"""
     from scripts.core.ui import info, error, success, warning
-    from scripts.core.following_mgr import display_users
+    from src.media_tools.douyin.core.following_mgr import display_users
 
     print()
     users = display_users()

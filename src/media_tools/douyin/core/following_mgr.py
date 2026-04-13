@@ -36,28 +36,40 @@ def _get_skill_dir():
 
 def list_users():
     """
-    列出所有关注的博主
+    列出所有关注的博主 (从 SQLite V2 架构读取)
 
     Returns:
-        用户列表
+        用户列表 (List of dicts)
     """
-    import sys
-    from pathlib import Path
-
-    # 确保 utils 可以导入
-    skill_dir = Path(__file__).parent.parent
-    if str(skill_dir) not in sys.path:
-        sys.path.insert(0, str(skill_dir))
-
-    from ..utils.following import list_users as _list_users
-
-    users = _list_users()
-    return users or []
+    config = get_config()
+    db_path = config.get_db_path()
+    
+    users = []
+    try:
+        with sqlite3.connect(str(db_path)) as conn:
+            conn.row_factory = sqlite3.Row
+            cursor = conn.cursor()
+            cursor.execute("SELECT uid, sec_user_id, nickname, platform, sync_status, last_fetch_time FROM creators ORDER BY last_fetch_time DESC")
+            
+            for row in cursor.fetchall():
+                users.append({
+                    "uid": row["uid"],
+                    "sec_user_id": row["sec_user_id"],
+                    "nickname": row["nickname"] or row["uid"],
+                    "name": row["nickname"] or row["uid"],
+                    "platform": row["platform"],
+                    "sync_status": row["sync_status"],
+                    "last_fetch_time": row["last_fetch_time"]
+                })
+    except Exception as e:
+        logger.error(f"读取关注列表失败: {e}")
+        
+    return users
 
 
 def add_user(url):
     """
-    通过主页链接添加用户
+    通过主页链接添加用户 (写入 SQLite V2 架构)
 
     Args:
         url: 抖音主页链接
@@ -78,12 +90,19 @@ def add_user(url):
     sec_user_id = sec_match.group(1)
 
     # 检查是否已存在
-    existing_users = list_users()
-    for u in existing_users:
-        if u.get("sec_user_id") == sec_user_id:
-            name = u.get("nickname", u.get("name", "未知"))
-            logger.info(warning(f"用户已在关注列表: {name} (UID: {u.get('uid')})"))
-            return False, u
+    config = get_config()
+    db_path = config.get_db_path()
+    try:
+        with sqlite3.connect(str(db_path)) as conn:
+            cursor = conn.cursor()
+            cursor.execute("SELECT uid, nickname FROM creators WHERE sec_user_id = ?", (sec_user_id,))
+            row = cursor.fetchone()
+            if row:
+                name = row[1] or "未知"
+                logger.info(warning(f"用户已在关注列表: {name} (UID: {row[0]})"))
+                return False, {"uid": row[0], "sec_user_id": sec_user_id, "nickname": name}
+    except Exception as e:
+        logger.error(f"查询数据库失败: {e}")
 
     # 通过 F2 获取用户信息
     logger.info(info("正在通过 F2 获取用户信息..."))
@@ -93,13 +112,25 @@ def add_user(url):
         logger.info(error("获取用户信息失败"))
         return False, None
 
-    # 添加到关注列表
-    from ..utils.following import add_user as _add_user
-
     uid = user_info.get("uid")
-    _add_user(uid, user_info)
+    nickname = user_info.get("nickname", "")
+    
+    # 写入数据库 (代替旧版的 following.json)
+    try:
+        with sqlite3.connect(str(db_path)) as conn:
+            cursor = conn.cursor()
+            now = datetime.now().isoformat()
+            cursor.execute("""
+                INSERT OR REPLACE INTO creators 
+                (uid, sec_user_id, nickname, platform, sync_status, last_fetch_time)
+                VALUES (?, ?, ?, 'douyin', 'active', ?)
+            """, (uid, sec_user_id, nickname, now))
+            conn.commit()
+    except Exception as e:
+        logger.error(f"保存用户到数据库失败: {e}")
+        return False, None
 
-    logger.info(success(f"已添加用户: {user_info.get('nickname', '未知')} (UID: {uid})"))
+    logger.info(success(f"已添加用户: {nickname} (UID: {uid})"))
     logger.info(info("提示: 运行下载功能可获取完整用户信息和视频"))
 
     return True, user_info
@@ -239,7 +270,7 @@ def _clean_nickname(name):
 
 def remove_user(uid, delete_local=False):
     """
-    移除关注的博主
+    移除关注的博主 (从 SQLite V2 架构)
 
     Args:
         uid: 用户 UID
@@ -248,55 +279,52 @@ def remove_user(uid, delete_local=False):
     Returns:
         是否成功
     """
-    from ..utils.following import get_user as _get_user
-    from ..utils.following import remove_user as _remove_user
-
-    user = _get_user(uid)
-    if not user:
-        logger.info(error(f"用户 {uid} 不在关注列表中"))
-        return False
-
-    name = user.get("nickname", user.get("name", "未知"))
-    folder = user.get("folder", name or uid)
-
-    # 从 following.json 删除
-    _remove_user(uid)
-    logger.info(success(f"已从关注列表移除: {name} (UID: {uid})"))
-
-    # 清理数据库记录
     config = get_config()
     db_path = config.get_db_path()
-    if db_path.exists():
-        conn = None
-        try:
-            conn = sqlite3.connect(str(db_path))
+    
+    # 获取用户信息
+    name = str(uid)
+    try:
+        with sqlite3.connect(str(db_path)) as conn:
             cursor = conn.cursor()
+            cursor.execute("SELECT nickname FROM creators WHERE uid = ?", (uid,))
+            row = cursor.fetchone()
+            if not row:
+                logger.info(error(f"用户 {uid} 不在关注列表中"))
+                return False
+            name = row[0] or str(uid)
+            
+            # 删除关注记录
+            cursor.execute("DELETE FROM creators WHERE uid = ?", (uid,))
+            
+            # 清理旧数据库遗留记录 (兼容旧代码清理)
             cursor.execute("DELETE FROM user_info_web WHERE uid = ?", (uid,))
-            cursor.execute(
-                "DELETE FROM video_metadata WHERE uid = ? OR nickname = ?",
-                (uid, name),
-            )
+            cursor.execute("DELETE FROM video_metadata WHERE uid = ? OR nickname = ?", (uid, name))
             conn.commit()
-            logger.info(success("已清理数据库记录"))
-        except Exception as e:
-            logger.info(warning(f"清理数据库时出错: {e}"))
-        finally:
-            if conn:
-                conn.close()
+            
+            logger.info(success(f"已从关注列表移除: {name} (UID: {uid})"))
+    except Exception as e:
+        logger.error(f"删除用户失败: {e}")
+        return False
 
     # 删除本地视频文件
     if delete_local:
         downloads_path = config.get_download_path()
-        user_dir = downloads_path / folder
+        user_dir = downloads_path / name
         if not user_dir.exists():
             user_dir = downloads_path / str(uid)
 
         if user_dir.exists():
             import shutil
-
             try:
                 shutil.rmtree(user_dir)
                 logger.info(success(f"已删除本地视频文件: {user_dir}"))
+                
+                # 同步删除 media_assets 记录
+                with sqlite3.connect(str(db_path)) as conn:
+                    cursor = conn.cursor()
+                    cursor.execute("DELETE FROM media_assets WHERE creator_uid = ?", (uid,))
+                    conn.commit()
             except Exception as e:
                 logger.info(error(f"删除本地文件夹失败: {e}"))
         else:

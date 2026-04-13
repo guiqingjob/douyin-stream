@@ -30,7 +30,7 @@ def _render_following_list() -> None:
     st.caption("这里展示所有可用于批量拉取素材的来源。")
 
     try:
-        from media_tools.douyin.utils.following import list_users
+        from media_tools.douyin.core.following_mgr import list_users
 
         users = list_users()
         if not users:
@@ -88,8 +88,8 @@ def _render_following_list() -> None:
                 {
                     "UID": uid,
                     "昵称": user.get("nickname", user.get("name", "未知")),
-                    "粉丝数": user.get("follower_count", user.get("mplatform_followers_count", "-")),
-                    "视频数": user.get("aweme_count", "-"),
+                    "状态": "正常" if user.get("sync_status") == "active" else "暂停",
+                    "最后拉取": user.get("last_fetch_time", "-")[:19].replace("T", " "),
                 }
             )
 
@@ -210,9 +210,10 @@ def _add_user(url: str) -> tuple:
 def _export_users() -> str:
     """导出用户"""
     try:
-        from media_tools.douyin.utils.following import load_following
-
-        data = load_following()
+        from media_tools.douyin.core.following_mgr import list_users
+        users = list_users()
+        # 包装成与旧版 following.json 兼容的格式
+        data = {"users": users}
         return json.dumps(data, ensure_ascii=False, indent=2)
     except Exception:
         logger.exception('发生异常')
@@ -226,17 +227,25 @@ def _import_users(content: str) -> tuple:
         users = data.get("users", data if isinstance(data, list) else [])
 
         count = 0
-        for user in users:
-            try:
-                from media_tools.douyin.core.following_mgr import add_user
-
+        from media_tools.douyin.core.config_mgr import get_config
+        import sqlite3
+        from datetime import datetime
+        
+        db_path = get_config().get_db_path()
+        with sqlite3.connect(str(db_path)) as conn:
+            cursor = conn.cursor()
+            for user in users:
                 uid = user.get("uid")
+                sec_user_id = user.get("sec_user_id", "")
+                nickname = user.get("nickname", user.get("name", ""))
                 if uid:
-                    add_user(uid, user, merge=True)
+                    cursor.execute("""
+                        INSERT OR IGNORE INTO creators 
+                        (uid, sec_user_id, nickname, platform, sync_status, last_fetch_time)
+                        VALUES (?, ?, ?, 'douyin', 'active', ?)
+                    """, (uid, sec_user_id, nickname, datetime.now().isoformat()))
                     count += 1
-            except Exception:
-                logger.exception('发生异常')
-                continue
+            conn.commit()
 
         return True, f"成功导入 {count} 个来源"
     except Exception as e:

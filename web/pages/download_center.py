@@ -73,7 +73,7 @@ def _render_batch_download() -> None:
     st.markdown("**适合日常更新素材库：按已保存的来源逐个拉取内容。**")
 
     try:
-        from media_tools.douyin.utils.following import list_users
+        from media_tools.douyin.core.following_mgr import list_users
 
         users = list_users()
         source_count = len(users)
@@ -81,6 +81,7 @@ def _render_batch_download() -> None:
     except Exception as e:
         logger.exception('发生异常')
         source_count = 0
+        users = []
         st.warning(f"无法读取关注列表：{e}")
 
     col1, col2 = st.columns([1, 2])
@@ -161,7 +162,7 @@ def _start_batch_download_task(max_per_user: int) -> None:
 
     def _worker():
         from media_tools.douyin.core.downloader import download_by_url
-        from media_tools.douyin.utils.following import list_users
+        from media_tools.douyin.core.following_mgr import list_users
 
         users = list_users()
         if not users:
