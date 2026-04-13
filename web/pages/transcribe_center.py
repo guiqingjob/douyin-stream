@@ -18,6 +18,7 @@ from web.components.ui_patterns import (
     render_page_header,
     render_summary_metrics,
     render_table_section,
+    render_cta_section,
 )
 from web.constants import DOWNLOADS_DIR, QWEN_AUTH_PATH, TEMP_UPLOADS_DIR, TRANSCRIPTS_DIR
 from web.utils import format_size, format_timestamp
@@ -119,7 +120,18 @@ def _render_current_task() -> None:
     render_task_progress(empty_message="当前没有正在执行的转写任务")
 
     if state is None or state.get("status") not in {"success", "failed"}:
-        render_empty_state("当前没有转写任务在执行。", "如果已经上传文件或准备好素材，可以立即发起新的文稿生成任务。")
+        render_empty_state(
+            "当前没有转写任务在执行。", 
+            "如果已经上传文件或准备好素材，可以立即发起新的文稿生成任务。",
+            icon="⏳"
+        )
+        if render_cta_section(
+            "没有素材？", 
+            "前往下载中心，获取抖音视频素材。", 
+            "📥 去下载中心", 
+            "go_download_from_transcribe"
+        ):
+            st.switch_page("web/pages/download_center.py")
 
 
 def _start_transcribe_task(file_path: str) -> None:

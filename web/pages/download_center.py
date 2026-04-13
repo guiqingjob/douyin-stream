@@ -16,6 +16,7 @@ from web.components.ui_patterns import (
     render_page_header,
     render_summary_metrics,
     render_table_section,
+    render_cta_section,
 )
 from web.constants import DOWNLOADS_DIR, PAGE_TRANSCRIBE
 from web.utils import format_size, format_timestamp
@@ -119,9 +120,15 @@ def _render_current_task() -> None:
         render_empty_state(
             "当前没有下载任务在执行。",
             "通常下一步是去素材库确认结果，或者直接进入转写中心继续处理。",
+            icon="📭"
         )
-        if st.button("🎙️ 去转写中心", use_container_width=False, key="go_transcribe_from_download"):
-            st.switch_page(PAGE_TRANSCRIBE)
+        if render_cta_section(
+            "下一步", 
+            "把刚下载的视频变成文稿", 
+            "🎙️ 去转写中心", 
+            "go_transcribe_from_download"
+        ):
+            st.switch_page("web/pages/transcribe_center.py")
 
 
 def _start_download_task(url: str, max_count: int) -> None:
