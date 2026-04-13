@@ -105,12 +105,11 @@ def render_onboarding() -> None:
                     st.warning("请输入 Cookie 内容")
                 else:
                     try:
-                        import yaml
                         from media_tools.douyin.core.config_mgr import ConfigManager
-                        
+
                         cfg = ConfigManager()
-                        cfg._config["cookie"] = cookie
-                        cfg._save_config()
+                        cfg.set("cookie", cookie.strip())
+                        cfg.save()
                         st.success("✅ Cookie 已保存！")
                         st.session_state.onboarding_step = 3
                         st.rerun()
@@ -164,12 +163,13 @@ def render_onboarding() -> None:
         
         st.markdown("""
         **快速开始：**
-        - 📋 **关注管理**: 管理您关注的博主列表
-        - 📥 **下载任务**: 下载博主视频
-        - 🎙️ **转写任务**: 将视频/音频转为文字
-        - 🔑 **账号管理**: 管理转写账号和配额
-        - 🗑️ **数据清理**: 清理过期数据释放空间
-        - ⚙️ **系统设置**: 环境检测和配置管理
+        - 🏠 **工作台**: 先看当前状态，再决定下一步
+        - 📥 **下载中心**: 下载博主视频或批量拉取素材
+        - 🎙️ **转写中心**: 将视频/音频转为文字
+        - 👥 **关注管理**: 管理关注的博主列表
+        - 🔑 **账号与配额**: 管理转写认证和配额
+        - 🗑️ **清理与备份**: 清理过期数据并备份关键内容
+        - ⚙️ **系统配置**: 环境检测和配置管理
         """)
         
         if st.button("开始使用", type="primary"):

@@ -36,31 +36,42 @@ def init_project_dirs():
         PROJECT_ROOT / "config",
         PROJECT_ROOT / "config" / "transcribe",
     ]
-    
+
     for dir_path in required_dirs:
         if not dir_path.exists():
             dir_path.mkdir(parents=True, exist_ok=True)
             print(f"✅ 创建目录: {dir_path}")
 
+
 init_project_dirs()
 
 import streamlit as st
 
-from web.pages.home import render_home
-from web.pages.following_mgmt import render_following_mgmt
-from web.pages.download_center import render_download_center
-from web.pages.transcribe_center import render_transcribe_center
+from web.components.onboarding import render_onboarding
+from web.constants import (
+    NAV_PAGES,
+    PAGE_ACCOUNTS,
+    PAGE_CLEANUP,
+    PAGE_DOWNLOAD,
+    PAGE_FOLLOWING,
+    PAGE_HOME,
+    PAGE_SETTINGS,
+    PAGE_TRANSCRIBE,
+)
 from web.pages.accounts import render_accounts
 from web.pages.cleanup import render_cleanup
+from web.pages.download_center import render_download_center
+from web.pages.following_mgmt import render_following_mgmt
+from web.pages.home import render_home
 from web.pages.settings import render_settings
-from web.components.onboarding import render_onboarding
+from web.pages.transcribe_center import render_transcribe_center
 
 
 # ─────────────────────────────────────────────
 # 页面配置
 # ─────────────────────────────────────────────
 st.set_page_config(
-    page_title="Media Tools 管理面板",
+    page_title="Media Tools 工作台",
     page_icon="🎬",
     layout="wide",
     initial_sidebar_state="expanded",
@@ -72,54 +83,45 @@ render_onboarding()
 # ─────────────────────────────────────────────
 # 侧边栏导航
 # ─────────────────────────────────────────────
-PAGES = [
-    "🏠 首页",
-    "📥 下载中心",
-    "🎙️ 转写中心",
-    "👥 关注管理",
-    "🔑 账号管理",
-    "🗑️ 数据清理",
-    "⚙️ 系统设置",
-]
-
-# 初始化 session_state
 if "current_page" not in st.session_state:
-    st.session_state.current_page = PAGES[0]
+    st.session_state.current_page = PAGE_HOME
 
 with st.sidebar:
     st.title("🎬 Media Tools")
-    st.caption("抖音下载 + AI 转写 Web 管理面板")
+    st.caption("本地内容工作台")
+    st.caption("下载素材 → 转写文稿 → 管理结果")
     st.divider()
 
-    # 使用 session_state 控制的 radio
-    page_idx = PAGES.index(st.session_state.current_page) if st.session_state.current_page in PAGES else 0
+    page_idx = NAV_PAGES.index(st.session_state.current_page) if st.session_state.current_page in NAV_PAGES else 0
     page = st.radio(
         "导航菜单",
-        PAGES,
+        NAV_PAGES,
         index=page_idx,
         label_visibility="collapsed",
         key="page_radio",
     )
-    # 同步更新 session_state
     st.session_state.current_page = page
 
+    st.divider()
+    st.markdown("**推荐路径**")
+    st.caption("1. 系统配置\n2. 下载中心\n3. 转写中心")
     st.divider()
     st.caption(f"项目路径: `{PROJECT_ROOT}`")
 
 # ─────────────────────────────────────────────
 # 页面路由
 # ─────────────────────────────────────────────
-if st.session_state.current_page == "🏠 首页":
+if st.session_state.current_page == PAGE_HOME:
     render_home()
-elif st.session_state.current_page == "📥 下载中心":
+elif st.session_state.current_page == PAGE_DOWNLOAD:
     render_download_center()
-elif st.session_state.current_page == "🎙️ 转写中心":
+elif st.session_state.current_page == PAGE_TRANSCRIBE:
     render_transcribe_center()
-elif st.session_state.current_page == "👥 关注管理":
+elif st.session_state.current_page == PAGE_FOLLOWING:
     render_following_mgmt()
-elif st.session_state.current_page == "🔑 账号管理":
+elif st.session_state.current_page == PAGE_ACCOUNTS:
     render_accounts()
-elif st.session_state.current_page == "🗑️ 数据清理":
+elif st.session_state.current_page == PAGE_CLEANUP:
     render_cleanup()
-elif st.session_state.current_page == "⚙️ 系统设置":
+elif st.session_state.current_page == PAGE_SETTINGS:
     render_settings()

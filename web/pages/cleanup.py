@@ -1,18 +1,20 @@
 """
-数据清理页面
+清理与备份页面
 """
 
-import streamlit as st
 import time
 from pathlib import Path
 
-from web.constants import DOWNLOADS_DIR, DB_FILE, LOGS_DIR
+import streamlit as st
+
+from web.constants import DB_FILE, DOWNLOADS_DIR, LOGS_DIR, PROJECT_ROOT
 from web.utils import format_size
 
 
 def render_cleanup() -> None:
-    """渲染数据清理页面"""
-    st.title("🗑️ 数据清理")
+    """渲染清理与备份页面"""
+    st.title("🗑️ 清理与备份")
+    st.caption("释放本地空间、清理历史记录，并备份关键配置与数据。")
 
     tab1, tab2, tab3, tab4 = st.tabs(["🎬 视频清理", "🗄️ 数据库清理", "📝 日志清理", "💾 备份/恢复"])
 
@@ -55,7 +57,6 @@ def _render_db_cleanup() -> None:
         db_size = DB_FILE.stat().st_size
         st.info(f"数据库文件大小: {format_size(db_size)}")
 
-        # 显示数据库统计信息
         db_stats = _get_db_stats()
         if db_stats:
             st.info(f"数据库记录: {db_stats['video_count']} 条视频, {db_stats['user_count']} 个用户")
@@ -125,7 +126,7 @@ def _clean_db_records() -> tuple[int, int]:
 
 def _clean_old_logs() -> None:
     """清理旧日志文件"""
-    cutoff = time.time() - 30 * 24 * 3600  # 30 天前
+    cutoff = time.time() - 30 * 24 * 3600
 
     for f in LOGS_DIR.glob("*.log"):
         if f.stat().st_mtime < cutoff:
@@ -135,17 +136,19 @@ def _clean_old_logs() -> None:
 def _render_backup_restore() -> None:
     """备份/恢复功能"""
     st.subheader("💾 数据备份与恢复")
-    
-    st.markdown("""
+
+    st.markdown(
+        """
     **备份内容包含：**
     - 关注列表 (`config/following.json`)
     - 配置文件 (`config/config.yaml`)
     - 数据库 (`douyin_users.db`)
     - 认证文件 (`.auth/` 目录)
-    """)
-    
+    """
+    )
+
     col1, col2 = st.columns(2)
-    
+
     with col1:
         st.markdown("**备份数据**")
         if st.button("📦 创建备份", type="primary", use_container_width=True):
@@ -155,7 +158,7 @@ def _render_backup_restore() -> None:
                     st.success(f"✅ 备份已创建: {backup_path}")
                 else:
                     st.error("备份失败")
-    
+
     with col2:
         st.markdown("**恢复数据**")
         uploaded = st.file_uploader("上传备份文件", type=["zip", "tar.gz"])
@@ -167,33 +170,31 @@ def _render_backup_restore() -> None:
 
 def _create_backup() -> tuple[bool, str]:
     """创建备份
-    
+
     Returns:
         tuple: (success, backup_path)
     """
     import zipfile
     from datetime import datetime
-    
+
     try:
-        # 创建备份目录
-        backup_dir = Path(__file__).parent.parent / "backups"
+        from web.constants import PROJECT_ROOT
+
+        backup_dir = PROJECT_ROOT / "backups"
         backup_dir.mkdir(exist_ok=True)
-        
-        # 生成备份文件名（带时间戳）
+
         timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
         backup_filename = backup_dir / f"media_tools_backup_{timestamp}.zip"
-        
-        # 要备份的文件和目录
+
         items_to_backup = [
             ("config", "config"),
             (".auth", ".auth"),
             ("douyin_users.db", "douyin_users.db"),
         ]
-        
-        # 创建 zip 备份
-        with zipfile.ZipFile(backup_filename, 'w', zipfile.ZIP_DEFLATED) as zipf:
+
+        with zipfile.ZipFile(backup_filename, "w", zipfile.ZIP_DEFLATED) as zipf:
             for item_path, arc_name in items_to_backup:
-                path = Path(__file__).parent.parent / item_path
+                path = PROJECT_ROOT / item_path
                 if path.exists():
                     if path.is_file():
                         zipf.write(path, arc_name)
@@ -202,9 +203,10 @@ def _create_backup() -> tuple[bool, str]:
                             if file_path.is_file():
                                 arc_path = f"{arc_name}/{file_path.relative_to(path)}"
                                 zipf.write(file_path, arc_path)
-        
+
         return True, str(backup_filename)
     except Exception as e:
         import logging
+
         logging.error(f"备份失败: {e}")
         return False, ""

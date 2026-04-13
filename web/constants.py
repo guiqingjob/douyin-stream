@@ -1,6 +1,6 @@
 """
 Web 管理面板常量定义
-统一管理硬编码路径和配置值
+统一管理路径、页面标签和公共配置
 """
 
 from pathlib import Path
@@ -23,3 +23,22 @@ TASK_STATE_FILE = PROJECT_ROOT / ".task_state.json"
 
 # 数据库文件
 DB_FILE = PROJECT_ROOT / "douyin_users.db"
+
+# 页面标签
+PAGE_HOME = "🏠 工作台"
+PAGE_DOWNLOAD = "📥 下载中心"
+PAGE_TRANSCRIBE = "🎙️ 转写中心"
+PAGE_FOLLOWING = "👥 关注管理"
+PAGE_ACCOUNTS = "🔑 账号与配额"
+PAGE_CLEANUP = "🗑️ 清理与备份"
+PAGE_SETTINGS = "⚙️ 系统配置"
+
+NAV_PAGES = [
+    PAGE_HOME,
+    PAGE_DOWNLOAD,
+    PAGE_TRANSCRIBE,
+    PAGE_FOLLOWING,
+    PAGE_ACCOUNTS,
+    PAGE_CLEANUP,
+    PAGE_SETTINGS,
+]

@@ -1,17 +1,18 @@
 """
-系统设置页面
+系统配置页面
 """
 
-import streamlit as st
 from pathlib import Path
 
-from web.constants import QWEN_AUTH_PATH
-from web.utils import format_size
+import streamlit as st
+
+from web.constants import PROJECT_ROOT, QWEN_AUTH_PATH
 
 
 def render_settings() -> None:
-    """渲染系统设置页面"""
-    st.title("⚙️ 系统设置")
+    """渲染系统配置页面"""
+    st.title("⚙️ 系统配置")
+    st.caption("先做环境检测，再处理备份修复和预设应用。")
 
     tab1, tab2, tab3 = st.tabs(["🔍 环境检测", "💾 配置管理", "📋 预设模板"])
 
@@ -26,6 +27,7 @@ def render_settings() -> None:
 def _render_env_check() -> None:
     """环境检测"""
     st.subheader("🔍 环境检测")
+    st.caption("建议首次使用时先完整跑一次，确认下载和转写链路可用。")
 
     if st.button("运行完整检测", type="primary"):
         with st.spinner("正在检测..."):
@@ -35,8 +37,6 @@ def _render_env_check() -> None:
 def _run_env_check() -> None:
     """运行环境检测"""
     try:
-        from media_tools.douyin.core.env_check import check_all
-
         checks = [
             ("Python 版本", _check_python_version),
             ("f2 包", lambda: _check_package("f2")),
@@ -51,14 +51,12 @@ def _run_env_check() -> None:
             else:
                 st.error(f"❌ {name}: {msg}")
 
-        # Cookie 检查
         douyin_auth = _check_douyin_auth()
         if douyin_auth:
             st.success("✅ 抖音 Cookie: 已配置")
         else:
             st.warning("⚠️ 抖音 Cookie: 未配置")
 
-        # Qwen 认证
         qwen_auth = _check_qwen_auth()
         if qwen_auth:
             st.success("✅ Qwen 认证: 已配置")
@@ -72,6 +70,7 @@ def _run_env_check() -> None:
 def _render_config_management() -> None:
     """配置管理"""
     st.subheader("💾 配置管理")
+    st.caption("这里用于备份配置、修复常见问题。")
 
     col1, col2 = st.columns(2)
 
@@ -81,6 +80,8 @@ def _render_config_management() -> None:
             backup_path = _backup_configs()
             if backup_path:
                 st.success(f"备份成功: {backup_path}")
+            else:
+                st.error("备份失败")
 
     with col2:
         st.markdown("**修复**")
@@ -92,8 +93,8 @@ def _render_config_management() -> None:
 def _render_presets() -> None:
     """预设模板"""
     st.subheader("📋 预设模板")
+    st.caption("适合快速切换新手 / 专业 / 服务器场景。")
 
-    # 从配置文件加载预设
     presets = _load_presets()
 
     if not presets:
@@ -116,21 +117,20 @@ def _load_presets() -> dict:
     """从配置文件加载预设模板"""
     import yaml
 
-    # 默认预设
     default_presets = {
         "beginner": {"label": "🌱 新手模式 - 最简配置"},
         "pro": {"label": "🚀 专业模式 - 全部功能"},
         "server": {"label": "🖥️ 服务器模式 - 后台运行"},
     }
 
-    # 尝试从 config.yaml 加载
-    config_path = Path(__file__).parent.parent.parent / "config.yaml"
+    from web.constants import PROJECT_ROOT
+
+    config_path = PROJECT_ROOT / "config" / "config.yaml"
     if config_path.exists():
         try:
             with open(config_path, "r", encoding="utf-8") as f:
                 config = yaml.safe_load(f)
             if "presets" in config:
-                # 合并配置，默认预设作为后备
                 for key, preset in config["presets"].items():
                     if "label" not in preset:
                         preset["label"] = default_presets.get(key, {}).get("label", key)
