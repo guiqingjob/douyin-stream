@@ -18,7 +18,7 @@ def render_task_table(limit: int = 10) -> None:
     history = load_task_history(limit=limit)
 
     if not history:
-        render_empty_state("暂无任务历史。", "执行过下载或转写任务后，这里会自动显示最近记录。")
+        render_empty_state("暂无任务历史。", "执行过下载或转写任务后，这里会自动显示最近记录。", icon="📋")
         return
 
     success_count = sum(1 for task in history if task.get("status") == "success")

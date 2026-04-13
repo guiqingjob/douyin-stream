@@ -5,7 +5,7 @@
 import streamlit as st
 
 from web.components.task_queue import cancel_task, clear_task_state, load_task_state
-from web.components.ui_patterns import render_empty_state, render_summary_metrics
+from web.components.ui_patterns import render_empty_state, render_summary_metrics, render_status_badge
 from web.utils import get_task_status_label, get_task_type_label, safe_json_display
 
 from media_tools.logger import get_logger
@@ -24,7 +24,7 @@ def render_task_progress(empty_message: str = "当前没有正在执行的任务
     """
     state = load_task_state()
     if state is None:
-        render_empty_state(empty_message)
+        render_empty_state(empty_message, icon="🛌")
         return False
 
     task_type = state.get("task_type", "未知")

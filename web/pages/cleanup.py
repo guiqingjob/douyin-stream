@@ -169,11 +169,85 @@ def _render_backup_restore() -> None:
 
     with col2:
         st.markdown("**恢复数据**")
-        uploaded = st.file_uploader("上传备份文件", type=["zip", "tar.gz"])
+        uploaded = st.file_uploader("上传备份文件", type=["zip"])
         if uploaded and st.button("📥 恢复数据", type="secondary", use_container_width=True):
             st.warning("⚠️ 恢复操作将覆盖当前数据，确定继续？")
             if st.button("✅ 确认恢复", type="primary"):
-                st.info("恢复功能开发中...")
+                with st.spinner("正在恢复数据..."):
+                    ok, msg = _restore_backup(uploaded)
+                    if ok:
+                        st.success(f"✅ {msg}")
+                        time.sleep(1)
+                        st.rerun()
+                    else:
+                        st.error(f"恢复失败: {msg}")
+
+
+def _restore_backup(uploaded_file) -> tuple[bool, str]:
+    """从上传的 zip 文件中恢复备份数据
+    
+    Returns:
+        tuple: (success, message)
+    """
+    import zipfile
+    import shutil
+    import tempfile
+    
+    try:
+        from web.constants import PROJECT_ROOT
+        
+        # 1. 创建临时目录解压
+        temp_dir = Path(tempfile.mkdtemp())
+        zip_path = temp_dir / "uploaded_backup.zip"
+        
+        with open(zip_path, "wb") as f:
+            f.write(uploaded_file.getbuffer())
+            
+        # 2. 解压文件
+        extract_dir = temp_dir / "extracted"
+        extract_dir.mkdir()
+        
+        with zipfile.ZipFile(zip_path, "r") as zip_ref:
+            zip_ref.extractall(extract_dir)
+            
+        # 3. 验证并覆盖现有目录
+        restored_items = []
+        for item in ["config", ".auth", "douyin_users.db"]:
+            source_item = extract_dir / item
+            target_item = PROJECT_ROOT / item
+            
+            if source_item.exists():
+                # 删除原有数据
+                if target_item.exists():
+                    if target_item.is_dir():
+                        shutil.rmtree(target_item)
+                    else:
+                        target_item.unlink()
+                        
+                # 移动新数据
+                if source_item.is_dir():
+                    shutil.copytree(source_item, target_item)
+                else:
+                    shutil.copy2(source_item, target_item)
+                restored_items.append(item)
+                
+        # 4. 清理临时目录
+        shutil.rmtree(temp_dir)
+        
+        if not restored_items:
+            return False, "备份文件中未找到有效的配置或数据目录。"
+            
+        return True, f"已成功恢复: {', '.join(restored_items)}。请重启应用以完全生效。"
+        
+    except zipfile.BadZipFile:
+        return False, "上传的文件不是有效的 ZIP 压缩包。"
+    except Exception as e:
+        logger.exception("恢复备份时发生异常")
+        return False, str(e)
+    finally:
+        # 确保清理临时目录
+        if 'temp_dir' in locals() and temp_dir.exists():
+            shutil.rmtree(temp_dir)
 
 
 def _create_backup() -> tuple[bool, str]:

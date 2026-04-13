@@ -113,18 +113,17 @@ def render_danger_zone(title: str, description: str, button_text: str, button_ke
 def render_status_badge(status: str, label: str) -> None:
     """渲染状态标签 (Status Badge)"""
     colors = {
-        "success": "#5CF2D6",
-        "error": "#FF5C7A",
-        "warning": "#FFCC66",
-        "info": "#68A6FF",
-        "neutral": "rgba(230,237,247,.5)"
+        "success": "var(--mt-ok)",
+        "error": "var(--mt-danger)",
+        "warning": "var(--mt-warn)",
+        "info": "var(--mt-accent2)",
+        "neutral": "var(--mt-text3)"
     }
     color = colors.get(status, colors["neutral"])
     st.markdown(
         f'<span style="display: inline-flex; align-items: center; gap: 6px; padding: 2px 8px; '
-        f'border-radius: 4px; background: {color}15; color: {color}; border: 1px solid {color}30; '
-        f'font-size: 13px; font-weight: 500;">'
-        f'<span style="width: 6px; height: 6px; border-radius: 50%; background: {color};"></span>'
+        f'border-radius: 4px; background: {color}; opacity: 0.8; color: var(--mt-bg0); border: 1px solid {color}; '
+        f'font-size: 13px; font-weight: 600;">'
         f'{label}</span>',
         unsafe_allow_html=True
     )
@@ -137,7 +136,7 @@ def render_table_section(rows: list[dict], empty_message: str, hint: str | None 
         bool: 是否成功渲染了表格
     """
     if not rows:
-        render_empty_state(empty_message, hint)
+        render_empty_state(empty_message, hint, icon="📋")
         return False
 
     st.dataframe(rows, use_container_width=True, hide_index=True)
