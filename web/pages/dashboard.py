@@ -27,11 +27,20 @@ def render_dashboard() -> None:
     st.subheader("🔍 环境检测")
     if st.button("运行环境检测", type="primary"):
         with st.spinner("正在检测..."):
-            result = _run_env_check()
-            if result:
+            passed, details = _run_env_check()
+            if passed:
                 st.success("✅ 环境检测通过")
             else:
                 st.warning("⚠️ 部分检测项未通过，请查看下方详情")
+            
+            # 显示检测详情
+            if details:
+                st.divider()
+                for name, info in details.items():
+                    if info.get("ok"):
+                        st.success(f"✅ {name}: {info.get('message', '')}")
+                    else:
+                        st.error(f"❌ {name}: {info.get('message', '')}")
 
     # 快速操作
     st.divider()
@@ -54,13 +63,17 @@ def render_dashboard() -> None:
             st.rerun()
 
 
-def _run_env_check() -> bool:
-    """运行环境检测"""
+def _run_env_check() -> tuple:
+    """运行环境检测
+    
+    Returns:
+        tuple: (passed: bool, details: list[dict])
+    """
     try:
         from media_tools.douyin.core.env_check import check_all
 
-        passed, _ = check_all()
-        return passed
+        passed, details = check_all()
+        return passed, details
     except Exception as e:
         st.error(f"环境检测失败: {e}")
-        return False
+        return False, []
