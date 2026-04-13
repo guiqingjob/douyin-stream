@@ -89,7 +89,7 @@ def _render_log_cleanup() -> None:
 def _clean_deleted_videos() -> bool:
     """清理已删除视频的数据库记录"""
     try:
-        from scripts.core.cleaner import clean_deleted_videos
+        from media_tools.douyin.core.cleaner import clean_deleted_videos
 
         deleted, _ = clean_deleted_videos(auto_confirm=True)
         return deleted > 0
@@ -100,7 +100,7 @@ def _clean_deleted_videos() -> bool:
 def _get_db_stats() -> dict | None:
     """获取数据库统计信息"""
     try:
-        from scripts.core.db_helper import execute_query
+        from media_tools.douyin.core.db_helper import execute_query
 
         video_count = execute_query("SELECT COUNT(*) FROM video_metadata")[0][0]
         user_count = execute_query("SELECT COUNT(*) FROM user_info_web")[0][0]
@@ -112,7 +112,7 @@ def _get_db_stats() -> dict | None:
 def _clean_db_records() -> tuple[int, int]:
     """清理过期数据库记录，返回 (清理数量, 跳过数量)"""
     try:
-        from scripts.core.cleaner import clean_deleted_videos
+        from media_tools.douyin.core.cleaner import clean_deleted_videos
 
         cleaned, skipped = clean_deleted_videos(auto_confirm=True)
         return cleaned, skipped

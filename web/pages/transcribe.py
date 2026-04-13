@@ -22,6 +22,10 @@ def render_transcribe() -> None:
         _render_single_transcribe()
     with tab2:
         _render_batch_transcribe()
+    
+    # 显示任务进度
+    st.divider()
+    render_task_progress()
 
 
 def _render_single_transcribe() -> None:

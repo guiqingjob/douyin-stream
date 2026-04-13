@@ -22,6 +22,10 @@ def render_download() -> None:
         _render_batch_download()
     with tab3:
         _render_check_updates()
+    
+    # 显示任务进度
+    st.divider()
+    render_task_progress()
 
 
 def _render_single_download() -> None:
@@ -88,7 +92,7 @@ def _start_download_task(url: str, max_count: int) -> None:
         from web.components.task_queue import update_task_progress, mark_task_success, mark_task_failed
 
         try:
-            from scripts.core.downloader import download_by_url
+            from media_tools.douyin.core.downloader import download_by_url
 
             update_task_progress(0.1, "正在解析链接...")
             result = download_by_url(url, max_counts=max_count)
@@ -114,7 +118,7 @@ def _start_batch_download_task(max_per_user: int) -> None:
 
         try:
             from media_tools.douyin.utils.following import list_users
-            from scripts.core.downloader import download_by_url
+            from media_tools.douyin.core.downloader import download_by_url
 
             users = list_users()
             if not users:
@@ -159,7 +163,7 @@ def _start_batch_download_task(max_per_user: int) -> None:
 def _check_updates() -> dict:
     """检查更新"""
     try:
-        from scripts.core.update_checker import check_all_updates
+        from media_tools.douyin.core.update_checker import check_all_updates
 
         return check_all_updates()
     except Exception:

@@ -714,8 +714,8 @@ class OrchestratorV2:
             # 确保video_path不为空
             if not pipeline_result.video_path or not pipeline_result.video_path.exists():
                 # 尝试从状态管理器中找到失败的记录
-                for path_str, state in self.state_mgr.states.items():
-                    if state.status == VideoStatus.RUNNING:
+                for path_str, state in self.state_manager.states.items():
+                    if state.status == "running":
                         pipeline_result.video_path = Path(path_str)
                         break
 
