@@ -34,7 +34,7 @@ def _render_following_list() -> None:
 
         users = list_users()
         if not users:
-            render_empty_state("来源列表为空。", "先添加一个博主主页链接，后续才能按来源批量拉取素材。")
+            render_empty_state("来源列表为空。", "先添加一个博主主页链接，后续才能按来源批量拉取素材。", icon="👥")
             return
 
         total_users = len(users)
@@ -68,7 +68,7 @@ def _render_following_list() -> None:
             ]
 
         if not users:
-            render_empty_state("没有符合搜索条件的来源。", "可以清空搜索条件，或换一种排序方式重新查看。")
+            render_empty_state("没有符合搜索条件的来源。", "可以清空搜索条件，或换一种排序方式重新查看。", icon="🔍")
             return
 
         latest_user = users[0]
@@ -180,7 +180,7 @@ def _render_import_export() -> None:
                 use_container_width=True,
             )
         else:
-            render_empty_state("暂无可导出的来源数据。")
+            render_empty_state("暂无可导出的来源数据。", icon="📦")
 
     with col2:
         st.markdown("**导入来源**")

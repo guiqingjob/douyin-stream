@@ -24,7 +24,7 @@ def render_auth_status_card() -> None:
             st.success("✅ 抖音已认证")
         else:
             st.error("❌ 抖音未认证")
-            st.caption("请通过 CLI 运行: `python cli.py` → 11 → 2 扫码登录")
+            st.caption("可在「账号与配额 -> 认证配置」中粘贴 Cookie")
 
     with col2:
         qwen_auth = _check_qwen_auth()

@@ -86,7 +86,19 @@ def _get_quota() -> dict | None:
 def _render_auth_config() -> None:
     """渲染手动认证配置"""
     st.subheader("手动认证配置")
-    st.caption("如果无法使用扫码登录，您可以直接从浏览器复制 Cookie 并粘贴到此处。")
+    st.caption("您可以直接从浏览器复制 Cookie 并粘贴到此处。所有认证信息将统一存储在 `.auth/` 目录下。")
+
+    st.markdown("#### 抖音 Cookie")
+    st.markdown("1. 登录 [抖音网页版](https://www.douyin.com)\n2. 打开开发者工具 (F12) -> Network\n3. 找到任意请求，复制 `Cookie` 请求头\n4. 粘贴到下方：")
+    
+    douyin_cookie = st.text_area("抖音 Cookie", placeholder="sessionid=...; ttwid=...", key="douyin_cookie_input")
+    if st.button("保存抖音认证", type="primary"):
+        if not douyin_cookie:
+            st.warning("请输入抖音 Cookie")
+        else:
+            _save_douyin_cookie(douyin_cookie)
+            
+    st.divider()
 
     st.markdown("#### Qwen (通义千问) Cookie")
     st.markdown("1. 登录 [通义千问](https://www.qianwen.com)\n2. 打开开发者工具 (F12) -> Network\n3. 找到任意请求，复制 `Cookie` 请求头\n4. 粘贴到下方：")
@@ -94,9 +106,30 @@ def _render_auth_config() -> None:
     qwen_cookie = st.text_area("Qwen Cookie", placeholder="tongyi_sso_ticket=...; login_aliyunid_ticket=...", key="qwen_cookie_input")
     if st.button("保存 Qwen 认证", type="primary"):
         if not qwen_cookie:
-            st.warning("请输入 Cookie")
+            st.warning("请输入 Qwen Cookie")
         else:
             _save_qwen_cookie(qwen_cookie)
+
+
+def _save_douyin_cookie(raw_cookie: str) -> None:
+    from media_tools.douyin.utils.auth_parser import AuthParser
+    from media_tools.douyin.core.config_mgr import ConfigManager
+    
+    parser = AuthParser()
+    success, msg, cookies_dict = parser.validate_data(raw_cookie, "cookie", "douyin")
+    
+    if not success:
+        st.error(f"Cookie 解析失败: {msg}")
+        return
+        
+    try:
+        cfg = ConfigManager()
+        cfg.set("cookie", raw_cookie.strip())
+        cfg.save()
+        st.success("✅ 抖音认证已保存！")
+        st.rerun()
+    except Exception as e:
+        st.error(f"保存失败: {e}")
 
 
 def _save_qwen_cookie(raw_cookie: str) -> None:

@@ -91,7 +91,7 @@ def _render_batch_transcribe() -> None:
     )
 
     if not video_files:
-        render_empty_state("素材库里还没有视频。", "先去下载中心获取素材，再回来生成文稿。")
+        render_empty_state("素材库里还没有视频。", "先去下载中心获取素材，再回来生成文稿。", icon="🎬")
         return
 
     st.caption("系统会遍历素材库中的视频文件，逐个生成文稿。")
