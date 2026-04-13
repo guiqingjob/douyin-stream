@@ -6,7 +6,13 @@ import json
 
 import streamlit as st
 
-from web.components.ui_patterns import render_empty_state, render_highlight_card, render_summary_metrics, render_table_section
+from web.components.ui_patterns import (
+    render_empty_state,
+    render_highlight_card,
+    render_page_header,
+    render_summary_metrics,
+    render_table_section,
+)
 from web.constants import PAGE_DOWNLOAD
 
 from media_tools.logger import get_logger
@@ -75,9 +81,10 @@ def _render_following_list() -> None:
 
         table_data = []
         for user in users:
+            uid = user.get("uid", "")
             table_data.append(
                 {
-                    "UID": user.get("uid", ""),
+                    "UID": uid,
                     "昵称": user.get("nickname", user.get("name", "未知")),
                     "粉丝数": user.get("follower_count", user.get("mplatform_followers_count", "-")),
                     "视频数": user.get("aweme_count", "-"),
@@ -89,6 +96,25 @@ def _render_following_list() -> None:
             empty_message="当前没有可展示的来源数据。",
             hint="如果来源已经整理好，下一步通常是去下载中心执行批量拉取。",
         )
+        
+        st.divider()
+        st.subheader("🗑️ 删除来源")
+        del_uid = st.text_input("输入要删除的 UID")
+        delete_local = st.checkbox("同时删除本地下载的视频文件")
+        if del_uid:
+            if st.button("删除来源", type="primary", key=f"del_{del_uid}"):
+                if st.checkbox(f"确认删除 UID {del_uid} 的来源?", key=f"confirm_{del_uid}"):
+                    try:
+                        from media_tools.douyin.core.following_mgr import remove_user
+                        success = remove_user(del_uid, delete_local=delete_local)
+                        if success:
+                            st.success(f"已成功删除来源: {del_uid}")
+                            st.rerun()
+                        else:
+                            st.error(f"删除失败，请检查 UID 是否正确: {del_uid}")
+                    except Exception as e:
+                        logger.exception('发生异常')
+                        st.error(f"删除失败: {e}")
         if st.button("📥 去下载中心批量拉取", key="go_download_from_following"):
             st.switch_page("web/pages/download_center.py")
     except Exception as e:
@@ -203,8 +229,7 @@ def _import_users(content: str) -> tuple:
     except Exception as e:
         logger.exception('发生异常')
         return False, f"导入失败: {e}"
-st.title("👥 关注管理")
-st.caption("把你持续观察的博主整理成来源列表，供后续批量拉取素材使用。")
+render_page_header("👥 关注管理", "把你持续观察的博主整理成来源列表，供后续批量拉取素材使用。")
 
 tab1, tab2, tab3 = st.tabs(["📋 来源列表", "➕ 添加来源", "📤 导入 / 导出"])
 
@@ -214,5 +239,4 @@ with tab2:
     _render_add_following()
 with tab3:
     _render_import_export()
-
 
