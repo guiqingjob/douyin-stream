@@ -93,6 +93,27 @@ async def transcribe_video(
             video_path.unlink()
             logger.info(f"🗑️  已删除原视频: {video_path}")
         
+        # 更新 DB 资产状态
+        try:
+            import sqlite3
+            from media_tools.douyin.core.config_mgr import get_config
+            db_path = get_config().get_db_path()
+            with sqlite3.connect(db_path) as conn:
+                cursor = conn.cursor()
+                # 尽量匹配文件名
+                cursor.execute("""
+                    UPDATE media_assets 
+                    SET transcript_path = ?, transcript_status = 'completed', update_time = CURRENT_TIMESTAMP
+                    WHERE video_path LIKE ? OR title LIKE ?
+                """, (
+                    str(result.export_path.name), 
+                    f"%{video_path.name}%",
+                    f"%{video_path.stem}%"
+                ))
+                conn.commit()
+        except Exception as e:
+            logger.warning(f"更新 media_assets 转写状态失败: {e}")
+
         return PipelineResult(
             success=True,
             video_path=video_path,

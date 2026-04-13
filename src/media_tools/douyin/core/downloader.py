@@ -373,6 +373,69 @@ def _reorganize_files(nickname: str, uid: str) -> str:
     return folder_name
 
 
+def _sync_media_assets(uid: str, nickname: str, folder_name: str):
+    """将 video_metadata 中的数据同步到全新的 V2 media_assets 表"""
+    config = get_config()
+    db_path = config.get_db_path()
+    downloads_path = config.get_download_path()
+    
+    try:
+        conn = sqlite3.connect(str(db_path))
+        cursor = conn.cursor()
+        
+        # 获取该用户的所有视频元数据
+        cursor.execute("SELECT aweme_id, desc, duration FROM video_metadata WHERE uid = ?", (uid,))
+        videos = cursor.fetchall()
+        
+        now = datetime.now().isoformat()
+        
+        for aweme_id, desc, duration in videos:
+            # 尝试在文件夹中寻找该视频文件
+            video_path = ""
+            video_status = "pending"
+            
+            user_dir = downloads_path / folder_name
+            if user_dir.exists():
+                for f in user_dir.glob("*.mp4"):
+                    if aweme_id in f.stem:
+                        video_path = f"{folder_name}/{f.name}"
+                        video_status = "downloaded"
+                        break
+                    # 基于中文关键词匹配
+                    import re
+                    clean_title = _clean_video_title(desc)
+                    chinese_words = re.findall(r'[\u4e00-\u9fa5]{2,}', clean_title)
+                    for word in chinese_words[:3]:
+                        if word in f.stem:
+                            video_path = f"{folder_name}/{f.name}"
+                            video_status = "downloaded"
+                            break
+                    if video_status == "downloaded":
+                        break
+                        
+            # 插入或更新 media_assets 表
+            cursor.execute("""
+                INSERT OR IGNORE INTO media_assets 
+                (asset_id, creator_uid, title, duration, video_path, video_status, create_time, update_time)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+            """, (
+                aweme_id, uid, desc, duration, video_path, video_status, now, now
+            ))
+            
+            # 如果已经存在，则更新状态
+            cursor.execute("""
+                UPDATE media_assets 
+                SET video_path = ?, video_status = ?, update_time = ?
+                WHERE asset_id = ? AND video_status != 'downloaded'
+            """, (video_path, video_status, now, aweme_id))
+            
+        conn.commit()
+    except Exception as e:
+        logger.error(f"同步 media_assets 失败: {e}")
+    finally:
+        if conn:
+            conn.close()
+
 def _update_last_fetch_time(uid: str, nickname: str = ""):
     """更新 following.json 中的 last_fetch_time"""
     try:
@@ -703,6 +766,11 @@ async def _download_with_stats(url: str, max_counts: int = None):
     # 同步 following.json
     logger.info(info("[同步] 更新 following.json..."))
     _sync_following()
+
+    # 同步 V2 资产库
+    if folder_name:
+        logger.info(info("[资产] 同步至媒体资产库..."))
+        _sync_media_assets(uid, nickname, folder_name)
 
     # 生成 Web 数据文件
     logger.info(info("[数据] 生成 Web 数据文件..."))
