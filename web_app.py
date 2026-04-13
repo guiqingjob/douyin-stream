@@ -22,6 +22,28 @@ SCRIPTS_DIR = PROJECT_ROOT / "scripts"
 if SCRIPTS_DIR.exists() and str(SCRIPTS_DIR) not in sys.path:
     sys.path.insert(0, str(SCRIPTS_DIR))
 
+
+# ─────────────────────────────────────────────
+# 项目初始化：自动创建必需目录
+# ─────────────────────────────────────────────
+def init_project_dirs():
+    """自动创建项目必需的目录"""
+    required_dirs = [
+        PROJECT_ROOT / "downloads",
+        PROJECT_ROOT / "transcripts",
+        PROJECT_ROOT / "temp_uploads",
+        PROJECT_ROOT / ".auth",
+        PROJECT_ROOT / "config",
+        PROJECT_ROOT / "config" / "transcribe",
+    ]
+    
+    for dir_path in required_dirs:
+        if not dir_path.exists():
+            dir_path.mkdir(parents=True, exist_ok=True)
+            print(f"✅ 创建目录: {dir_path}")
+
+init_project_dirs()
+
 import streamlit as st
 
 from web.pages.dashboard import render_dashboard
@@ -46,25 +68,36 @@ st.set_page_config(
 # ─────────────────────────────────────────────
 # 侧边栏导航
 # ─────────────────────────────────────────────
+PAGES = [
+    "📊 仪表盘",
+    "👤 关注管理",
+    "📥 下载任务",
+    "🎙️ 转写任务",
+    "🔑 账号管理",
+    "🗑️ 数据清理",
+    "⚙️ 系统设置",
+]
+
+# 初始化 session_state
+if "current_page" not in st.session_state:
+    st.session_state.current_page = PAGES[0]
+
 with st.sidebar:
     st.title("🎬 Media Tools")
     st.caption("抖音下载 + AI 转写 Web 管理面板")
     st.divider()
 
+    # 使用 session_state 控制的 radio
+    page_idx = PAGES.index(st.session_state.current_page) if st.session_state.current_page in PAGES else 0
     page = st.radio(
         "导航菜单",
-        [
-            "📊 仪表盘",
-            "👤 关注管理",
-            "📥 下载任务",
-            "🎙️ 转写任务",
-            "🔑 账号管理",
-            "🗑️ 数据清理",
-            "⚙️ 系统设置",
-        ],
-        index=0,
+        PAGES,
+        index=page_idx,
         label_visibility="collapsed",
+        key="page_radio",
     )
+    # 同步更新 session_state
+    st.session_state.current_page = page
 
     st.divider()
     st.caption(f"项目路径: `{PROJECT_ROOT}`")
@@ -72,17 +105,17 @@ with st.sidebar:
 # ─────────────────────────────────────────────
 # 页面路由
 # ─────────────────────────────────────────────
-if page == "📊 仪表盘":
+if st.session_state.current_page == "📊 仪表盘":
     render_dashboard()
-elif page == "👤 关注管理":
+elif st.session_state.current_page == "👤 关注管理":
     render_following()
-elif page == "📥 下载任务":
+elif st.session_state.current_page == "📥 下载任务":
     render_download()
-elif page == "🎙️ 转写任务":
+elif st.session_state.current_page == "🎙️ 转写任务":
     render_transcribe()
-elif page == "🔑 账号管理":
+elif st.session_state.current_page == "🔑 账号管理":
     render_accounts()
-elif page == "🗑️ 数据清理":
+elif st.session_state.current_page == "🗑️ 数据清理":
     render_cleanup()
-elif page == "⚙️ 系统设置":
+elif st.session_state.current_page == "⚙️ 系统设置":
     render_settings()

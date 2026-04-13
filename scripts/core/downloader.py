@@ -36,7 +36,7 @@ from .config_mgr import get_config
 from .following_mgr import list_users
 
 # 导入日志记录器
-from utils.logger import logger
+from ..utils.logger import logger
 
 
 def _get_skill_dir():
@@ -376,7 +376,7 @@ def _reorganize_files(nickname: str, uid: str) -> str:
 def _update_last_fetch_time(uid: str, nickname: str = ""):
     """更新 following.json 中的 last_fetch_time"""
     try:
-        from utils.following import update_fetch_time
+        from ..utils.following import update_fetch_time
 
         update_fetch_time(uid, nickname)
         print(info(f"  [更新] last_fetch_time for {nickname or uid}"))
@@ -386,7 +386,7 @@ def _update_last_fetch_time(uid: str, nickname: str = ""):
 
 def _sync_following():
     """同步 following.json：从数据库更新用户信息"""
-    from utils.following import (
+    from ..utils.following import (
         list_users,
         load_following,
         save_following,
@@ -800,7 +800,7 @@ def download_by_uid(uid, max_counts=None):
     Returns:
         是否成功
     """
-    from utils.following import get_user
+    from ..utils.following import get_user
 
     user = get_user(uid)
     if not user:

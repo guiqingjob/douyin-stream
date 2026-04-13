@@ -142,7 +142,7 @@ async def douyin_login(persist=False, cookies_path=None):
 
             # 验证 Cookie
             try:
-                from utils.auth_parser import AuthParser
+                from ..utils.auth_parser import AuthParser
 
                 parser = AuthParser()
                 success_validate, msg, _ = parser.validate_data(

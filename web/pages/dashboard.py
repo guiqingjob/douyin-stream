@@ -40,15 +40,18 @@ def render_dashboard() -> None:
 
     with col1:
         if st.button("📋 查看关注列表", use_container_width=True):
-            st.session_state.page = "👤 关注管理"
+            st.session_state.current_page = "👤 关注管理"
+            st.rerun()
 
     with col2:
         if st.button("📥 开始下载", use_container_width=True):
-            st.session_state.page = "📥 下载任务"
+            st.session_state.current_page = "📥 下载任务"
+            st.rerun()
 
     with col3:
         if st.button("🎙️ 开始转写", use_container_width=True):
-            st.session_state.page = "🎙️ 转写任务"
+            st.session_state.current_page = "🎙️ 转写任务"
+            st.rerun()
 
 
 def _run_env_check() -> bool:

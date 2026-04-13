@@ -378,7 +378,7 @@ def download_updates_for_user(uid, max_counts=None):
     Returns:
         是否成功
     """
-    from utils.following import get_user
+    from ..utils.following import get_user
 
     user = get_user(uid)
     if not user:

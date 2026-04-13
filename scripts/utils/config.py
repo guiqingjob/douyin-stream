@@ -14,11 +14,11 @@ from pathlib import Path
 from typing import Any, Dict, Optional
 
 import yaml
-from utils.logger import logger
+from .logger import logger
 
-# 技能目录
-SKILL_DIR = Path(__file__).parent.parent.parent.resolve()
-CONFIG_PATH = SKILL_DIR / "config" / "config.yaml"
+# 项目根目录（src/media_tools/douyin/utils/ 的上 4 级）
+PROJECT_ROOT = Path(__file__).parent.parent.parent.parent.parent.resolve()
+CONFIG_PATH = PROJECT_ROOT / "config" / "config.yaml"
 
 
 def get_default_download_path() -> Path:
@@ -100,7 +100,7 @@ def get_download_path() -> Path:
         path = Path(custom_path).expanduser()
         # 如果是相对路径，相对于技能目录
         if not path.is_absolute():
-            path = SKILL_DIR / path
+            path = PROJECT_ROOT / path
     else:
         # 使用默认路径
         path = get_default_download_path()
@@ -168,7 +168,7 @@ def get_db_path() -> Path:
     Returns:
         数据库路径
     """
-    return SKILL_DIR / "douyin_users.db"
+    return PROJECT_ROOT / "douyin_users.db"
 
 
 def get_following_path() -> Path:
@@ -178,7 +178,7 @@ def get_following_path() -> Path:
     Returns:
         following.json 路径
     """
-    return SKILL_DIR / "config" / "following.json"
+    return PROJECT_ROOT / "config" / "following.json"
 
 
 # 导出常用路径（延迟计算）
@@ -233,7 +233,7 @@ class Paths:
 
 if __name__ == "__main__":
     # 测试
-    logger.info(f"技能目录: {SKILL_DIR}")
+    logger.info(f"技能目录: {PROJECT_ROOT}")
     logger.info(f"配置文件: {CONFIG_PATH}")
     logger.info(f"默认下载路径: {get_default_download_path()}")
     logger.info(f"实际下载路径: {get_download_path()}")

@@ -21,9 +21,9 @@ class ConfigManager:
             config_path: 配置文件路径，默认使用项目根目录的 config/config.yaml
         """
         if config_path is None:
-            # 自动检测项目根目录
-            script_dir = Path(__file__).parent.parent.parent
-            config_path = script_dir / "config" / "config.yaml"
+            # 自动检测项目根目录（src/media_tools/douyin/core/ 的上 4 级）
+            project_root = Path(__file__).parent.parent.parent.parent.parent.resolve()
+            config_path = project_root / "config" / "config.yaml"
 
         self.config_path = Path(config_path)
         self._config = {}

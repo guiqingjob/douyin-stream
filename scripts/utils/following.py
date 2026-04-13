@@ -12,16 +12,16 @@ from datetime import datetime
 from pathlib import Path
 from typing import Optional
 
-from utils.logger import logger
+from .logger import logger
 
-# 获取 skill 根目录（scripts/utils/ 的上两级）
-SKILL_DIR = Path(__file__).parent.parent.parent.resolve()
-FOLLOWING_PATH = SKILL_DIR / "config" / "following.json"
-DB_PATH = SKILL_DIR / "douyin_users.db"
+# 获取项目根目录（src/media_tools/douyin/utils/ 的上 4 级）
+PROJECT_ROOT = Path(__file__).parent.parent.parent.parent.parent.resolve()
+FOLLOWING_PATH = PROJECT_ROOT / "config" / "following.json"
+DB_PATH = PROJECT_ROOT / "douyin_users.db"
 
 # 导入配置工具
 try:
-    from utils.config import sanitize_folder_name
+    from .config import sanitize_folder_name
 except ImportError:
 
     def sanitize_folder_name(name: str) -> str:

@@ -46,7 +46,7 @@ def list_users():
     if str(skill_dir) not in sys.path:
         sys.path.insert(0, str(skill_dir))
 
-    from utils.following import list_users as _list_users
+    from ..utils.following import list_users as _list_users
 
     users = _list_users()
     return users or []
@@ -91,7 +91,7 @@ def add_user(url):
         return False, None
 
     # 添加到关注列表
-    from utils.following import add_user as _add_user
+    from ..utils.following import add_user as _add_user
 
     uid = user_info.get("uid")
     _add_user(uid, user_info)
@@ -245,8 +245,8 @@ def remove_user(uid, delete_local=False):
     Returns:
         是否成功
     """
-    from utils.following import get_user as _get_user
-    from utils.following import remove_user as _remove_user
+    from ..utils.following import get_user as _get_user
+    from ..utils.following import remove_user as _remove_user
 
     user = _get_user(uid)
     if not user:

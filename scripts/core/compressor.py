@@ -20,7 +20,7 @@ from .ui import (
 from .config_mgr import get_config
 
 # 导入日志记录器
-from utils.logger import logger
+from ..utils.logger import logger
 
 
 def check_ffmpeg():
