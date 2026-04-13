@@ -122,3 +122,12 @@ test_report.txt
 config_export/
 
 .first_visit_done
+
+
+# 本地调试与协作草稿
+.superpowers/
+src/config/active_preset.txt
+src/test_add_user.py
+src/test_cli.py
+docs/superpowers/specs/2026-04-13-*.md
+docs/superpowers/plans/
