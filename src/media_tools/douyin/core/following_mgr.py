@@ -1,3 +1,6 @@
+
+from media_tools.logger import get_logger
+logger = get_logger(__name__)
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
 """
@@ -67,9 +70,9 @@ def add_user(url):
     # 从 URL 提取 sec_user_id
     sec_match = re.search(r'/user/(MS4wLjABAAAA[^/"\s?]+)', url)
     if not sec_match:
-        print(error("无法从 URL 提取用户标识"))
-        print(info("请使用抖音主页链接，格式如:"))
-        print(info("https://www.douyin.com/user/MS4wLjABAAAA..."))
+        logger.info(error("无法从 URL 提取用户标识"))
+        logger.info(info("请使用抖音主页链接，格式如:"))
+        logger.info(info("https://www.douyin.com/user/MS4wLjABAAAA..."))
         return False, None
 
     sec_user_id = sec_match.group(1)
@@ -79,15 +82,15 @@ def add_user(url):
     for u in existing_users:
         if u.get("sec_user_id") == sec_user_id:
             name = u.get("nickname", u.get("name", "未知"))
-            print(warning(f"用户已在关注列表: {name} (UID: {u.get('uid')})"))
+            logger.info(warning(f"用户已在关注列表: {name} (UID: {u.get('uid')})"))
             return False, u
 
     # 通过 F2 获取用户信息
-    print(info("正在通过 F2 获取用户信息..."))
+    logger.info(info("正在通过 F2 获取用户信息..."))
     user_info = _fetch_user_info_via_f2(url, sec_user_id)
 
     if not user_info:
-        print(error("获取用户信息失败"))
+        logger.info(error("获取用户信息失败"))
         return False, None
 
     # 添加到关注列表
@@ -96,8 +99,8 @@ def add_user(url):
     uid = user_info.get("uid")
     _add_user(uid, user_info)
 
-    print(success(f"已添加用户: {user_info.get('nickname', '未知')} (UID: {uid})"))
-    print(info("提示: 运行下载功能可获取完整用户信息和视频"))
+    logger.info(success(f"已添加用户: {user_info.get('nickname', '未知')} (UID: {uid})"))
+    logger.info(info("提示: 运行下载功能可获取完整用户信息和视频"))
 
     return True, user_info
 
@@ -152,7 +155,7 @@ def _fetch_user_info_via_f2(url, sec_user_id):
     )
 
     if result.returncode != 0:
-        print(error(f"F2 下载失败: {result.stderr}"))
+        logger.info(error(f"F2 下载失败: {result.stderr}"))
         return None
 
     # 从数据库读取用户信息
@@ -175,7 +178,7 @@ def _fetch_user_info_via_f2(url, sec_user_id):
         row = cursor.fetchone()
 
         if not row:
-            print(error("数据库中未找到用户信息"))
+            logger.info(error("数据库中未找到用户信息"))
             return None
 
         # 归档视频文件
@@ -216,7 +219,7 @@ def _fetch_user_info_via_f2(url, sec_user_id):
         }
 
     except Exception as e:
-        print(error(f"数据库读取失败: {e}"))
+        logger.info(error(f"数据库读取失败: {e}"))
         return None
     finally:
         if conn:
@@ -250,7 +253,7 @@ def remove_user(uid, delete_local=False):
 
     user = _get_user(uid)
     if not user:
-        print(error(f"用户 {uid} 不在关注列表中"))
+        logger.info(error(f"用户 {uid} 不在关注列表中"))
         return False
 
     name = user.get("nickname", user.get("name", "未知"))
@@ -258,7 +261,7 @@ def remove_user(uid, delete_local=False):
 
     # 从 following.json 删除
     _remove_user(uid)
-    print(success(f"已从关注列表移除: {name} (UID: {uid})"))
+    logger.info(success(f"已从关注列表移除: {name} (UID: {uid})"))
 
     # 清理数据库记录
     config = get_config()
@@ -274,9 +277,9 @@ def remove_user(uid, delete_local=False):
                 (uid, name),
             )
             conn.commit()
-            print(success("已清理数据库记录"))
+            logger.info(success("已清理数据库记录"))
         except Exception as e:
-            print(warning(f"清理数据库时出错: {e}"))
+            logger.info(warning(f"清理数据库时出错: {e}"))
         finally:
             if conn:
                 conn.close()
@@ -293,11 +296,11 @@ def remove_user(uid, delete_local=False):
 
             try:
                 shutil.rmtree(user_dir)
-                print(success(f"已删除本地视频文件: {user_dir}"))
+                logger.info(success(f"已删除本地视频文件: {user_dir}"))
             except Exception as e:
-                print(error(f"删除本地文件夹失败: {e}"))
+                logger.info(error(f"删除本地文件夹失败: {e}"))
         else:
-            print(info("本地无该用户视频目录"))
+            logger.info(info("本地无该用户视频目录"))
 
     return True
 
@@ -308,8 +311,8 @@ def display_users():
 
     users = list_users()
     if not users:
-        print(info("关注列表为空"))
-        print(info("请先使用 '添加博主' 功能添加关注"))
+        logger.info(info("关注列表为空"))
+        logger.info(info("请先使用 '添加博主' 功能添加关注"))
         return []
 
     config = get_config()
@@ -333,8 +336,8 @@ def display_users():
         rows.append([i, name, uid, followers, videos, local_count, last_fetch])
 
     print_table(headers, rows)
-    print()
-    print(info(f"共 {len(users)} 位博主"))
+    logger.info()
+    logger.info(info(f"共 {len(users)} 位博主"))
 
     return users
 
@@ -356,7 +359,7 @@ def batch_add_urls(urls):
     failed = 0
 
     for i, url in enumerate(urls, 1):
-        print(info(f"[{i}/{len(urls)}] 处理: {url[:50]}..."))
+        logger.info(info(f"[{i}/{len(urls)}] 处理: {url[:50]}..."))
         ok, user_info = add_user(url)
         if ok:
             added += 1
@@ -366,6 +369,6 @@ def batch_add_urls(urls):
         else:
             failed += 1
 
-    print()
-    print(success(f"完成! 新增 {added} 个，已存在 {updated} 个，失败 {failed} 个"))
+    logger.info()
+    logger.info(success(f"完成! 新增 {added} 个，已存在 {updated} 个，失败 {failed} 个"))
     return added, updated, failed

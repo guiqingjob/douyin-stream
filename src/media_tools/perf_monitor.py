@@ -1,3 +1,6 @@
+
+from media_tools.logger import get_logger
+logger = get_logger(__name__)
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
 """
@@ -204,7 +207,7 @@ def main():
     """测试性能监控"""
     import time
 
-    print("📊 性能监控工具演示\n")
+    logger.info("📊 性能监控工具演示\n")
 
     tracker = PerformanceTracker()
 
@@ -228,7 +231,7 @@ def main():
     tracker.display_report()
 
     # 测试装饰器
-    print("\n测试装饰器:\n")
+    logger.info("\n测试装饰器:\n")
 
     @track_performance
     def slow_function():
@@ -236,9 +239,9 @@ def main():
         return "done"
 
     result = slow_function()
-    print(f"函数执行结果: {result}")
+    logger.info(f"函数执行结果: {result}")
 
-    print("\n✅ 性能监控测试完成！\n")
+    logger.info("\n✅ 性能监控测试完成！\n")
 
 
 if __name__ == "__main__":

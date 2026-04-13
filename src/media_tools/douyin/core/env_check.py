@@ -1,3 +1,6 @@
+
+from media_tools.logger import get_logger
+logger = get_logger(__name__)
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
 """
@@ -146,17 +149,17 @@ def check_all():
             print_status("error", f"{name}: {message}")
             all_passed = False
 
-    print()
+    logger.info()
     if all_passed:
-        print(success("✓ 环境检测通过，可以正常使用!"))
+        logger.info(success("✓ 环境检测通过，可以正常使用!"))
     else:
-        print(error("✗ 环境检测未通过，请先配置环境"))
-        print()
-        print(info("安装指南:"))
-        print("  1. pip install -r requirements.txt")
-        print("  2. python -m playwright install chromium")
-        print("  3. brew install ffmpeg  (macOS)")
-        print("  4. 运行登录功能配置 Cookie")
+        logger.info(error("✗ 环境检测未通过，请先配置环境"))
+        logger.info()
+        logger.info(info("安装指南:"))
+        logger.info("  1. pip install -r requirements.txt")
+        logger.info("  2. python -m playwright install chromium")
+        logger.info("  3. brew install ffmpeg  (macOS)")
+        logger.info("  4. 运行登录功能配置 Cookie")
 
-    print()
+    logger.info()
     return all_passed, results

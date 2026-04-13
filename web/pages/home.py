@@ -7,16 +7,9 @@ import streamlit as st
 from web.components.home_cards import render_home_status_cards
 from web.components.storage_chart import render_storage_chart
 from web.components.task_table import render_task_table
-from web.constants import (
-
 from media_tools.logger import get_logger
 logger = get_logger('web')
-
-    PAGE_DOWNLOAD,
-    PAGE_FOLLOWING,
-    PAGE_SETTINGS,
-    PAGE_TRANSCRIBE,
-)
+from web.components.ui_patterns import render_page_header
 
 
 # 渲染工作台首页
@@ -83,8 +76,7 @@ def _render_quick_actions(status: dict) -> None:
     with col4:
         if st.button("⚙️ 检查配置", use_container_width=True):
             st.switch_page("web/pages/settings.py")
-st.title("🏠 工作台")
-st.caption("先确认系统状态，再开始下载素材或转写文稿。")
+render_page_header("🏠 工作台", "先确认系统状态，再开始下载素材或转写文稿。")
 
 status = render_home_status_cards()
 
@@ -101,5 +93,4 @@ render_task_table(limit=5)
 
 st.divider()
 render_storage_chart()
-
 

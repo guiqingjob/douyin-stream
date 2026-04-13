@@ -1,3 +1,6 @@
+
+from media_tools.logger import get_logger
+logger = get_logger(__name__)
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
 """
@@ -38,15 +41,15 @@ def generate_data():
     # 1. 读取关注列表
     users = list_users()
     if not users:
-        print(info("关注列表为空"))
+        logger.info(info("关注列表为空"))
 
     # 2. 获取视频元数据
     metadata = _get_video_metadata(db_path)
-    print(info(f"从数据库读取 {len(metadata)} 条视频元数据"))
+    logger.info(info(f"从数据库读取 {len(metadata)} 条视频元数据"))
 
     # 3. 扫描视频文件
     all_videos = _scan_videos(downloads_path, metadata)
-    print(info(f"扫描到 {len(all_videos)} 个视频文件"))
+    logger.info(info(f"扫描到 {len(all_videos)} 个视频文件"))
 
     # 4. 构建用户数据
     user_data = _build_user_data(users, all_videos, downloads_path)
@@ -72,7 +75,7 @@ def generate_data():
         json.dump(data, f, ensure_ascii=False, indent=2)
         f.write(";\n")
 
-    print(success(f"数据已生成: {output_path}"))
+    logger.info(success(f"数据已生成: {output_path}"))
 
     # 7. 复制 index.html 模板
     _copy_index_template(downloads_path)
@@ -85,13 +88,13 @@ def generate_data():
         v.get("stats", {}).get("digg_count", 0) for v in all_videos
     )
 
-    print()
-    print(info(f"收录博主: {total_users}"))
-    print(info(f"本地视频: {total_videos}"))
-    print(info(f"累计点赞: {format_number(total_diggs)}"))
-    print(info(f"占用空间: {format_size(total_size)}"))
-    print()
-    print(success(f"直接用浏览器打开: {downloads_path / 'index.html'}"))
+    logger.info()
+    logger.info(info(f"收录博主: {total_users}"))
+    logger.info(info(f"本地视频: {total_videos}"))
+    logger.info(info(f"累计点赞: {format_number(total_diggs)}"))
+    logger.info(info(f"占用空间: {format_size(total_size)}"))
+    logger.info()
+    logger.info(success(f"直接用浏览器打开: {downloads_path / 'index.html'}"))
 
     return True
 
@@ -145,7 +148,7 @@ def _get_video_metadata(db_path):
         return metadata
 
     except Exception as e:
-        print(warning(f"读取数据库时出错: {e}"))
+        logger.info(warning(f"读取数据库时出错: {e}"))
         return {}
     finally:
         if conn:

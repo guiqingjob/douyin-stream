@@ -169,21 +169,21 @@ def compress_user_dir(user_folder, crf=32, preset="fast", replace=True):
     try:
         user_dir.resolve().relative_to(downloads_path.resolve())
     except ValueError:
-        print(error(f"非法目录: {user_folder}"))
+        logger.info(error(f"非法目录: {user_folder}"))
         return 0, 0, 0
 
     if not user_dir.exists():
-        print(error(f"目录不存在: {user_dir}"))
+        logger.info(error(f"目录不存在: {user_dir}"))
         return 0, 0, 0
 
     mp4_files = list(user_dir.glob("*.mp4"))
     if not mp4_files:
-        print(info(f"没有找到视频文件: {user_dir}"))
+        logger.info(info(f"没有找到视频文件: {user_dir}"))
         return 0, 0, 0
 
-    print(info(f"处理用户目录: {user_folder}"))
-    print(info(f"找到 {len(mp4_files)} 个视频文件"))
-    print()
+    logger.info(info(f"处理用户目录: {user_folder}"))
+    logger.info(info(f"找到 {len(mp4_files)} 个视频文件"))
+    logger.info()
 
     success_count = 0
     skipped_count = 0
@@ -212,23 +212,23 @@ def compress_user_dir(user_folder, crf=32, preset="fast", replace=True):
                     success_count += 1
                 except Exception as e:
                     failed_count += 1
-                    print(error(f"替换文件失败: {video.name} - {e}"))
+                    logger.info(error(f"替换文件失败: {video.name} - {e}"))
                     if output.exists():
                         output.unlink()
             else:
                 success_count += 1
-                print(success(f"压缩成功: {video.name} ({orig_size/1024/1024:.1f}MB -> {comp_size/1024/1024:.1f}MB)"))
+                logger.info(success(f"压缩成功: {video.name} ({orig_size/1024/1024:.1f}MB -> {comp_size/1024/1024:.1f}MB)"))
         elif error_msg and ("跳过" in error_msg or "小于" in error_msg or "低于" in error_msg):
             # 主动跳过
             skipped_count += 1
         else:
             # 压缩失败
             failed_count += 1
-            print(error(f"压缩失败: {video.name} - {error_msg}"))
+            logger.info(error(f"压缩失败: {video.name} - {error_msg}"))
             if output.exists():
                 output.unlink()
 
-    print()
+    logger.info()
     return success_count, skipped_count, failed_count
 
 
@@ -247,28 +247,28 @@ def compress_all(crf=32, preset="fast", replace=True):
     print_header("批量压缩视频")
 
     if not check_ffmpeg():
-        print(error("未找到 ffmpeg"))
-        print(info("请先安装 ffmpeg:"))
-        print("  macOS:   brew install ffmpeg")
-        print("  Ubuntu:  sudo apt install ffmpeg")
-        print("  Windows: choco install ffmpeg")
+        logger.info(error("未找到 ffmpeg"))
+        logger.info(info("请先安装 ffmpeg:"))
+        logger.info("  macOS:   brew install ffmpeg")
+        logger.info("  Ubuntu:  sudo apt install ffmpeg")
+        logger.info("  Windows: choco install ffmpeg")
         return 0, 0, 0
 
     config = get_config()
     downloads_path = config.get_download_path()
 
     if not downloads_path.exists():
-        print(error(f"下载目录不存在: {downloads_path}"))
+        logger.info(error(f"下载目录不存在: {downloads_path}"))
         return 0, 0, 0
 
     user_dirs = [d for d in downloads_path.iterdir() if d.is_dir()]
     if not user_dirs:
-        print(info("没有找到用户目录"))
+        logger.info(info("没有找到用户目录"))
         return 0, 0, 0
 
-    print(info(f"下载目录: {downloads_path}"))
-    print(info(f"找到 {len(user_dirs)} 个用户目录"))
-    print()
+    logger.info(info(f"下载目录: {downloads_path}"))
+    logger.info(info(f"找到 {len(user_dirs)} 个用户目录"))
+    logger.info()
 
     total_success = 0
     total_skipped = 0
@@ -281,11 +281,11 @@ def compress_all(crf=32, preset="fast", replace=True):
         total_success += success_count
         total_skipped += skipped_count
         total_failed += failed_count
-        print()
+        logger.info()
 
     print_header("压缩完成")
-    print(success(f"成功: {total_success}"))
-    print(info(f"跳过: {total_skipped}"))
-    print(error(f"失败: {total_failed}"))
+    logger.info(success(f"成功: {total_success}"))
+    logger.info(info(f"跳过: {total_skipped}"))
+    logger.info(error(f"失败: {total_failed}"))
 
     return total_success, total_skipped, total_failed

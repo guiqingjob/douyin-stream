@@ -3,6 +3,10 @@
 负责串联抖音下载和 Qwen 转写流程：
 下载视频(MP4) → 上传转写 → 输出文稿(md/docx)
 """
+
+from media_tools.logger import get_logger
+logger = get_logger(__name__)
+
 from __future__ import annotations
 
 import asyncio
@@ -87,7 +91,7 @@ async def transcribe_video(
         # 可选：删除原视频
         if config.remove_video and not config.keep_original:
             video_path.unlink()
-            print(f"🗑️  已删除原视频: {video_path}")
+            logger.info(f"🗑️  已删除原视频: {video_path}")
         
         return PipelineResult(
             success=True,
@@ -165,14 +169,14 @@ def print_pipeline_summary(results: list[PipelineResult]) -> None:
     success = sum(1 for r in results if r.success)
     failed = total - success
     
-    print("\n" + "="*50)
-    print(f"📊 Pipeline 执行摘要")
-    print("="*50)
-    print(f"总计: {total} | ✅ 成功: {success} | ❌ 失败: {failed}")
-    print("="*50)
+    logger.info("\n" + "="*50)
+    logger.info(f"📊 Pipeline 执行摘要")
+    logger.info("="*50)
+    logger.info(f"总计: {total} | ✅ 成功: {success} | ❌ 失败: {failed}")
+    logger.info("="*50)
     
     if failed > 0:
-        print("\n失败详情:")
+        logger.info("\n失败详情:")
         for r in results:
             if not r.success:
-                print(f"  - {r.video_path.name}: {r.error}")
+                logger.info(f"  - {r.video_path.name}: {r.error}")

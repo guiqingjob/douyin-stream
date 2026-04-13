@@ -1,3 +1,6 @@
+
+from media_tools.logger import get_logger
+logger = get_logger(__name__)
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
 """
@@ -285,7 +288,7 @@ def check_all_updates():
 
     users = list_users()
     if not users:
-        print(info("关注列表为空"))
+        logger.info(info("关注列表为空"))
         return {
             "users": [],
             "total_new": 0,
@@ -293,7 +296,7 @@ def check_all_updates():
             "total_users": 0,
         }
 
-    print(info(f"正在检查 {len(users)} 位博主...\n"))
+    logger.info(info(f"正在检查 {len(users)} 位博主...\n"))
 
     results = []
     total_new = 0
@@ -336,9 +339,9 @@ def check_all_updates():
             status_icon = "✓"
             status_text = "已是最新"
 
-        print(f"  {status_icon} {name}")
-        print(f"     本地: {local_count} 个 | 远程: {remote_count} 个 | {status_text}")
-        print()
+        logger.info(f"  {status_icon} {name}")
+        logger.info(f"     本地: {local_count} 个 | 远程: {remote_count} 个 | {status_text}")
+        logger.info()
 
         results.append({
             "uid": uid,
@@ -351,13 +354,13 @@ def check_all_updates():
         })
 
     # 汇总
-    print(separator("─", 60))
-    print()
-    print(bold(f"📊 检查结果:"))
-    print(f"  检查博主: {len(users)} 位")
-    print(f"  有更新: {bold(str(has_updates_count))} 位")
-    print(f"  新视频: {bold(str(total_new))} 个")
-    print()
+    logger.info(separator("─", 60))
+    logger.info()
+    logger.info(bold(f"📊 检查结果:"))
+    logger.info(f"  检查博主: {len(users)} 位")
+    logger.info(f"  有更新: {bold(str(has_updates_count))} 位")
+    logger.info(f"  新视频: {bold(str(total_new))} 个")
+    logger.info()
 
     return {
         "users": results,
@@ -382,7 +385,7 @@ def download_updates_for_user(uid, max_counts=None):
 
     user = get_user(uid)
     if not user:
-        print(error(f"用户 {uid} 不在关注列表中"))
+        logger.info(error(f"用户 {uid} 不在关注列表中"))
         return False
 
     sec_user_id = user.get("sec_user_id", "")
@@ -392,7 +395,7 @@ def download_updates_for_user(uid, max_counts=None):
         url = f"https://www.douyin.com/user/{uid}"
 
     name = user.get("nickname", user.get("name", "未知"))
-    print(info(f"下载更新: {name}"))
+    logger.info(info(f"下载更新: {name}"))
 
     from .downloader import download_by_url
 

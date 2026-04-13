@@ -302,7 +302,7 @@ def _rename_videos_in_downloads(nickname: str, uid: str, downloads_path: Path) -
                     shutil.move(str(f), str(dest))
                     processed_count += 1
                     renamed_count += 1
-                    print(info(f"  [重命名] {f.name[:40]}... → {new_name[:40]}..."))
+                    logger.info(info(f"  [重命名] {f.name[:40]}... → {new_name[:40]}..."))
                 else:
                     counter = 1
                     while dest.exists():
@@ -321,7 +321,7 @@ def _rename_videos_in_downloads(nickname: str, uid: str, downloads_path: Path) -
                         processed_count += 1
 
         if processed_count > 0:
-            print(info(f"  [整理] 已处理 {processed_count} 个文件到 {folder_name}/（{renamed_count} 个已重命名）"))
+            logger.info(info(f"  [整理] 已处理 {processed_count} 个文件到 {folder_name}/（{renamed_count} 个已重命名）"))
 
             # 更新数据库中的 local_filename 字段
             cursor.execute(
@@ -329,7 +329,7 @@ def _rename_videos_in_downloads(nickname: str, uid: str, downloads_path: Path) -
                 (folder_name, uid)
             )
             conn.commit()
-            print(info(f"  [更新] 已更新 {folder_name} 的 local_filename"))
+            logger.info(info(f"  [更新] 已更新 {folder_name} 的 local_filename"))
     finally:
         if conn:
             conn.close()
@@ -368,7 +368,7 @@ def _reorganize_files(nickname: str, uid: str) -> str:
             pass
 
     if moved_count > 0:
-        print(info(f"  [移动] {nickname} -> {folder_name} ({moved_count} 文件)"))
+        logger.info(info(f"  [移动] {nickname} -> {folder_name} ({moved_count} 文件)"))
 
     return folder_name
 
@@ -379,7 +379,7 @@ def _update_last_fetch_time(uid: str, nickname: str = ""):
         from ..utils.following import update_fetch_time
 
         update_fetch_time(uid, nickname)
-        print(info(f"  [更新] last_fetch_time for {nickname or uid}"))
+        logger.info(info(f"  [更新] last_fetch_time for {nickname or uid}"))
     except ImportError:
         pass
 
@@ -406,10 +406,10 @@ def _sync_following():
     try:
         folders = list(downloads_path.iterdir())
     except PermissionError as e:
-        print(error(f"  [错误] 无法访问下载目录: {e}"))
+        logger.info(error(f"  [错误] 无法访问下载目录: {e}"))
         return
     except OSError as e:
-        print(error(f"  [错误] 文件系统错误: {e}"))
+        logger.info(error(f"  [错误] 文件系统错误: {e}"))
         return
 
     for folder in folders:
@@ -468,7 +468,7 @@ def _sync_following():
             "last_fetch_time": last_fetch,
         }
         new_users_dict[uid] = user_info
-        print(info(f"  [同步] {user_data[2]} ({video_count} 视频)"))
+        logger.info(info(f"  [同步] {user_data[2]} ({video_count} 视频)"))
 
     # 保留 following.json 中但目录中没有的用户
     for uid, old_user in old_users.items():
@@ -504,7 +504,7 @@ def _sync_following():
     new_users = list(new_users_dict.values())
     if new_users:
         save_following({"users": new_users})
-        print(info(f"\n[同步] following.json 已更新，共 {len(new_users)} 个博主"))
+        logger.info(info(f"\n[同步] following.json 已更新，共 {len(new_users)} 个博主"))
 
 
 def _generate_data():
@@ -538,10 +538,10 @@ async def _download_with_stats(url: str, max_counts: int = None):
     if f2_temp_path.exists():
         shutil.rmtree(f2_temp_path)
         logger.info("已清理 F2 临时目录")
-        print(info("[清理] F2 临时目录"))
+        logger.info(info("[清理] F2 临时目录"))
 
-    print(info("[下载] 开始下载..."))
-    print(info(f"[路径] {downloads_path}"))
+    logger.info(info("[下载] 开始下载..."))
+    logger.info(info(f"[路径] {downloads_path}"))
     logger.info(f"下载路径: {downloads_path}")
 
     # 创建元数据表
@@ -557,16 +557,16 @@ async def _download_with_stats(url: str, max_counts: int = None):
         sec_user_id = await SecUserIdFetcher.get_sec_user_id(url)
     except Exception as e:
         logger.error(f"解析 sec_user_id 失败: {e}")
-        print(error("[错误] 无法解析用户 ID"))
+        logger.info(error("[错误] 无法解析用户 ID"))
         return False
 
     if not sec_user_id:
         logger.error("无法解析用户 ID")
-        print(error("[错误] 无法解析用户 ID"))
+        logger.info(error("[错误] 无法解析用户 ID"))
         return False
 
     logger.info(f"sec_user_id: {sec_user_id[:30]}...")
-    print(info(f"[信息] sec_user_id: {sec_user_id[:30]}..."))
+    logger.info(info(f"[信息] sec_user_id: {sec_user_id[:30]}..."))
 
     # 获取用户信息并保存
     async with AsyncUserDB(str(config.get_db_path())) as db:
@@ -597,14 +597,14 @@ async def _download_with_stats(url: str, max_counts: int = None):
 
     if nickname:
         logger.info(f"博主: {nickname} (UID: {uid})")
-        print(info(f"[博主] {nickname} (UID: {uid})"))
+        logger.info(info(f"[博主] {nickname} (UID: {uid})"))
 
     # 统计本地已有视频（增量下载）
     existing_videos = set()
     if user_path.exists():
         existing_videos = {f.stem for f in user_path.glob("*.mp4")}
         if existing_videos:
-            print(info(f"[本地] 已有 {len(existing_videos)} 个视频文件，将跳过已下载的"))
+            logger.info(info(f"[本地] 已有 {len(existing_videos)} 个视频文件，将跳过已下载的"))
 
     # 同时从数据库获取已下载的视频 ID（防止文件被删除后重复下载）
     config = get_config()
@@ -623,7 +623,7 @@ async def _download_with_stats(url: str, max_counts: int = None):
             # 合并本地文件和数据库记录
             new_from_db = db_videos - existing_videos
             if new_from_db:
-                print(info(f"[数据库] 发现 {len(new_from_db)} 条历史记录（文件可能已删除）"))
+                logger.info(info(f"[数据库] 发现 {len(new_from_db)} 条历史记录（文件可能已删除）"))
             existing_videos.update(db_videos)
     except Exception as e:
         logger.warning(f"查询数据库失败: {e}")
@@ -633,7 +633,7 @@ async def _download_with_stats(url: str, max_counts: int = None):
     total_skipped = 0
     total_stats_saved = 0
 
-    print(info("[下载] 正在获取视频列表..."))
+    logger.info(info("[下载] 正在获取视频列表..."))
     logger.info("正在获取视频列表...")
 
     try:
@@ -664,26 +664,26 @@ async def _download_with_stats(url: str, max_counts: int = None):
                         kwargs, new_videos, user_path
                     )
                     total_downloaded += len(new_videos)
-                    print(info(f"[下载] 本页 {len(new_videos)} 个新视频（跳过 {len(video_list) - len(new_videos)} 个已有）"))
+                    logger.info(info(f"[下载] 本页 {len(new_videos)} 个新视频（跳过 {len(video_list) - len(new_videos)} 个已有）"))
                 else:
-                    print(info(f"[跳过] 本页 {len(video_list)} 个视频均为本地已有"))
+                    logger.info(info(f"[跳过] 本页 {len(video_list)} 个视频均为本地已有"))
 
                 # 如果指定了 max_counts，检查是否已达到上限
                 if max_counts and total_downloaded >= max_counts:
-                    print(info(f"[限制] 已达到下载上限 ({max_counts} 个)"))
+                    logger.info(info(f"[限制] 已达到下载上限 ({max_counts} 个)"))
                     break
 
-                print(info(f"[下载] 累计新增 {total_downloaded} 个，跳过 {total_skipped} 个已有"))
+                logger.info(info(f"[下载] 累计新增 {total_downloaded} 个，跳过 {total_skipped} 个已有"))
     except Exception as e:
         logger.error(f"下载过程中出错: {e}")
-        print(error(f"下载过程中出错: {e}"))
+        logger.info(error(f"下载过程中出错: {e}"))
         # 继续处理已下载的视频
 
     logger.info(f"保存了 {total_stats_saved} 条视频元数据")
-    print(success(f"[统计] 新增 {total_downloaded} 个，跳过 {total_skipped} 个已有"))
+    logger.info(success(f"[统计] 新增 {total_downloaded} 个，跳过 {total_skipped} 个已有"))
 
     # 整理文件
-    print(info("[整理] 重新组织文件..."))
+    logger.info(info("[整理] 重新组织文件..."))
     post_path = downloads_path / "douyin" / "post"
     folder_name = None
     
@@ -701,17 +701,17 @@ async def _download_with_stats(url: str, max_counts: int = None):
         _update_last_fetch_time(uid, nickname or folder_name)
 
     # 同步 following.json
-    print(info("[同步] 更新 following.json..."))
+    logger.info(info("[同步] 更新 following.json..."))
     _sync_following()
 
     # 生成 Web 数据文件
-    print(info("[数据] 生成 Web 数据文件..."))
+    logger.info(info("[数据] 生成 Web 数据文件..."))
     _generate_data()
 
     logger.info(f"下载完成: 共 {total_downloaded} 个视频")
-    print(success(f"\n[完成] 共下载 {total_downloaded} 个视频"))
+    logger.info(success(f"\n[完成] 共下载 {total_downloaded} 个视频"))
     if folder_name:
-        print(info(f"[位置] {downloads_path / folder_name}"))
+        logger.info(info(f"[位置] {downloads_path / folder_name}"))
 
     return {
         'success': True,
@@ -748,7 +748,7 @@ def download_by_url_sync(url, max_counts=None):
             # 没有运行中的循环，可以安全使用 asyncio.run()
             return asyncio.run(_download_with_stats(url, max_counts))
     except Exception as e:
-        print(error(f"下载出错: {e}"))
+        logger.info(error(f"下载出错: {e}"))
         return False
 
 
@@ -764,13 +764,13 @@ def download_by_url(url, max_counts=None):
         dict: 包含 success, uid, nickname 的字典，或 False
     """
     print_header("下载博主视频")
-    print(info(f"博主 URL: {url}"))
+    logger.info(info(f"博主 URL: {url}"))
     if max_counts:
-        print(info(f"最大下载数量: {max_counts}"))
-    print()
+        logger.info(info(f"最大下载数量: {max_counts}"))
+    logger.info()
 
-    print(info("开始下载..."))
-    print()
+    logger.info(info("开始下载..."))
+    logger.info()
 
     result = download_by_url_sync(url, max_counts)
 
@@ -779,13 +779,13 @@ def download_by_url(url, max_counts=None):
         try:
             _trigger_auto_transcribe(result['uid'], result['nickname'])
         except Exception as e:
-            print(f"⚠️ 自动转写失败: {e}")
+            logger.info(f"⚠️ 自动转写失败: {e}")
 
     if result:
-        print(success("下载完成！"))
+        logger.info(success("下载完成！"))
         return result
     else:
-        print(error("下载失败，请检查日志"))
+        logger.info(error("下载失败，请检查日志"))
         return False
 
 
@@ -804,7 +804,7 @@ def download_by_uid(uid, max_counts=None):
 
     user = get_user(uid)
     if not user:
-        print(error(f"用户 {uid} 不在关注列表中"))
+        logger.info(error(f"用户 {uid} 不在关注列表中"))
         return False
 
     # 构建 URL
@@ -815,7 +815,7 @@ def download_by_uid(uid, max_counts=None):
         url = f"https://www.douyin.com/user/{uid}"
 
     name = user.get("nickname", user.get("name", "未知"))
-    print(info(f"博主: {name} (UID: {uid})"))
+    logger.info(info(f"博主: {name} (UID: {uid})"))
 
     result = download_by_url(url, max_counts)
 
@@ -837,9 +837,9 @@ def _trigger_auto_transcribe(uid, nickname):
     if not config.is_auto_transcribe():
         return
 
-    print("\n" + "="*60)
-    print("⚡ [全自动模式] 视频已下载，正在准备自动转写...")
-    print("="*60)
+    logger.info("\n" + "="*60)
+    logger.info("⚡ [全自动模式] 视频已下载，正在准备自动转写...")
+    logger.info("="*60)
 
     try:
         # 查找博主文件夹
@@ -851,13 +851,13 @@ def _trigger_auto_transcribe(uid, nickname):
             user_dir = downloads_path / uid
         
         if not user_dir.exists():
-            print("⚠️  未找到下载目录，跳过自动转写")
+            logger.info("⚠️  未找到下载目录，跳过自动转写")
             return
 
         # 获取所有 mp4 视频
         all_mp4_files = list(user_dir.glob("*.mp4"))
         if not all_mp4_files:
-            print("⚠️  未找到视频文件，跳过自动转写")
+            logger.info("⚠️  未找到视频文件，跳过自动转写")
             return
 
         # 【优化】只转写最近 5 分钟内下载的文件
@@ -871,10 +871,10 @@ def _trigger_auto_transcribe(uid, nickname):
                 mp4_files.append(f)
 
         if not mp4_files:
-            print("⚠️  未发现最近下载的视频（均为旧文件），跳过转写")
+            logger.info("⚠️  未发现最近下载的视频（均为旧文件），跳过转写")
             return
 
-        print(f"🔍 扫描到 {len(all_mp4_files)} 个文件，其中 {len(mp4_files)} 个为新下载，开始排队转写...")
+        logger.info(f"🔍 扫描到 {len(all_mp4_files)} 个文件，其中 {len(mp4_files)} 个为新下载，开始排队转写...")
         
         # 调用 Pipeline 进行批量转写
         # 这里直接导入，使用批量接口支持并发（默认并发数为 6）
@@ -902,18 +902,18 @@ def _trigger_auto_transcribe(uid, nickname):
                 fail_count += 1
 
         # 打印结果汇总
-        print("\n" + "="*60)
-        print("🎉 自动转写完成!")
+        logger.info("\n" + "="*60)
+        logger.info("🎉 自动转写完成!")
         
         delete_msg = f" | 🗑️ 已删除 {deleted_count} 个视频" if deleted_count > 0 else ""
-        print(f"   总数: {len(results)} | ✅ 成功: {success_count} | ❌ 失败: {fail_count}{delete_msg}")
-        print(f"   📂 文稿位置: ./transcripts/")
+        logger.info(f"   总数: {len(results)} | ✅ 成功: {success_count} | ❌ 失败: {fail_count}{delete_msg}")
+        logger.info(f"   📂 文稿位置: ./transcripts/")
         if deleted_count > 0:
-            print(f"   ✨ 已自动释放 {deleted_count * 50} MB+ 磁盘空间 (估算)")
-        print("="*60 + "\n")
+            logger.info(f"   ✨ 已自动释放 {deleted_count * 50} MB+ 磁盘空间 (估算)")
+        logger.info("="*60 + "\n")
 
     except Exception as e:
-        print(f"⚠️  自动转写过程出错: {e}")
+        logger.info(f"⚠️  自动转写过程出错: {e}")
         import traceback
         traceback.print_exc()
 
@@ -932,17 +932,17 @@ def download_all(auto_confirm=False):
 
     users = list_users()
     if not users:
-        print(info("关注列表为空"))
-        print(info("请先使用 '添加博主' 功能添加关注"))
+        logger.info(info("关注列表为空"))
+        logger.info(info("请先使用 '添加博主' 功能添加关注"))
         return 0, 0
 
-    print(info(f"共 {len(users)} 位博主"))
-    print()
+    logger.info(info(f"共 {len(users)} 位博主"))
+    logger.info()
 
     if not auto_confirm:
         confirm = input("确认开始下载？(y/N): ").strip().lower()
         if confirm != "y":
-            print(info("已取消"))
+            logger.info(info("已取消"))
             return 0, 0
 
     success_count = 0
@@ -952,8 +952,8 @@ def download_all(auto_confirm=False):
         uid = user.get("uid")
         name = user.get("nickname", user.get("name", "未知"))
 
-        print()
-        print(info(f"[{i}/{len(users)}] 下载: {name}"))
+        logger.info()
+        logger.info(info(f"[{i}/{len(users)}] 下载: {name}"))
 
         ok = download_by_uid(uid)
         if ok:
@@ -961,10 +961,10 @@ def download_all(auto_confirm=False):
         else:
             failed_count += 1
 
-    print()
+    logger.info()
     print_header("下载完成")
-    print(success(f"成功: {success_count}"))
-    print(error(f"失败: {failed_count}"))
+    logger.info(success(f"成功: {success_count}"))
+    logger.info(error(f"失败: {failed_count}"))
 
     return success_count, failed_count
 
@@ -980,16 +980,16 @@ def interactive_select():
 
     users = list_users()
     if not users:
-        print(info("关注列表为空"))
-        print(info("请先使用 '添加博主' 功能添加关注"))
+        logger.info(info("关注列表为空"))
+        logger.info(info("请先使用 '添加博主' 功能添加关注"))
         return 0, 0
 
     config = get_config()
     downloads_path = config.get_download_path()
 
     # 显示用户列表
-    print(info("选择要下载的博主（输入序号，逗号分隔，all=全部，q=返回）"))
-    print()
+    logger.info(info("选择要下载的博主（输入序号，逗号分隔，all=全部，q=返回）"))
+    logger.info()
 
     for i, user in enumerate(users, 1):
         uid = user.get("uid", "未知")
@@ -999,13 +999,13 @@ def interactive_select():
         local_count = len(list(user_dir.glob("*.mp4"))) if user_dir.exists() else 0
 
         status = f"已下载 {local_count} 个" if local_count > 0 else "未下载"
-        print(f"  {i:2}. {name} ({status})")
+        logger.info(f"  {i:2}. {name} ({status})")
 
-    print()
+    logger.info()
     choice = input("请选择: ").strip().lower()
 
     if choice == "q" or not choice:
-        print(info("已取消"))
+        logger.info(info("已取消"))
         return 0, 0
 
     if choice == "all":
@@ -1019,14 +1019,14 @@ def interactive_select():
             if 1 <= idx <= len(users):
                 selected.append(users[idx - 1])
             else:
-                print(warning(f"无效的序号: {idx}"))
+                logger.info(warning(f"无效的序号: {idx}"))
 
         if not selected:
-            print(error("没有有效的选择"))
+            logger.info(error("没有有效的选择"))
             return 0, 0
 
-        print()
-        print(info(f"已选择 {len(selected)} 个博主"))
+        logger.info()
+        logger.info(info(f"已选择 {len(selected)} 个博主"))
 
         success_count = 0
         failed_count = 0
@@ -1035,8 +1035,8 @@ def interactive_select():
             uid = user.get("uid")
             name = user.get("nickname", user.get("name", "未知"))
 
-            print()
-            print(info(f"[{i}/{len(selected)}] 下载: {name}"))
+            logger.info()
+            logger.info(info(f"[{i}/{len(selected)}] 下载: {name}"))
 
             ok = download_by_uid(uid)
             if ok:
@@ -1044,12 +1044,12 @@ def interactive_select():
             else:
                 failed_count += 1
 
-        print()
-        print(success(f"下载完成: 成功 {success_count}，失败 {failed_count}"))
+        logger.info()
+        logger.info(success(f"下载完成: 成功 {success_count}，失败 {failed_count}"))
         return success_count, failed_count
 
     except ValueError:
-        print(error("无效的输入，请输入数字"))
+        logger.info(error("无效的输入，请输入数字"))
         return 0, 0
 
 
@@ -1067,17 +1067,17 @@ def download_sample(auto_confirm=False):
 
     users = list_users()
     if not users:
-        print(info("关注列表为空"))
+        logger.info(info("关注列表为空"))
         return 0, 0
 
-    print(info(f"每个博主只下载 1 个视频"))
-    print(info(f"共 {len(users)} 位博主"))
-    print()
+    logger.info(info(f"每个博主只下载 1 个视频"))
+    logger.info(info(f"共 {len(users)} 位博主"))
+    logger.info()
 
     if not auto_confirm:
         confirm = input("确认开始？(y/N): ").strip().lower()
         if confirm != "y":
-            print(info("已取消"))
+            logger.info(info("已取消"))
             return 0, 0
 
     success_count = 0
@@ -1087,7 +1087,7 @@ def download_sample(auto_confirm=False):
         uid = user.get("uid")
         name = user.get("nickname", user.get("name", "未知"))
 
-        print(info(f"[{i}/{len(users)}] 采样: {name}"))
+        logger.info(info(f"[{i}/{len(users)}] 采样: {name}"))
 
         ok = download_by_uid(uid, max_counts=1)
         if ok:
@@ -1095,6 +1095,6 @@ def download_sample(auto_confirm=False):
         else:
             failed_count += 1
 
-    print()
-    print(success(f"采样完成: 成功 {success_count}，失败 {failed_count}"))
+    logger.info()
+    logger.info(success(f"采样完成: 成功 {success_count}，失败 {failed_count}"))
     return success_count, failed_count

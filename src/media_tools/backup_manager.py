@@ -1,3 +1,6 @@
+
+from media_tools.logger import get_logger
+logger = get_logger(__name__)
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
 """
@@ -301,7 +304,7 @@ def interactive_backup_menu():
         console.print("  3. 恢复数据")
         console.print("  4. 删除备份")
         console.print("  0. 返回")
-        print()
+        logger.info()
 
         try:
             choice = input("请选择操作 (0-4): ").strip()

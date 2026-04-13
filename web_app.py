@@ -47,6 +47,7 @@ init_project_dirs()
 
 import streamlit as st
 from web.components.onboarding import render_onboarding
+from web.theme import apply_global_theme
 
 # ─────────────────────────────────────────────
 # 页面配置
@@ -57,6 +58,8 @@ st.set_page_config(
     layout="wide",
     initial_sidebar_state="expanded",
 )
+
+apply_global_theme()
 
 # 显示新手引导（仅首次访问）
 render_onboarding()

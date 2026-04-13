@@ -775,7 +775,7 @@ def create_orchestrator(
 
     Example:
         >>> orchestrator = create_orchestrator(
-        ...     on_progress=lambda c, t, p, s: print(f"[{c}/{t}] {p.name}: {s}")
+        ...     on_progress=lambda c, t, p, s: logger.info(f"[{c}/{t}] {p.name}: {s}")
         ... )
     """
     return OrchestratorV2(
@@ -815,10 +815,10 @@ async def run_enhanced_pipeline(
     Example:
         >>> report = await run_enhanced_pipeline(
         ...     video_paths=[Path("video1.mp4"), Path("video2.mp4")],
-        ...     on_progress=lambda c, t, p, s: print(f"{c}/{t}: {s}"),
+        ...     on_progress=lambda c, t, p, s: logger.info(f"{c}/{t}: {s}"),
         ...     report_path=Path("report.json"),
         ... )
-        >>> print(f"成功: {report.success}/{report.total}")
+        >>> logger.info(f"成功: {report.success}/{report.total}")
     """
     orchestrator = create_orchestrator(
         config=config,
@@ -842,29 +842,29 @@ def print_enhanced_summary(report: BatchReport) -> None:
     Args:
         report: 批量执行报告
     """
-    print("\n" + "=" * 60)
-    print("📊 Pipeline 增强版执行摘要")
-    print("=" * 60)
-    print(f"总计: {report.total}")
-    print(f"✅ 成功: {report.success}")
-    print(f"❌ 失败: {report.failed}")
-    print(f"⏭️  跳过: {report.skipped}")
-    print(f"⏱️  总耗时: {report.total_duration:.1f}s")
+    logger.info("\n" + "=" * 60)
+    logger.info("📊 Pipeline 增强版执行摘要")
+    logger.info("=" * 60)
+    logger.info(f"总计: {report.total}")
+    logger.info(f"✅ 成功: {report.success}")
+    logger.info(f"❌ 失败: {report.failed}")
+    logger.info(f"⏭️  跳过: {report.skipped}")
+    logger.info(f"⏱️  总耗时: {report.total_duration:.1f}s")
     if report.success + report.failed > 0:
-        print(f"📈 平均耗时: {report.avg_duration:.1f}s/视频")
-    print("=" * 60)
+        logger.info(f"📈 平均耗时: {report.avg_duration:.1f}s/视频")
+    logger.info("=" * 60)
 
     if report.error_summary:
-        print("\n错误类型统计:")
+        logger.info("\n错误类型统计:")
         for err_type, count in report.error_summary.items():
-            print(f"  - [{err_type}]: {count} 次")
+            logger.info(f"  - [{err_type}]: {count} 次")
 
     if report.failed > 0:
-        print("\n失败详情:")
+        logger.info("\n失败详情:")
         for r in report.results:
             if not r["success"]:
-                print(f"  - {Path(r['video_path']).name}: [{r['error_type']}] {r['error']}")
+                logger.info(f"  - {Path(r['video_path']).name}: [{r['error_type']}] {r['error']}")
                 if r.get("attempts", 1) > 1:
-                    print(f"    (尝试了 {r['attempts']} 次)")
+                    logger.info(f"    (尝试了 {r['attempts']} 次)")
 
-    print("=" * 60)
+    logger.info("=" * 60)

@@ -1,3 +1,6 @@
+
+from media_tools.logger import get_logger
+logger = get_logger(__name__)
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
 """
@@ -36,9 +39,9 @@ async def douyin_login(persist=False, cookies_path=None):
     try:
         from playwright.async_api import async_playwright
     except ImportError:
-        print(error("Playwright 未安装"))
-        print(info("请先执行: pip install playwright"))
-        print(info("然后执行: python -m playwright install chromium"))
+        logger.info(error("Playwright 未安装"))
+        logger.info(info("请先执行: pip install playwright"))
+        logger.info(info("然后执行: python -m playwright install chromium"))
         return False, ""
 
     # 确定 Cookie 保存路径
@@ -50,16 +53,16 @@ async def douyin_login(persist=False, cookies_path=None):
     skill_dir = Path(__file__).parent.parent.parent
     os.chdir(skill_dir)
 
-    print(info("📱 正在启动浏览器..."))
-    print(info("请使用手机抖音 APP 扫描二维码登录"))
-    print(info("最久等待 5 分钟，按 Ctrl+C 可取消"))
-    print()
+    logger.info(info("📱 正在启动浏览器..."))
+    logger.info(info("请使用手机抖音 APP 扫描二维码登录"))
+    logger.info(info("最久等待 5 分钟，按 Ctrl+C 可取消"))
+    logger.info()
 
     if persist:
-        print(info("💾 持久化模式已启用，登录状态将自动保存"))
+        logger.info(info("💾 持久化模式已启用，登录状态将自动保存"))
         user_data_dir = skill_dir / ".playwright-data"
-        print(info(f"   数据目录：{user_data_dir}"))
-        print()
+        logger.info(info(f"   数据目录：{user_data_dir}"))
+        logger.info()
 
     browser = None
 
@@ -100,7 +103,7 @@ async def douyin_login(persist=False, cookies_path=None):
             # 导航到抖音
             await page.goto("https://www.douyin.com")
 
-            print(info("⏳ 等待登录..."))
+            logger.info(info("⏳ 等待登录..."))
 
             # 等待登录
             logged_in = False
@@ -122,13 +125,13 @@ async def douyin_login(persist=False, cookies_path=None):
                     break
 
                 if (i + 1) % 10 == 0:
-                    print(info(f"   等待登录中... ({i+1}/60)"))
+                    logger.info(info(f"   等待登录中... ({i+1}/60)"))
 
             if not logged_in:
-                print(error("✗ 登录超时，请重试"))
+                logger.info(error("✗ 登录超时，请重试"))
                 return False, ""
 
-            print(success("✓ 登录成功！"))
+            logger.info(success("✓ 登录成功！"))
 
             # 提取抖音 Cookies
             dy_cookies = {}
@@ -149,9 +152,9 @@ async def douyin_login(persist=False, cookies_path=None):
                     cookie_str, "cookie", "douyin"
                 )
                 if success_validate:
-                    print(success("✓ Cookie 格式及有效性验证通过"))
+                    logger.info(success("✓ Cookie 格式及有效性验证通过"))
                 else:
-                    print(warning(f"⚠ Cookie 验证未通过: {msg}"))
+                    logger.info(warning(f"⚠ Cookie 验证未通过: {msg}"))
             except ImportError:
                 pass
 
@@ -171,16 +174,16 @@ async def douyin_login(persist=False, cookies_path=None):
                 with open(config_path, "w", encoding="utf-8") as f:
                     yaml.dump(config, f, allow_unicode=True)
 
-                print(success(f"✓ Cookie 已保存到: {cookies_path}"))
+                logger.info(success(f"✓ Cookie 已保存到: {cookies_path}"))
 
             return True, cookie_str
 
     except KeyboardInterrupt:
-        print()
-        print(warning("⚠ 已取消登录"))
+        logger.info()
+        logger.info(warning("⚠ 已取消登录"))
         return False, ""
     except Exception as e:
-        print(error(f"✗ 发生错误: {e}"))
+        logger.info(error(f"✗ 发生错误: {e}"))
         return False, ""
     finally:
         # 确保浏览器总是被关闭

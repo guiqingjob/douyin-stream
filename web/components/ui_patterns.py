@@ -10,12 +10,25 @@ from media_tools.logger import get_logger
 logger = get_logger('web')
 
 
+def render_page_header(title: str, subtitle: str | None = None, tag: str | None = None) -> None:
+    tag_html = f'<span class="mt-tag">{tag}</span>' if tag else ""
+    subtitle_html = f'<p class="mt-page-subtitle">{subtitle}</p>' if subtitle else ""
+    st.markdown(
+        f"""
+<div class="mt-page-header">
+  <div class="mt-page-title">{title}{tag_html}</div>
+  {subtitle_html}
+</div>
+""",
+        unsafe_allow_html=True,
+    )
+
+
 
 def render_summary_metrics(items: Sequence[dict]) -> None:
     """渲染统一摘要指标区
 
     每个 item 支持：
-    - label: 指标标题
     - value: 指标值
     - delta: 可选变化文案
     """

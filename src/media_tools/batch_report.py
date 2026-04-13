@@ -1,3 +1,6 @@
+
+from media_tools.logger import get_logger
+logger = get_logger(__name__)
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
 """
@@ -246,7 +249,7 @@ def main():
     """测试报告功能"""
     import time
 
-    print("📊 批量操作报告演示\n")
+    logger.info("📊 批量操作报告演示\n")
 
     # 创建模拟报告
     report = BatchReport("批量转写测试")

@@ -1,3 +1,6 @@
+
+from media_tools.logger import get_logger
+logger = get_logger(__name__)
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
 """
@@ -98,7 +101,7 @@ def scan_local_videos():
                     }
 
     except (PermissionError, OSError) as e:
-        print(error(f"扫描目录失败: {e}"))
+        logger.info(error(f"扫描目录失败: {e}"))
         return local_data
 
     return local_data
@@ -141,7 +144,7 @@ def get_db_video_records():
         return db_data
 
     except Exception as e:
-        print(error(f"数据库读取失败: {e}"))
+        logger.info(error(f"数据库读取失败: {e}"))
         return {}
     finally:
         if conn:
@@ -164,7 +167,7 @@ def clean_deleted_videos(auto_confirm=False):
     db_data = get_db_video_records()
 
     if not db_data:
-        print(info("数据库中没有视频记录"))
+        logger.info(info("数据库中没有视频记录"))
         return 0, 0
 
     total_cleaned = 0
@@ -191,10 +194,10 @@ def clean_deleted_videos(auto_confirm=False):
             # 获取该用户的博主信息
             user_name = _get_user_name(uid)
 
-            print()
-            print(info(f"📝 {user_name} (UID: {uid})"))
-            print(f"   数据库记录: {db_count} 个 | 本地文件: {local_count} 个")
-            print(f"   需要清理: {bold(str(deleted_count))} 条记录")
+            logger.info()
+            logger.info(info(f"📝 {user_name} (UID: {uid})"))
+            logger.info(f"   数据库记录: {db_count} 个 | 本地文件: {local_count} 个")
+            logger.info(f"   需要清理: {bold(str(deleted_count))} 条记录")
 
             if not auto_confirm:
                 confirm = input("   是否清理？(Y/n): ").strip().lower()
@@ -205,7 +208,7 @@ def clean_deleted_videos(auto_confirm=False):
             # 清理多余的数据库记录
             cleaned = _clean_user_videos(uid, deleted_count, db_info["records"], local_files)
             total_cleaned += cleaned
-            print(success(f"   ✓ 已清理 {cleaned} 条记录"))
+            logger.info(success(f"   ✓ 已清理 {cleaned} 条记录"))
         elif db_count == local_count:
             # 完全匹配，无需清理
             pass
@@ -214,13 +217,13 @@ def clean_deleted_videos(auto_confirm=False):
             # 这种情况下不应该清理，反而应该更新数据库
             pass
 
-    print()
-    print(separator("─", 60))
-    print()
-    print(bold("📊 清理结果:"))
-    print(f"  已清理: {bold(str(total_cleaned))} 条记录")
-    print(f"  已跳过: {bold(str(total_skipped))} 条记录")
-    print()
+    logger.info()
+    logger.info(separator("─", 60))
+    logger.info()
+    logger.info(bold("📊 清理结果:"))
+    logger.info(f"  已清理: {bold(str(total_cleaned))} 条记录")
+    logger.info(f"  已跳过: {bold(str(total_skipped))} 条记录")
+    logger.info()
 
     return total_cleaned, total_skipped
 
@@ -302,7 +305,7 @@ def _clean_user_videos(uid, count_to_remove, db_records, local_files):
         return deleted
 
     except Exception as e:
-        print(error(f"   清理失败: {e}"))
+        logger.info(error(f"   清理失败: {e}"))
         return 0
     finally:
         conn.close()
@@ -323,7 +326,7 @@ def clean_all_user_data(uid, user_name):
     db_path = config.get_db_path()
 
     if not db_path.exists():
-        print(warning("数据库文件不存在"))
+        logger.info(warning("数据库文件不存在"))
         return False
 
     try:
@@ -340,13 +343,13 @@ def clean_all_user_data(uid, user_name):
 
         conn.commit()
 
-        print(success(f"  ✓ 已清理 {user_name} 的数据库记录"))
-        print(f"    视频记录: {video_deleted} 条 | 用户信息: {user_deleted} 条")
+        logger.info(success(f"  ✓ 已清理 {user_name} 的数据库记录"))
+        logger.info(f"    视频记录: {video_deleted} 条 | 用户信息: {user_deleted} 条")
 
         return True
 
     except Exception as e:
-        print(error(f"  清理失败: {e}"))
+        logger.info(error(f"  清理失败: {e}"))
         return False
     finally:
         conn.close()
@@ -356,15 +359,15 @@ def interactive_clean_menu():
     """交互式清理菜单"""
     while True:
         print_header("🗑️  数据清理工具")
-        print(f"  {bold('1')}. 清理已删除视频的数据库记录")
-        print(f"  {bold('2')}. 清理指定博主的所有数据库记录")
-        print(f"  {bold('0')}. 返回主菜单")
-        print()
+        logger.info(f"  {bold('1')}. 清理已删除视频的数据库记录")
+        logger.info(f"  {bold('2')}. 清理指定博主的所有数据库记录")
+        logger.info(f"  {bold('0')}. 返回主菜单")
+        logger.info()
 
         try:
             choice = input("请输入选项 (0-2): ").strip()
         except (EOFError, KeyboardInterrupt):
-            print()
+            logger.info()
             return
 
         if choice == "0":
@@ -375,28 +378,28 @@ def interactive_clean_menu():
         elif choice == "2":
             _clean_single_user_interactive()
         else:
-            print()
-            print(warning("无效的选项，请重新选择"))
+            logger.info()
+            logger.info(warning("无效的选项，请重新选择"))
 
 
 def _clean_single_user_interactive():
     """交互式清理单个用户"""
     users = list_users()
     if not users:
-        print(info("关注列表为空"))
+        logger.info(info("关注列表为空"))
         input("按回车键继续...")
         return
 
-    print()
-    print(info("选择要清理的博主（输入序号，q=返回）"))
-    print()
+    logger.info()
+    logger.info(info("选择要清理的博主（输入序号，q=返回）"))
+    logger.info()
 
     for i, user in enumerate(users, 1):
         uid = user.get("uid", "未知")
         name = user.get("nickname", user.get("name", "未知"))
-        print(f"  {i:2}. {name}")
+        logger.info(f"  {i:2}. {name}")
 
-    print()
+    logger.info()
     try:
         choice = input("请选择: ").strip().lower()
     except (EOFError, KeyboardInterrupt):
@@ -412,13 +415,13 @@ def _clean_single_user_interactive():
             uid = user.get("uid")
             name = user.get("nickname", user.get("name", "未知"))
 
-            print()
+            logger.info()
             confirm = input(f"确认清理 {name} 的所有数据库记录？(y/N): ").strip().lower()
             if confirm == "y":
                 clean_all_user_data(uid, name)
         else:
-            print(warning("无效的序号"))
+            logger.info(warning("无效的序号"))
     except ValueError:
-        print(error("无效的输入，请输入数字"))
+        logger.info(error("无效的输入，请输入数字"))
 
     input("按回车键继续...")

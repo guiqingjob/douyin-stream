@@ -1,3 +1,6 @@
+
+from media_tools.logger import get_logger
+logger = get_logger(__name__)
 from __future__ import annotations
 
 import asyncio
@@ -407,7 +410,7 @@ async def run_real_flow(
 
 def _make_flow_logger(file_name: str):
     def log(message: str) -> None:
-        print(f"[{file_name}] {message}")
+        logger.info(f"[{file_name}] {message}")
 
     return log
 

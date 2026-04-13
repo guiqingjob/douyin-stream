@@ -10,7 +10,13 @@ import streamlit as st
 
 from web.components.progress_display import render_task_history, render_task_progress
 from web.components.task_queue import load_task_state, run_task_in_background, update_task_progress
-from web.components.ui_patterns import render_empty_state, render_highlight_card, render_summary_metrics, render_table_section
+from web.components.ui_patterns import (
+    render_empty_state,
+    render_highlight_card,
+    render_page_header,
+    render_summary_metrics,
+    render_table_section,
+)
 from web.constants import DOWNLOADS_DIR, PAGE_TRANSCRIBE
 from web.utils import format_size, format_timestamp
 
@@ -193,8 +199,7 @@ def _start_batch_download_task(max_per_user: int) -> None:
         success_message="批量素材拉取完成",
     )
     st.rerun()
-st.title("📥 下载中心")
-st.caption("把抖音链接或关注来源，变成本地素材库中的视频文件。")
+render_page_header("📥 下载中心", "把抖音链接或关注来源，变成本地素材库中的视频文件。")
 
 col1, col2 = st.columns([2, 1], gap='large')
 
@@ -207,5 +212,4 @@ st.subheader("📜 最近任务历史")
 st.caption("统一查看最近下载相关任务的结果与状态变化。")
 if st.button("查看完整历史", key="show_task_history_download_center"):
     render_task_history()
-
 
