@@ -12,19 +12,6 @@ from web.constants import PAGE_DOWNLOAD
 
 # render_following_mgmt
 """渲染关注管理页面"""
-st.title("👥 关注管理")
-st.caption("把你持续观察的博主整理成来源列表，供后续批量拉取素材使用。")
-
-tab1, tab2, tab3 = st.tabs(["📋 来源列表", "➕ 添加来源", "📤 导入 / 导出"])
-
-with tab1:
-    _render_following_list()
-with tab2:
-    _render_add_following()
-with tab3:
-    _render_import_export()
-
-
 def _render_following_list() -> None:
     """渲染来源列表"""
     st.subheader("📋 来源列表")
@@ -207,3 +194,16 @@ def _import_users(content: str) -> tuple:
         return True, f"成功导入 {count} 个来源"
     except Exception as e:
         return False, f"导入失败: {e}"
+st.title("👥 关注管理")
+st.caption("把你持续观察的博主整理成来源列表，供后续批量拉取素材使用。")
+
+tab1, tab2, tab3 = st.tabs(["📋 来源列表", "➕ 添加来源", "📤 导入 / 导出"])
+
+with tab1:
+    _render_following_list()
+with tab2:
+    _render_add_following()
+with tab3:
+    _render_import_export()
+
+

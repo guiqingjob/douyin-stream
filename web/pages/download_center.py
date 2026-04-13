@@ -17,22 +17,6 @@ from web.utils import format_size, format_timestamp
 
 # render_download_center
 """渲染下载中心页面"""
-st.title("📥 下载中心")
-st.caption("把抖音链接或关注来源，变成本地素材库中的视频文件。")
-
-col1, col2 = st.columns([2, 1], gap='large')
-
-with col1:
-    _render_new_download()
-with col2:
-    _render_current_task()
-st.divider()
-st.subheader("📜 最近任务历史")
-st.caption("统一查看最近下载相关任务的结果与状态变化。")
-if st.button("查看完整历史", key="show_task_history_download_center"):
-    render_task_history()
-
-
 def _render_new_download() -> None:
     """创建下载任务"""
     st.subheader("🚀 创建素材获取任务")
@@ -203,3 +187,19 @@ def _start_batch_download_task(max_per_user: int) -> None:
         success_message="批量素材拉取完成",
     )
     st.rerun()
+st.title("📥 下载中心")
+st.caption("把抖音链接或关注来源，变成本地素材库中的视频文件。")
+
+col1, col2 = st.columns([2, 1], gap='large')
+
+with col1:
+    _render_new_download()
+with col2:
+    _render_current_task()
+st.divider()
+st.subheader("📜 最近任务历史")
+st.caption("统一查看最近下载相关任务的结果与状态变化。")
+if st.button("查看完整历史", key="show_task_history_download_center"):
+    render_task_history()
+
+

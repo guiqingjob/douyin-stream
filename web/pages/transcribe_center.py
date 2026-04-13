@@ -19,22 +19,6 @@ from web.utils import format_size, format_timestamp
 
 # render_transcribe_center
 """渲染转写中心页面"""
-st.title("🎙️ 转写中心")
-st.caption("把视频或音频素材，变成可整理、可搜索、可再利用的文稿。")
-
-col1, col2 = st.columns([2, 1], gap='large')
-
-with col1:
-    _render_new_transcribe()
-with col2:
-    _render_current_task()
-st.divider()
-st.subheader("📜 最近任务历史")
-st.caption("统一查看最近转写相关任务的结果与状态变化。")
-if st.button("查看完整历史", key="show_task_history_transcribe_center"):
-    render_task_history()
-
-
 def _render_new_transcribe() -> None:
     """发起转写"""
     st.subheader("🚀 发起文稿生成任务")
@@ -223,3 +207,19 @@ def _start_batch_transcribe_task() -> None:
         success_message="批量文稿生成完成",
     )
     st.rerun()
+st.title("🎙️ 转写中心")
+st.caption("把视频或音频素材，变成可整理、可搜索、可再利用的文稿。")
+
+col1, col2 = st.columns([2, 1], gap='large')
+
+with col1:
+    _render_new_transcribe()
+with col2:
+    _render_current_task()
+st.divider()
+st.subheader("📜 最近任务历史")
+st.caption("统一查看最近转写相关任务的结果与状态变化。")
+if st.button("查看完整历史", key="show_task_history_transcribe_center"):
+    render_task_history()
+
+

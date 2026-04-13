@@ -16,26 +16,6 @@ from web.constants import (
 
 
 # 渲染工作台首页
-st.title("🏠 工作台")
-st.caption("先确认系统状态，再开始下载素材或转写文稿。")
-
-status = render_home_status_cards()
-
-st.divider()
-_render_next_step(status)
-
-st.divider()
-_render_quick_actions(status)
-
-st.divider()
-st.subheader("📌 最近任务")
-st.caption("这里只显示最近 5 条历史，方便快速确认刚刚做了什么。")
-render_task_table(limit=5)
-
-st.divider()
-render_storage_chart()
-
-
 def _render_next_step(status: dict) -> None:
     """根据当前状态给出下一步建议"""
     missing_items = []
@@ -99,3 +79,23 @@ def _render_quick_actions(status: dict) -> None:
     with col4:
         if st.button("⚙️ 检查配置", use_container_width=True):
             st.switch_page("web/pages/settings.py")
+st.title("🏠 工作台")
+st.caption("先确认系统状态，再开始下载素材或转写文稿。")
+
+status = render_home_status_cards()
+
+st.divider()
+_render_next_step(status)
+
+st.divider()
+_render_quick_actions(status)
+
+st.divider()
+st.subheader("📌 最近任务")
+st.caption("这里只显示最近 5 条历史，方便快速确认刚刚做了什么。")
+render_task_table(limit=5)
+
+st.divider()
+render_storage_chart()
+
+

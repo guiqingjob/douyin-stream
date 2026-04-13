@@ -13,21 +13,6 @@ from web.utils import format_size
 
 # render_cleanup
 """渲染清理与备份页面"""
-st.title("🗑️ 清理与备份")
-st.caption("释放本地空间、清理历史记录，并备份关键配置与数据。")
-
-tab1, tab2, tab3, tab4 = st.tabs(["🎬 视频清理", "🗄️ 数据库清理", "📝 日志清理", "💾 备份/恢复"])
-
-with tab1:
-    _render_video_cleanup()
-with tab2:
-    _render_db_cleanup()
-with tab3:
-    _render_log_cleanup()
-with tab4:
-    _render_backup_restore()
-
-
 def _render_video_cleanup() -> None:
     """视频清理"""
     st.subheader("🎬 本地视频扫描")
@@ -210,3 +195,18 @@ def _create_backup() -> tuple[bool, str]:
 
         logging.error(f"备份失败: {e}")
         return False, ""
+st.title("🗑️ 清理与备份")
+st.caption("释放本地空间、清理历史记录，并备份关键配置与数据。")
+
+tab1, tab2, tab3, tab4 = st.tabs(["🎬 视频清理", "🗄️ 数据库清理", "📝 日志清理", "💾 备份/恢复"])
+
+with tab1:
+    _render_video_cleanup()
+with tab2:
+    _render_db_cleanup()
+with tab3:
+    _render_log_cleanup()
+with tab4:
+    _render_backup_restore()
+
+

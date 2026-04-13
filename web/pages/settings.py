@@ -11,19 +11,6 @@ from web.constants import PROJECT_ROOT, QWEN_AUTH_PATH
 
 # render_settings
 """渲染系统配置页面"""
-st.title("⚙️ 系统配置")
-st.caption("先做环境检测，再处理备份修复和预设应用。")
-
-tab1, tab2, tab3 = st.tabs(["🔍 环境检测", "💾 配置管理", "📋 预设模板"])
-
-with tab1:
-    _render_env_check()
-with tab2:
-    _render_config_management()
-with tab3:
-    _render_presets()
-
-
 def _render_env_check() -> None:
     """环境检测"""
     st.subheader("🔍 环境检测")
@@ -220,3 +207,16 @@ def _apply_preset(preset_name: str) -> bool:
         return apply_preset(preset_name, auto_apply=True)
     except Exception:
         return False
+st.title("⚙️ 系统配置")
+st.caption("先做环境检测，再处理备份修复和预设应用。")
+
+tab1, tab2, tab3 = st.tabs(["🔍 环境检测", "💾 配置管理", "📋 预设模板"])
+
+with tab1:
+    _render_env_check()
+with tab2:
+    _render_config_management()
+with tab3:
+    _render_presets()
+
+

@@ -12,17 +12,6 @@ from web.utils import format_size, safe_json_display
 
 # render_accounts
 """渲染账号与配额页面"""
-st.title("🔑 账号与配额")
-st.caption("查看转写认证状态、已配置账号以及当前配额。")
-
-tab1, tab2 = st.tabs(["📋 账号列表", "📊 配额查询"])
-
-with tab1:
-    _render_account_list()
-with tab2:
-    _render_quota_query()
-
-
 def _render_account_list() -> None:
     """渲染账号列表"""
     st.subheader("已配置的转写账号")
@@ -86,3 +75,14 @@ def _get_quota() -> dict | None:
     except Exception as e:
         st.error(f"配额查询失败: {e}")
         return None
+st.title("🔑 账号与配额")
+st.caption("查看转写认证状态、已配置账号以及当前配额。")
+
+tab1, tab2 = st.tabs(["📋 账号列表", "📊 配额查询"])
+
+with tab1:
+    _render_account_list()
+with tab2:
+    _render_quota_query()
+
+
