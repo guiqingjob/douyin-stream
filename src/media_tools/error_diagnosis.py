@@ -268,7 +268,7 @@ def auto_fix_error(category: ErrorCategory) -> bool:
         console.print("\n🔧 正在启动认证修复...\n")
         try:
             # 尝试抖音认证
-            from scripts.core.auth import login_sync
+            from media_tools.douyin.core.auth import login_sync
             success, msg = login_sync(persist=True)
             if success:
                 console.print("[green]✅ 抖音认证修复成功！[/green]\n")
@@ -276,7 +276,7 @@ def auto_fix_error(category: ErrorCategory) -> bool:
 
             # 尝试Qwen认证
             console.print("尝试Qwen AI认证...\n")
-            from src.media_tools.transcribe.cli.auth import run_auth
+            from media_tools.transcribe.cli.auth import run_auth
             run_auth()
             console.print("[green]✅ Qwen认证修复成功！[/green]\n")
             return True
@@ -287,7 +287,7 @@ def auto_fix_error(category: ErrorCategory) -> bool:
     elif category == ErrorCategory.QUOTA:
         console.print("\n🔧 正在尝试领取配额...\n")
         try:
-            from src.media_tools.transcribe.cli.claim_equity import run_claim
+            from media_tools.transcribe.cli.claim_equity import run_claim
             run_claim(all=True)
             console.print("[green]✅ 配额领取成功！[/green]\n")
             return True
@@ -298,7 +298,7 @@ def auto_fix_error(category: ErrorCategory) -> bool:
     elif category == ErrorCategory.CONFIG:
         console.print("\n🔧 正在应用默认配置预设...\n")
         try:
-            from src.media_tools.config_presets import apply_preset
+            from media_tools.config_presets import apply_preset
             apply_preset("beginner", auto_apply=True)
             console.print("[green]✅ 配置预设应用成功！[/green]\n")
             return True
@@ -341,7 +341,7 @@ def run_diagnostic() -> dict:
     # 2. 抖音认证检查
     console.print("\n2. 检查抖音认证...")
     try:
-        from scripts.core.config_mgr import get_config
+        from media_tools.douyin.core.config_mgr import get_config
         config = get_config()
         cookie = config.get_cookie()
         if cookie and len(cookie) > 100:

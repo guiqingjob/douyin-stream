@@ -10,9 +10,9 @@ from pathlib import Path
 
 import streamlit as st
 
-from web.components.progress_display import render_task_history, render_task_progress
-from web.components.task_queue import load_task_state, run_task_in_background, update_task_progress
-from web.components.ui_patterns import (
+from media_tools.web.components.progress_display import render_task_history, render_task_progress
+from media_tools.web.components.task_queue import load_task_state, run_task_in_background, update_task_progress
+from media_tools.web.components.ui_patterns import (
     render_empty_state,
     render_highlight_card,
     render_page_header,
@@ -20,8 +20,8 @@ from web.components.ui_patterns import (
     render_table_section,
     render_cta_section,
 )
-from web.constants import DOWNLOADS_DIR, QWEN_AUTH_PATH, TEMP_UPLOADS_DIR, TRANSCRIPTS_DIR
-from web.utils import format_size, format_timestamp
+from media_tools.web.constants import DOWNLOADS_DIR, QWEN_AUTH_PATH, TEMP_UPLOADS_DIR, TRANSCRIPTS_DIR
+from media_tools.web.utils import format_size, format_timestamp
 
 from media_tools.logger import get_logger
 logger = get_logger('web')

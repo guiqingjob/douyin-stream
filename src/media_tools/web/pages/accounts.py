@@ -6,9 +6,9 @@ from pathlib import Path
 
 import streamlit as st
 
-from web.constants import QWEN_AUTH_PATH
-from web.components.ui_patterns import render_page_header
-from web.utils import format_size, safe_json_display
+from media_tools.web.constants import QWEN_AUTH_PATH
+from media_tools.web.components.ui_patterns import render_page_header
+from media_tools.web.utils import format_size, safe_json_display
 
 from media_tools.logger import get_logger
 logger = get_logger('web')
@@ -135,7 +135,7 @@ def _save_douyin_cookie(raw_cookie: str) -> None:
 def _save_qwen_cookie(raw_cookie: str) -> None:
     from media_tools.douyin.utils.auth_parser import AuthParser
     import json
-    from web.constants import QWEN_AUTH_PATH
+    from media_tools.web.constants import QWEN_AUTH_PATH
 
     parser = AuthParser()
     success, msg, cookies_dict = parser.validate_data(raw_cookie, "cookie", "qwen")

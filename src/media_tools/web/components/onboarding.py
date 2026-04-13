@@ -6,7 +6,7 @@
 
 import streamlit as st
 
-from web.constants import PROJECT_ROOT
+from media_tools.web.constants import PROJECT_ROOT
 
 from media_tools.logger import get_logger
 logger = get_logger('web')

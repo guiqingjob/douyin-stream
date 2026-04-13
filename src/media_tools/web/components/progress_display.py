@@ -4,9 +4,9 @@
 
 import streamlit as st
 
-from web.components.task_queue import cancel_task, clear_task_state, load_task_state
-from web.components.ui_patterns import render_empty_state, render_summary_metrics, render_status_badge
-from web.utils import get_task_status_label, get_task_type_label, safe_json_display
+from media_tools.web.components.task_queue import cancel_task, clear_task_state, load_task_state
+from media_tools.web.components.ui_patterns import render_empty_state, render_summary_metrics, render_status_badge
+from media_tools.web.utils import get_task_status_label, get_task_type_label, safe_json_display
 
 from media_tools.logger import get_logger
 logger = get_logger('web')
@@ -116,7 +116,7 @@ def _display_task_result(result) -> None:
 
 def render_task_history() -> None:
     """渲染任务历史页面"""
-    from web.components.task_table import render_task_table
+    from media_tools.web.components.task_table import render_task_table
 
     st.subheader("📜 任务历史")
     render_task_table(limit=20)

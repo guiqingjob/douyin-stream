@@ -7,9 +7,9 @@ from pathlib import Path
 
 import streamlit as st
 
-from web.constants import DB_FILE, DOWNLOADS_DIR, LOGS_DIR, PROJECT_ROOT
-from web.components.ui_patterns import render_page_header, render_danger_zone
-from web.utils import format_size
+from media_tools.web.constants import DB_FILE, DOWNLOADS_DIR, LOGS_DIR, PROJECT_ROOT
+from media_tools.web.components.ui_patterns import render_page_header, render_danger_zone
+from media_tools.web.utils import format_size
 
 from media_tools.logger import get_logger
 logger = get_logger('web')
@@ -194,7 +194,7 @@ def _restore_backup(uploaded_file) -> tuple[bool, str]:
     import tempfile
     
     try:
-        from web.constants import PROJECT_ROOT
+        from media_tools.web.constants import PROJECT_ROOT
         
         # 1. 创建临时目录解压
         temp_dir = Path(tempfile.mkdtemp())
@@ -260,7 +260,7 @@ def _create_backup() -> tuple[bool, str]:
     from datetime import datetime
 
     try:
-        from web.constants import PROJECT_ROOT
+        from media_tools.web.constants import PROJECT_ROOT
 
         backup_dir = PROJECT_ROOT / "backups"
         backup_dir.mkdir(exist_ok=True)

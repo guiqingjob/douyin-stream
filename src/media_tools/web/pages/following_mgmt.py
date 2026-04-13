@@ -6,7 +6,7 @@ import json
 
 import streamlit as st
 
-from web.components.ui_patterns import (
+from media_tools.web.components.ui_patterns import (
     render_empty_state,
     render_highlight_card,
     render_page_header,
@@ -15,7 +15,7 @@ from web.components.ui_patterns import (
     render_danger_zone,
     render_cta_section,
 )
-from web.constants import PAGE_DOWNLOAD
+from media_tools.web.constants import PAGE_DOWNLOAD
 
 from media_tools.logger import get_logger
 logger = get_logger('web')

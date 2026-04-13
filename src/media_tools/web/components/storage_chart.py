@@ -5,8 +5,8 @@
 import streamlit as st
 from pathlib import Path
 
-from web.constants import DOWNLOADS_DIR, PROJECT_ROOT, TRANSCRIPTS_DIR
-from web.utils import format_size
+from media_tools.web.constants import DOWNLOADS_DIR, PROJECT_ROOT, TRANSCRIPTS_DIR
+from media_tools.web.utils import format_size
 
 from media_tools.logger import get_logger
 logger = get_logger('web')

@@ -4,12 +4,12 @@
 
 import streamlit as st
 
-from web.components.home_cards import render_home_status_cards
-from web.components.storage_chart import render_storage_chart
-from web.components.task_table import render_task_table
+from media_tools.web.components.home_cards import render_home_status_cards
+from media_tools.web.components.storage_chart import render_storage_chart
+from media_tools.web.components.task_table import render_task_table
 from media_tools.logger import get_logger
 logger = get_logger('web')
-from web.components.ui_patterns import render_page_header
+from media_tools.web.components.ui_patterns import render_page_header
 
 
 # 渲染工作台首页

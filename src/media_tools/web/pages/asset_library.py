@@ -5,15 +5,15 @@
 import sqlite3
 import streamlit as st
 
-from web.constants import DOWNLOADS_DIR, TRANSCRIPTS_DIR
-from web.components.ui_patterns import (
+from media_tools.web.constants import DOWNLOADS_DIR, TRANSCRIPTS_DIR
+from media_tools.web.components.ui_patterns import (
     render_empty_state,
     render_page_header,
     render_summary_metrics,
     render_table_section,
     render_cta_section,
 )
-from web.utils import format_size, format_timestamp
+from media_tools.web.utils import format_size, format_timestamp
 from media_tools.douyin.core.config_mgr import get_config
 
 from media_tools.logger import get_logger

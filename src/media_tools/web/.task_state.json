@@ -1,0 +1,12 @@
+{
+  "task_id": "06e10319",
+  "task_type": "batch_download",
+  "description": "批量拉取素材: 1 个/来源",
+  "status": "running",
+  "progress": 1.0,
+  "message": "正在拉取 杰小里J哥 (1/1)",
+  "result": null,
+  "error": null,
+  "created_at": "2026-04-13T12:13:10.307792",
+  "updated_at": "2026-04-13T12:13:10.901450"
+}

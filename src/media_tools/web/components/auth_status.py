@@ -4,8 +4,8 @@
 
 import streamlit as st
 
-from web.constants import QWEN_AUTH_PATH
-from web.utils import format_size
+from media_tools.web.constants import QWEN_AUTH_PATH
+from media_tools.web.utils import format_size
 
 from media_tools.logger import get_logger
 logger = get_logger('web')

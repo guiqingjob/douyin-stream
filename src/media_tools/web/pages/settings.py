@@ -6,8 +6,8 @@ from pathlib import Path
 
 import streamlit as st
 
-from web.constants import PROJECT_ROOT, QWEN_AUTH_PATH
-from web.components.ui_patterns import render_page_header
+from media_tools.web.constants import PROJECT_ROOT, QWEN_AUTH_PATH
+from media_tools.web.components.ui_patterns import render_page_header
 
 from media_tools.logger import get_logger
 logger = get_logger('web')
@@ -116,7 +116,7 @@ def _load_presets() -> dict:
         "server": {"label": "🖥️ 服务器模式 - 后台运行"},
     }
 
-    from web.constants import PROJECT_ROOT
+    from media_tools.web.constants import PROJECT_ROOT
 
     config_path = PROJECT_ROOT / "config" / "config.yaml"
     if config_path.exists():
@@ -192,7 +192,7 @@ def _check_qwen_auth() -> bool:
             return cursor.fetchone() is not None
     except Exception:
         # Fallback 到旧版文件检查
-        from web.constants import QWEN_AUTH_PATH
+        from media_tools.web.constants import QWEN_AUTH_PATH
         return QWEN_AUTH_PATH.exists() and QWEN_AUTH_PATH.stat().st_size > 50
 
 

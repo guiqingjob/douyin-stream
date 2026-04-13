@@ -4,9 +4,9 @@
 
 import streamlit as st
 
-from web.components.task_queue import load_task_history
-from web.components.ui_patterns import render_empty_state, render_summary_metrics, render_table_section
-from web.utils import format_timestamp, get_task_status_label, get_task_type_label, safe_json_display
+from media_tools.web.components.task_queue import load_task_history
+from media_tools.web.components.ui_patterns import render_empty_state, render_summary_metrics, render_table_section
+from media_tools.web.utils import format_timestamp, get_task_status_label, get_task_type_label, safe_json_display
 
 from media_tools.logger import get_logger
 logger = get_logger('web')

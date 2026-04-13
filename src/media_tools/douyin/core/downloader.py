@@ -828,7 +828,7 @@ def _trigger_auto_transcribe(uid, nickname):
         
         # 调用 Pipeline 进行批量转写
         # 这里直接导入，使用批量接口支持并发（默认并发数为 6）
-        from src.media_tools.pipeline.orchestrator import run_pipeline_batch
+        from media_tools.pipeline.orchestrator import run_pipeline_batch
 
         results = run_pipeline_batch(mp4_files)
 

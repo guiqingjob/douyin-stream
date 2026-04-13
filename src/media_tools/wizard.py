@@ -127,7 +127,7 @@ def step2_account_setup(scenario: str):
     elif choice == "douyin":
         console.print("\n🔐 正在启动抖音扫码登录...")
         try:
-            from scripts.core.auth import login_sync
+            from media_tools.douyin.core.auth import login_sync
             success, msg = login_sync(persist=True)
             if success:
                 console.print("✅ [green]抖音认证成功！[/green]\n")
@@ -139,7 +139,7 @@ def step2_account_setup(scenario: str):
     elif choice == "qwen":
         console.print("\n🔐 正在启动Qwen AI认证...")
         try:
-            from src.media_tools.transcribe.cli.auth import run_auth
+            from media_tools.transcribe.cli.auth import run_auth
             run_auth()
             console.print("✅ [green]Qwen认证成功！[/green]\n")
         except Exception as e:
@@ -188,7 +188,7 @@ def step3_test_run(scenario: str):
             if url:
                 console.print("\n🔄 开始测试下载...")
                 try:
-                    from scripts.core.downloader import download_by_url
+                    from media_tools.douyin.core.downloader import download_by_url
                     result = download_by_url(url, max_counts=1)
                     if result:
                         console.print("✅ [green]下载测试成功！[/green]\n")
