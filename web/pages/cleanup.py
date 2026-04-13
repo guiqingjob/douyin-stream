@@ -14,7 +14,7 @@ def render_cleanup() -> None:
     """渲染数据清理页面"""
     st.title("🗑️ 数据清理")
 
-    tab1, tab2, tab3 = st.tabs(["🎬 视频清理", "🗄️ 数据库清理", "📝 日志清理"])
+    tab1, tab2, tab3, tab4 = st.tabs(["🎬 视频清理", "🗄️ 数据库清理", "📝 日志清理", "💾 备份/恢复"])
 
     with tab1:
         _render_video_cleanup()
@@ -22,6 +22,8 @@ def render_cleanup() -> None:
         _render_db_cleanup()
     with tab3:
         _render_log_cleanup()
+    with tab4:
+        _render_backup_restore()
 
 
 def _render_video_cleanup() -> None:
@@ -128,3 +130,81 @@ def _clean_old_logs() -> None:
     for f in LOGS_DIR.glob("*.log"):
         if f.stat().st_mtime < cutoff:
             f.unlink()
+
+
+def _render_backup_restore() -> None:
+    """备份/恢复功能"""
+    st.subheader("💾 数据备份与恢复")
+    
+    st.markdown("""
+    **备份内容包含：**
+    - 关注列表 (`config/following.json`)
+    - 配置文件 (`config/config.yaml`)
+    - 数据库 (`douyin_users.db`)
+    - 认证文件 (`.auth/` 目录)
+    """)
+    
+    col1, col2 = st.columns(2)
+    
+    with col1:
+        st.markdown("**备份数据**")
+        if st.button("📦 创建备份", type="primary", use_container_width=True):
+            with st.spinner("正在创建备份..."):
+                ok, backup_path = _create_backup()
+                if ok:
+                    st.success(f"✅ 备份已创建: {backup_path}")
+                else:
+                    st.error("备份失败")
+    
+    with col2:
+        st.markdown("**恢复数据**")
+        uploaded = st.file_uploader("上传备份文件", type=["zip", "tar.gz"])
+        if uploaded and st.button("📥 恢复数据", type="secondary", use_container_width=True):
+            st.warning("⚠️ 恢复操作将覆盖当前数据，确定继续？")
+            if st.button("✅ 确认恢复", type="primary"):
+                st.info("恢复功能开发中...")
+
+
+def _create_backup() -> tuple[bool, str]:
+    """创建备份
+    
+    Returns:
+        tuple: (success, backup_path)
+    """
+    import zipfile
+    from datetime import datetime
+    
+    try:
+        # 创建备份目录
+        backup_dir = Path(__file__).parent.parent / "backups"
+        backup_dir.mkdir(exist_ok=True)
+        
+        # 生成备份文件名（带时间戳）
+        timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+        backup_filename = backup_dir / f"media_tools_backup_{timestamp}.zip"
+        
+        # 要备份的文件和目录
+        items_to_backup = [
+            ("config", "config"),
+            (".auth", ".auth"),
+            ("douyin_users.db", "douyin_users.db"),
+        ]
+        
+        # 创建 zip 备份
+        with zipfile.ZipFile(backup_filename, 'w', zipfile.ZIP_DEFLATED) as zipf:
+            for item_path, arc_name in items_to_backup:
+                path = Path(__file__).parent.parent / item_path
+                if path.exists():
+                    if path.is_file():
+                        zipf.write(path, arc_name)
+                    elif path.is_dir():
+                        for file_path in path.rglob("*"):
+                            if file_path.is_file():
+                                arc_path = f"{arc_name}/{file_path.relative_to(path)}"
+                                zipf.write(file_path, arc_path)
+        
+        return True, str(backup_filename)
+    except Exception as e:
+        import logging
+        logging.error(f"备份失败: {e}")
+        return False, ""

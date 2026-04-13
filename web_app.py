@@ -53,6 +53,7 @@ from web.pages.transcribe import render_transcribe
 from web.pages.accounts import render_accounts
 from web.pages.cleanup import render_cleanup
 from web.pages.settings import render_settings
+from web.components.onboarding import render_onboarding
 
 
 # ─────────────────────────────────────────────
@@ -64,6 +65,9 @@ st.set_page_config(
     layout="wide",
     initial_sidebar_state="expanded",
 )
+
+# 显示新手引导（仅首次访问）
+render_onboarding()
 
 # ─────────────────────────────────────────────
 # 侧边栏导航

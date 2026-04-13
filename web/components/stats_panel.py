@@ -28,18 +28,12 @@ def render_stats_panel() -> None:
 
 
 @st.cache_data(ttl=60)  # 60秒缓存
-def _get_cached_stats():
-    """获取统计数据（带缓存）"""
-    return _get_stats_internal()
-
-
 def _get_stats() -> dict:
-    """获取统计数据（使用缓存）"""
-    return _get_cached_stats()
-
-
-def _get_stats_internal() -> dict:
-    """内部统计逻辑"""
+    """获取统计数据（带 60 秒缓存）
+    
+    Returns:
+        dict: 包含 following_count, downloaded_videos, transcripts_count, disk_usage
+    """
     stats = {
         "following_count": 0,
         "downloaded_videos": 0,
