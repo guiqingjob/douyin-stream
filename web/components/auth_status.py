@@ -32,7 +32,7 @@ def render_auth_status_card() -> None:
             st.success("✅ Qwen 转写已认证")
         else:
             st.error("❌ Qwen 转写未认证")
-            st.caption("请通过 CLI 运行: `python cli.py` → 9 扫码登录")
+            st.caption("可在「账号与配额 -> 认证配置」中粘贴 Cookie")
 
 
 def _check_douyin_auth() -> bool:
@@ -50,5 +50,5 @@ def _check_douyin_auth() -> bool:
 def _check_qwen_auth() -> bool:
     """检查 Qwen 认证状态"""
     if QWEN_AUTH_PATH.exists():
-        return QWEN_AUTH_PATH.stat().st_size > 1000  # 有效文件应大于1KB
+        return QWEN_AUTH_PATH.stat().st_size > 50  # 有效文件应大于50字节
     return False

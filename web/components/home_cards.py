@@ -40,7 +40,7 @@ def render_home_status_cards() -> dict:
         pass
 
     # 检查 Qwen 认证
-    status["qwen_ok"] = QWEN_AUTH_PATH.exists() and QWEN_AUTH_PATH.stat().st_size > 1000
+    status["qwen_ok"] = QWEN_AUTH_PATH.exists() and QWEN_AUTH_PATH.stat().st_size > 50
 
     # 检查环境
     try:

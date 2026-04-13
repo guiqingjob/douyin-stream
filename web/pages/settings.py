@@ -180,7 +180,7 @@ def _check_douyin_auth() -> bool:
 
 def _check_qwen_auth() -> bool:
     """检查 Qwen 认证"""
-    return QWEN_AUTH_PATH.exists() and QWEN_AUTH_PATH.stat().st_size > 1000
+    return QWEN_AUTH_PATH.exists() and QWEN_AUTH_PATH.stat().st_size > 50
 
 
 def _backup_configs() -> str | None:

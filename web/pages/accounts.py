@@ -83,11 +83,81 @@ def _get_quota() -> dict | None:
 st.title("🔑 账号与配额")
 st.caption("查看转写认证状态、已配置账号以及当前配额。")
 
-tab1, tab2 = st.tabs(["📋 账号列表", "📊 配额查询"])
+tab1, tab2, tab3 = st.tabs(["📋 账号列表", "📊 配额查询", "🔑 认证配置"])
 
 with tab1:
     _render_account_list()
 with tab2:
     _render_quota_query()
+with tab3:
+    _render_auth_config()
 
 
+
+def _render_auth_config() -> None:
+    """渲染手动认证配置"""
+    st.subheader("手动认证配置")
+    st.caption("如果无法使用扫码登录，您可以直接从浏览器复制 Cookie 并粘贴到此处。")
+
+    st.markdown("#### Qwen (通义千问) Cookie")
+    st.markdown("1. 登录 [通义千问](https://www.qianwen.com)\n2. 打开开发者工具 (F12) -> Network\n3. 找到任意请求，复制 `Cookie` 请求头\n4. 粘贴到下方：")
+
+    qwen_cookie = st.text_area("Qwen Cookie", placeholder="tongyi_sso_ticket=...; login_aliyunid_ticket=...", key="qwen_cookie_input")
+    if st.button("保存 Qwen 认证", type="primary"):
+        if not qwen_cookie:
+            st.warning("请输入 Cookie")
+        else:
+            _save_qwen_cookie(qwen_cookie)
+
+def _save_qwen_cookie(raw_cookie: str) -> None:
+    from media_tools.douyin.utils.auth_parser import AuthParser
+    import json
+    from web.constants import QWEN_AUTH_PATH
+
+    parser = AuthParser()
+    success, msg, cookies_dict = parser.validate_data(raw_cookie, "cookie", "qwen")
+    
+    if not success:
+        st.error(f"Cookie 解析失败: {msg}")
+        return
+
+    # 构建 Playwright storage state
+    playwright_cookies = []
+    
+    # 实际对于 Qwen 转录需要的核心 Cookie 列表
+    core_keys = {
+        "tongyi_sso_ticket", 
+        "tongyi_sso_ticket_hash", 
+        "login_aliyunid_ticket", 
+        "cookie2", 
+        "XSRF-TOKEN", 
+        "atpsida",
+        "cna"
+    }
+    
+    for k, v in cookies_dict.items():
+        if k in core_keys or "tongyi" in k.lower():
+            playwright_cookies.append({
+                "name": k,
+                "value": v,
+                "domain": ".qianwen.com",
+                "path": "/",
+                "expires": -1,
+                "httpOnly": False,
+                "secure": False,
+                "sameSite": "Lax"
+            })
+
+    state = {
+        "cookies": playwright_cookies,
+        "origins": []
+    }
+
+    try:
+        QWEN_AUTH_PATH.parent.mkdir(parents=True, exist_ok=True)
+        with open(QWEN_AUTH_PATH, "w", encoding="utf-8") as f:
+            json.dump(state, f, indent=2)
+        st.success("✅ Qwen 认证已保存！(已简化为核心 Cookie)")
+        st.rerun()
+    except Exception as e:
+        st.error(f"保存失败: {e}")
