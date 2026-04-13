@@ -1,32 +1,55 @@
-
-from media_tools.logger import get_logger
-logger = get_logger(__name__)
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
 """
 关注列表管理模块 - 增删查取关清理
 """
 
+import asyncio
 import re
 import sqlite3
-import subprocess
-import sys
 from datetime import datetime
-from pathlib import Path
 
+from media_tools.logger import get_logger
+
+from .config_mgr import get_config
 from .ui import (
-    bold,
     error,
     format_number,
     info,
     print_header,
-    print_status,
     print_table,
-    separator,
     success,
     warning,
 )
-from .config_mgr import get_config
+
+logger = get_logger(__name__)
+
+
+def _resolve_sec_user_id(url: str) -> str | None:
+    """将用户主页链接规范化为 canonical sec_user_id。"""
+
+    raw_match = re.search(r'/user/([^/"\s?]+)', url)
+    raw_value = raw_match.group(1) if raw_match else ''
+    if raw_value.startswith('MS4w'):
+        return raw_value
+
+    async def _fetch() -> str:
+        from f2.apps.douyin.utils import SecUserIdFetcher
+
+        return await SecUserIdFetcher.get_sec_user_id(url)
+
+    try:
+        resolved = asyncio.run(_fetch())
+        if resolved and resolved.startswith('MS4w'):
+            return resolved
+    except Exception as exc:
+        logger.info(warning(f"sec_user_id 规范化失败: {exc}"))
+
+    if raw_value:
+        logger.info(error('当前链接未包含 sec_user_id；请优先使用 sec_user_id 形式的用户主页链接。'))
+    else:
+        logger.info(error('无法从链接中提取用户标识。'))
+    return None
 
 
 def _get_skill_dir():
@@ -107,15 +130,12 @@ def add_user(url):
     """
     print_header("添加关注博主")
 
-    # 从 URL 提取 sec_user_id
-    sec_match = re.search(r'/user/(MS4wLjABAAAA[^/"\s?]+)', url)
-    if not sec_match:
-        logger.info(error("无法从 URL 提取用户标识"))
-        logger.info(info("请使用抖音主页链接，格式如:"))
+    sec_user_id = _resolve_sec_user_id(url)
+    if not sec_user_id:
+        logger.info(error("无法从链接解析有效的 sec_user_id"))
+        logger.info(info("请使用可访问的抖音主页链接，格式如:"))
         logger.info(info("https://www.douyin.com/user/MS4wLjABAAAA..."))
         return False, None
-
-    sec_user_id = sec_match.group(1)
 
     # 检查是否已存在
     config = get_config()
@@ -166,123 +186,45 @@ def add_user(url):
 
 def _fetch_user_info_via_f2(url, sec_user_id):
     """
-    通过 F2 下载1个视频来获取用户信息
+    通过 F2 的实时 profile 接口获取用户信息。
 
-    Args:
-        url: 用户主页 URL
-        sec_user_id: 用户 sec_user_id
-
-    Returns:
-        用户信息字典
+    这里不再依赖 user_info_web 的“最新一条记录”回填，避免串到错误博主。
     """
-    config = get_config()
-    downloads_path = config.get_download_path()
-    skill_dir = _get_skill_dir()
 
-    # 清理旧的 F2 临时目录
-    f2_temp_path = downloads_path / "douyin"
-    if f2_temp_path.exists():
-        import shutil
+    async def _fetch_profile():
+        from .downloader import _get_f2_kwargs
+        from f2.apps.douyin.handler import DouyinHandler
 
-        shutil.rmtree(f2_temp_path)
+        kwargs = _get_f2_kwargs()
+        handler = DouyinHandler(kwargs)
+        profile = await handler.fetch_user_profile(sec_user_id)
+        return profile._to_dict()
 
-    # 运行 F2 下载
-    cookie = config.get_cookie()
-    f2_args = [
-        sys.executable,
-        "-m",
-        "f2",
-        "dy",
-        "-u",
-        url,
-        "-M",
-        "post",
-        "--max-counts",
-        "1",
-        "-p",
-        str(downloads_path),
-    ]
-
-    if cookie:
-        f2_args.extend(["-k", cookie])
-
-    result = subprocess.run(
-        f2_args,
-        capture_output=True,
-        text=True,
-        cwd=str(skill_dir),
-    )
-
-    if result.returncode != 0:
-        logger.info(error(f"F2 下载失败: {result.stderr}"))
-        return None
-
-    # 从数据库读取用户信息
-    db_path = config.get_db_path()
-    conn = None
     try:
-        conn = sqlite3.connect(str(db_path))
-        cursor = conn.cursor()
-
-        cursor.execute(
-            """
-            SELECT uid, sec_user_id, nickname, avatar_url, signature,
-                   follower_count, following_count, aweme_count
-            FROM user_info_web WHERE sec_user_id = ?
-            ORDER BY ROWID DESC LIMIT 1
-        """,
-            (sec_user_id,),
-        )
-
-        row = cursor.fetchone()
-
-        if not row:
-            logger.info(error("数据库中未找到用户信息"))
-            return None
-
-        # 归档视频文件
-        numeric_uid = str(row[0])
-        post_path = downloads_path / "douyin" / "post"
-        if post_path.exists():
-            import shutil
-
-            for folder in post_path.iterdir():
-                if folder.is_dir():
-                    target_dir = downloads_path / numeric_uid
-                    target_dir.mkdir(parents=True, exist_ok=True)
-                    for f in folder.glob("*.mp4"):
-                        dest = target_dir / f.name
-                        if not dest.exists():
-                            shutil.move(str(f), str(dest))
-                    for f in folder.glob("*.jpg"):
-                        dest = target_dir / f.name
-                        if not dest.exists():
-                            shutil.move(str(f), str(dest))
-                    try:
-                        shutil.rmtree(folder)
-                    except Exception:
-                        pass
-
-        return {
-            "uid": numeric_uid,
-            "sec_user_id": row[1] or "",
-            "name": _clean_nickname(row[2] or ""),
-            "nickname": _clean_nickname(row[2] or ""),
-            "avatar_url": row[3] or "",
-            "signature": row[4] or "",
-            "follower_count": row[5] or 0,
-            "following_count": row[6] or 0,
-            "video_count": row[7] or 0,
-            "last_updated": datetime.now().isoformat(),
-            "last_fetch_time": None,
-        }
-
-    except Exception as e:
-        logger.info(error(f"数据库读取失败: {e}"))
+        profile_data = asyncio.run(_fetch_profile())
+    except Exception as exc:
+        logger.info(error(f"获取用户 profile 失败: {exc}"))
         return None
-    finally:
-        if conn:
-            conn.close()
+
+    uid = str(profile_data.get("uid", "")).strip()
+    nickname = _clean_nickname(str(profile_data.get("nickname", "")).strip())
+    if not uid:
+        logger.info(error("实时 profile 返回的 uid 为空"))
+        return None
+
+    return {
+        "uid": uid,
+        "sec_user_id": str(profile_data.get("sec_user_id", sec_user_id) or sec_user_id),
+        "name": nickname or uid,
+        "nickname": nickname or uid,
+        "avatar_url": profile_data.get("avatar_url", "") or "",
+        "signature": profile_data.get("signature", "") or "",
+        "follower_count": profile_data.get("follower_count", 0) or 0,
+        "following_count": profile_data.get("following_count", 0) or 0,
+        "video_count": profile_data.get("aweme_count", 0) or 0,
+        "last_updated": datetime.now().isoformat(),
+        "last_fetch_time": None,
+    }
 
 
 def _clean_nickname(name):

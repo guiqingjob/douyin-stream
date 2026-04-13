@@ -65,8 +65,10 @@ def _render_add_source() -> None:
                 if ok and user:
                     st.success(f"✅ 添加成功: {user.get('nickname', user.get('uid', '未知'))}")
                     st.rerun()
+                elif user:
+                    st.info(f"ℹ️ 来源已存在: {user.get('nickname', user.get('uid', '未知'))}")
                 else:
-                    st.error('添加失败，请检查链接是否正确或 Cookie 是否有效')
+                    st.error('添加失败：未能从链接拉取用户信息，请检查 Cookie、F2 环境和链接是否为可访问的抖音主页链接。')
 
 
 def _render_source_list(users: list[dict]) -> None:

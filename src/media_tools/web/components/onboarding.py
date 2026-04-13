@@ -159,8 +159,10 @@ def render_onboarding() -> None:
                             if ok and user:
                                 st.success(f"✅ 已添加: {user.get('nickname', '未知')}")
                                 # 继续停留在步骤 3，可以添加更多关注
+                            elif user:
+                                st.info(f"ℹ️ 该来源已存在: {user.get('nickname', user.get('uid', '未知'))}")
                             else:
-                                st.error("添加失败，请检查链接是否正确")
+                                st.error("添加失败：未能从链接拉取用户信息")
                         except Exception as e:
                             logger.exception('发生异常')
                             st.error(f"添加失败: {e}")
