@@ -85,32 +85,57 @@ def _render_single_transcribe() -> None:
         _start_transcribe_task(str(temp_path))
 
 
+def _fetch_pending_assets():
+    """从数据库获取未转写的视频资产"""
+    try:
+        import sqlite3
+        from media_tools.douyin.core.config_mgr import get_config
+        db_path = get_config().get_db_path()
+        with sqlite3.connect(db_path) as conn:
+            cursor = conn.cursor()
+            cursor.execute('''
+                SELECT asset_id, title, duration, video_path, creator_uid 
+                FROM media_assets 
+                WHERE video_status = 'downloaded' AND transcript_status != 'completed'
+                ORDER BY create_time DESC
+            ''')
+            return cursor.fetchall()
+    except Exception as e:
+        logger.error(f"读取待转写资产失败: {e}")
+        return []
+
 def _render_batch_transcribe() -> None:
     """批量转写素材库中的视频"""
     st.markdown("**适合把已经下载好的素材批量转成文稿。**")
 
-    if not DOWNLOADS_DIR.exists():
-        render_empty_state("素材目录不存在。", "先去下载中心获取一批素材，再回来批量转写。", icon="📂")
+    assets = _fetch_pending_assets()
+
+    if not assets:
+        render_empty_state("素材库里没有待转写的视频。", "去下载中心获取素材，或所有视频均已转写完成。", icon="🎬")
         return
 
-    video_files = list(DOWNLOADS_DIR.rglob("*.mp4"))
-    total_size = sum(f.stat().st_size for f in video_files)
-
-    render_summary_metrics(
-        [
-            {"label": "待处理素材", "value": len(video_files)},
-            {"label": "素材总大小", "value": format_size(total_size)},
-            {"label": "输出目录", "value": "transcripts/"},
-        ]
+    st.success(f"已发现 **{len(assets)}** 个待处理视频。")
+    
+    # 转换为适合显示和选择的格式
+    asset_options = {
+        f"[{a[4]}] {(a[1][:30] + '...') if a[1] and len(a[1]) > 30 else (a[1] or a[0])}": a 
+        for a in assets
+    }
+    
+    selected_labels = st.multiselect(
+        "选择要转写的视频 (默认全选)",
+        options=list(asset_options.keys()),
+        default=list(asset_options.keys())
     )
-
-    if not video_files:
-        render_empty_state("素材库里还没有视频。", "先去下载中心获取素材，再回来生成文稿。", icon="🎬")
+    
+    if not selected_labels:
+        st.warning("请至少选择一个视频")
         return
 
-    st.caption("系统会遍历素材库中的视频文件，逐个生成文稿。")
+    st.caption(f"即将对选中的 {len(selected_labels)} 个视频生成文稿。")
     if st.button("🚀 开始批量转写", type="primary", key="start_batch_transcribe"):
-        _start_batch_transcribe_task()
+        selected_assets = [asset_options[label] for label in selected_labels]
+        _start_batch_transcribe_task(selected_assets)
 
 
 @st.fragment(run_every=2)
@@ -191,7 +216,7 @@ def _start_transcribe_task(file_path: str) -> None:
     st.rerun()
 
 
-def _start_batch_transcribe_task() -> None:
+def _start_batch_transcribe_task(selected_assets: list) -> None:
     """启动批量转写任务"""
     task_id = str(uuid.uuid4())[:8]
     st.info(f"🚀 批量转写任务已提交 (ID: {task_id})")
@@ -200,48 +225,58 @@ def _start_batch_transcribe_task() -> None:
         if not _check_auth():
             raise ValueError("Qwen 认证无效或未完成，请先完成认证")
 
-        video_files = list(DOWNLOADS_DIR.rglob("*.mp4"))
-        total = len(video_files)
-        if total == 0:
-            raise ValueError("素材库为空，请先下载视频")
-
+        total = len(selected_assets)
         success_list = []
         failed_list = []
 
         from media_tools.pipeline.config import load_pipeline_config
         from media_tools.pipeline.orchestrator_v2 import create_orchestrator
+        from media_tools.douyin.core.config_mgr import get_config
 
         config = load_pipeline_config()
         orchestrator = create_orchestrator(config)
+        downloads_path = get_config().get_download_path()
 
         async def _run_batch():
-            for i, video_file in enumerate(video_files):
+            for i, asset in enumerate(selected_assets):
+                asset_id, title, duration, rel_path, uid = asset
                 progress = (i + 1) / total
-                update_task_progress(progress, f"正在生成文稿 {video_file.name} ({i + 1}/{total})")
+                display_name = title or asset_id
+                update_task_progress(progress, f"正在生成文稿 {display_name[:30]} ({i + 1}/{total})")
+
+                # 构造绝对路径
+                video_file = downloads_path / rel_path
+                
+                if not video_file.exists():
+                    failed_list.append({"file": display_name, "error": "文件不存在"})
+                    continue
 
                 try:
                     await orchestrator.transcribe_with_retry(str(video_file))
-                    success_list.append(video_file.name)
+                    success_list.append(display_name)
                 except Exception as e:
                     logger.exception('发生异常')
-                    failed_list.append({"file": video_file.name, "error": str(e)})
-                    logging.warning(f"转写失败: {video_file.name} - {e}")
+                    failed_list.append({"file": display_name, "error": str(e)})
+                    logging.warning(f"转写失败: {display_name} - {e}")
 
         asyncio.run(_run_batch())
 
+        if len(failed_list) == total and total > 0:
+            raise RuntimeError(f"全部 {total} 个视频转写失败，请检查认证状态。")
+
         return {
-            "total_files": total,
             "success_count": len(success_list),
             "failed_count": len(failed_list),
             "success_list": success_list,
             "failed_list": failed_list,
+            "total_files": total,
         }
 
     run_task_in_background(
         _worker,
         task_id,
         "batch_transcribe",
-        f"批量生成文稿: {task_id}",
+        f"批量生成文稿: {len(selected_assets)} 个素材",
         success_message="批量文稿生成完成",
     )
     st.rerun()

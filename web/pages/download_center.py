@@ -173,29 +173,42 @@ def _start_batch_download_task(max_per_user: int) -> None:
 
         for i, user in enumerate(users):
             progress = (i + 1) / total
-            nickname = user.get("nickname", user.get("name", user.get("uid", "")))
+            nickname = user.get("nickname", user.get("name", user.get("uid", "未知用户")))
             update_task_progress(progress, f"正在拉取 {nickname} ({i + 1}/{total})")
 
             sec_user_id = user.get("sec_user_id", "")
-            if not sec_user_id:
-                failed_list.append({"user": nickname, "error": "缺少 sec_user_id"})
+            uid = user.get("uid", "")
+            
+            # 如果没有 sec_user_id，尝试使用 uid 构建 URL
+            if sec_user_id and sec_user_id.startswith("MS4w"):
+                url = f"https://www.douyin.com/user/{sec_user_id}"
+            elif uid:
+                url = f"https://www.douyin.com/user/{uid}"
+            else:
+                failed_list.append({"user": nickname, "error": "缺少用户标识 (uid/sec_user_id)"})
                 continue
 
-            url = f"https://www.douyin.com/user/{sec_user_id}"
             try:
-                download_by_url(url, max_counts=max_per_user)
-                success_list.append(nickname)
+                result = download_by_url(url, max_counts=max_per_user)
+                if isinstance(result, dict) and result.get('success'):
+                    success_list.append(nickname)
+                else:
+                    failed_list.append({"user": nickname, "error": "下载失败 (无可用新视频或访问受限)"})
             except Exception as e:
                 logger.exception('发生异常')
                 failed_list.append({"user": nickname, "error": str(e)})
-                logging.warning(f"下载失败: {nickname} - {e}")
+                logging.warning(f"下载异常: {nickname} - {e}")
 
+        # 只要有成功或部分成功，就不抛出致命异常，而是正常返回结果对象
+        if len(failed_list) == total and total > 0:
+            raise RuntimeError(f"全部 {total} 个用户下载失败，请检查网络或 Cookie 状态。")
+            
         return {
-            "total_users": total,
             "success_count": len(success_list),
             "failed_count": len(failed_list),
             "success_list": success_list,
             "failed_list": failed_list,
+            "total_users": total
         }
 
     run_task_in_background(
