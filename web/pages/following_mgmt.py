@@ -12,6 +12,8 @@ from web.components.ui_patterns import (
     render_page_header,
     render_summary_metrics,
     render_table_section,
+    render_danger_zone,
+    render_cta_section,
 )
 from web.constants import PAGE_DOWNLOAD
 
@@ -102,20 +104,31 @@ def _render_following_list() -> None:
         del_uid = st.text_input("输入要删除的 UID")
         delete_local = st.checkbox("同时删除本地下载的视频文件")
         if del_uid:
-            if st.button("删除来源", type="primary", key=f"del_{del_uid}"):
-                if st.checkbox(f"确认删除 UID {del_uid} 的来源?", key=f"confirm_{del_uid}"):
-                    try:
-                        from media_tools.douyin.core.following_mgr import remove_user
-                        success = remove_user(del_uid, delete_local=delete_local)
-                        if success:
-                            st.success(f"已成功删除来源: {del_uid}")
-                            st.rerun()
-                        else:
-                            st.error(f"删除失败，请检查 UID 是否正确: {del_uid}")
-                    except Exception as e:
-                        logger.exception('发生异常')
-                        st.error(f"删除失败: {e}")
-        if st.button("📥 去下载中心批量拉取", key="go_download_from_following"):
+            if render_danger_zone(
+                f"确认删除 UID {del_uid} 的来源?",
+                "此操作不可逆，且如果勾选了同步删除本地文件，相关视频也将被删除。",
+                "删除来源",
+                f"del_{del_uid}"
+            ):
+                try:
+                    from media_tools.douyin.core.following_mgr import remove_user
+                    success = remove_user(del_uid, delete_local=delete_local)
+                    if success:
+                        st.success(f"已成功删除来源: {del_uid}")
+                        st.rerun()
+                    else:
+                        st.error(f"删除失败，请检查 UID 是否正确: {del_uid}")
+                except Exception as e:
+                    logger.exception('发生异常')
+                    st.error(f"删除失败: {e}")
+        
+        st.divider()
+        if render_cta_section(
+            "来源已就绪？", 
+            "前往下载中心执行批量拉取任务。", 
+            "📥 去下载中心", 
+            "go_download_from_following"
+        ):
             st.switch_page("web/pages/download_center.py")
     except Exception as e:
         logger.exception('发生异常')
