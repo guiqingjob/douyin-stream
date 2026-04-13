@@ -76,7 +76,7 @@ def _render_batch_transcribe() -> None:
     st.markdown("**适合把已经下载好的素材批量转成文稿。**")
 
     if not DOWNLOADS_DIR.exists():
-        render_empty_state("素材目录不存在。", "先去下载中心获取一批素材，再回来批量转写。")
+        render_empty_state("素材目录不存在。", "先去下载中心获取一批素材，再回来批量转写。", icon="📂")
         return
 
     video_files = list(DOWNLOADS_DIR.rglob("*.mp4"))
