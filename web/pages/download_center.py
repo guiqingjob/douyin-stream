@@ -2,57 +2,52 @@
 下载中心页面
 """
 
-import streamlit as st
-import uuid
 import logging
 import time
-from pathlib import Path
+import uuid
 
-from web.constants import DOWNLOADS_DIR
-from web.components.progress_display import render_task_progress
-from web.components.task_queue import run_task_in_background
+import streamlit as st
+
+from web.components.progress_display import render_task_history, render_task_progress
+from web.components.task_queue import run_task_in_background, update_task_progress
+from web.components.ui_patterns import render_empty_state, render_highlight_card, render_summary_metrics, render_table_section
+from web.constants import DOWNLOADS_DIR, PAGE_TRANSCRIBE
+from web.utils import format_size, format_timestamp
 
 
 def render_download_center() -> None:
     """渲染下载中心页面"""
     st.title("📥 下载中心")
-    
-    tab1, tab2, tab3 = st.tabs(["✨ 新建下载", "📋 任务队列", "📁 已下载管理"])
-    
+    st.caption("把抖音链接或关注来源，变成本地素材库中的视频文件。")
+
+    tab1, tab2, tab3 = st.tabs(["🚀 创建任务", "📌 当前任务", "🎬 素材库"])
+
     with tab1:
         _render_new_download()
     with tab2:
-        _render_task_queue()
+        _render_current_task()
     with tab3:
-        _render_downloaded_files()
-    
-    # 显示当前任务进度
+        _render_material_library()
+
     st.divider()
-    is_running = render_task_progress()
-    
-    # 任务历史按钮
-    if st.button("📜 查看任务历史", key="show_task_history_download_center"):
-        from web.components.progress_display import render_task_history
+    st.subheader("📜 最近任务历史")
+    st.caption("统一查看最近下载相关任务的结果与状态变化。")
+    if st.button("查看完整历史", key="show_task_history_download_center"):
         render_task_history()
-    
-    # 如果有任务在运行，自动刷新
-    if is_running:
-        time.sleep(2)
-        st.rerun()
 
 
 def _render_new_download() -> None:
-    """新建下载"""
-    st.subheader("✨ 新建下载任务")
-    
-    # 下载模式选择
+    """创建下载任务"""
+    st.subheader("🚀 创建素材获取任务")
+    st.caption("先决定是临时下载一个链接，还是按关注列表批量拉取。")
+
     mode = st.radio(
-        "下载模式",
-        ["🔗 单链接下载", "👥 批量下载关注"],
+        "获取方式",
+        ["🔗 粘贴链接下载", "👥 从关注列表批量拉取"],
         horizontal=True,
     )
-    
-    if "单链接" in mode:
+
+    if "链接" in mode:
         _render_single_download()
     else:
         _render_batch_download()
@@ -60,151 +55,205 @@ def _render_new_download() -> None:
 
 def _render_single_download() -> None:
     """单链接下载"""
-    st.markdown("**通过抖音链接下载视频**")
-    
+    st.markdown("**适合临时验证、单条采集或快速拿到一个样例视频。**")
+
     url = st.text_input(
-        "抖音视频/博主链接",
+        "抖音视频 / 博主链接",
         placeholder="https://www.douyin.com/video/... 或 https://www.douyin.com/user/...",
     )
-    
+
     col1, col2 = st.columns([1, 2])
     with col1:
         max_count = st.number_input("最多下载数量", min_value=1, max_value=9999, value=3)
-    
-    if st.button("🚀 开始下载", type="primary"):
+    with col2:
+        st.caption("如果粘贴的是博主主页链接，这里表示最多拉取多少个视频。")
+
+    if st.button("🚀 开始下载", type="primary", key="start_single_download"):
         if not url:
             st.warning("请输入链接")
             return
-        
+
         _start_download_task(url, max_count)
 
 
 def _render_batch_download() -> None:
-    """批量下载关注"""
-    st.markdown("**批量下载已关注的博主**")
-    
-    col1, col2 = st.columns([1, 2])
-    with col1:
-        max_per_user = st.number_input("每个博主最多下载", min_value=1, max_value=9999, value=5)
-    
-    # 显示关注列表统计
+    """批量下载关注来源"""
+    st.markdown("**适合日常更新素材库：按已保存的来源逐个拉取内容。**")
+
     try:
         from media_tools.douyin.utils.following import list_users
+
         users = list_users()
-        st.info(f"📊 当前关注列表有 **{len(users)}** 个博主")
-    except Exception:
-        pass
-    
-    if st.button("🚀 开始批量下载", type="primary"):
+        source_count = len(users)
+        st.info(f"当前已配置 **{source_count}** 个来源")
+    except Exception as e:
+        source_count = 0
+        st.warning(f"无法读取关注列表：{e}")
+
+    col1, col2 = st.columns([1, 2])
+    with col1:
+        max_per_user = st.number_input("每个来源最多下载", min_value=1, max_value=9999, value=5)
+    with col2:
+        st.caption("系统会遍历关注列表，按来源逐个下载。")
+
+    if st.button("🚀 开始批量拉取", type="primary", key="start_batch_download"):
+        if source_count == 0:
+            st.warning("当前没有可用来源，请先去关注管理添加来源。")
+            return
         _start_batch_download_task(max_per_user)
 
 
-def _render_task_queue() -> None:
-    """任务队列"""
-    st.subheader("📋 下载任务队列")
-    st.info("💡 任务队列功能开发中... 当前仅支持单任务运行。")
-    
-    # 显示当前任务
-    render_task_progress()
+def _render_current_task() -> None:
+    """当前任务"""
+    st.subheader("📌 当前任务")
+    st.caption("当前版本以单任务后台执行为主，适合先跑通一个任务再继续下一步。")
+
+    is_running = render_task_progress(empty_message="当前没有正在执行的下载任务")
+
+    if is_running:
+        time.sleep(2)
+        st.rerun()
+        return
+
+    render_empty_state(
+        "当前没有下载任务在执行。",
+        "通常下一步是去素材库确认结果，或者直接进入转写中心继续处理。",
+    )
+    if st.button("🎙️ 去转写中心", use_container_width=False, key="go_transcribe_from_download"):
+        st.session_state.current_page = PAGE_TRANSCRIBE
+        st.rerun()
 
 
-def _render_downloaded_files() -> None:
-    """已下载管理"""
-    st.subheader("📁 已下载文件管理")
-    
-    if DOWNLOADS_DIR.exists():
-        video_files = list(DOWNLOADS_DIR.rglob("*.mp4"))
-        total_size = sum(f.stat().st_size for f in video_files)
-        
-        from web.utils import format_size
-        st.info(f"共 **{len(video_files)}** 个视频文件，占用 **{format_size(total_size)}**")
-        
-        if video_files:
-            # 显示文件列表（前 20 个）
-            st.dataframe(
-                [
-                    {
-                        "文件名": f.name[:50],
-                        "大小": format_size(f.stat().st_size),
-                        "修改时间": f.stat().st_mtime,
-                    }
-                    for f in sorted(video_files, key=lambda x: x.stat().st_mtime, reverse=True)[:20]
-                ],
-                use_container_width=True,
-                hide_index=True,
-            )
-    else:
-        st.info("downloads 目录不存在")
+def _render_material_library() -> None:
+    """素材库"""
+    st.subheader("🎬 素材库")
+    st.caption("这里展示已经下载到本地的素材文件，方便确认结果和后续转写。")
+
+    if not DOWNLOADS_DIR.exists():
+        render_empty_state("素材目录不存在。", "如果这是首次使用，先创建一个下载任务。")
+        return
+
+    video_files = list(DOWNLOADS_DIR.rglob("*.mp4"))
+    total_size = sum(f.stat().st_size for f in video_files)
+    sorted_files = sorted(video_files, key=lambda x: x.stat().st_mtime, reverse=True)
+
+    latest_name = "-"
+    latest_time = "-"
+    if sorted_files:
+        latest_name = sorted_files[0].name[:40]
+        latest_time = format_timestamp(sorted_files[0].stat().st_mtime)
+
+    render_summary_metrics(
+        [
+            {"label": "素材数量", "value": len(video_files)},
+            {"label": "总占用", "value": format_size(total_size)},
+            {"label": "最近入库", "value": latest_time},
+            {"label": "最近文件", "value": latest_name},
+        ]
+    )
+
+    if not sorted_files:
+        render_empty_state("素材库为空。", "先去左侧创建一个下载任务，拿到第一批素材。")
+        return
+
+    latest_file = sorted_files[0]
+    render_highlight_card(
+        "最近入库素材",
+        latest_file.name,
+        [
+            f"大小：{format_size(latest_file.stat().st_size)}",
+            f"时间：{format_timestamp(latest_file.stat().st_mtime)}",
+        ],
+    )
+
+    render_table_section(
+        [
+            {
+                "文件名": f.name[:60],
+                "大小": format_size(f.stat().st_size),
+                "修改时间": format_timestamp(f.stat().st_mtime),
+            }
+            for f in sorted_files[:20]
+        ],
+        empty_message="当前没有可展示的数据。",
+        hint="如果素材已经确认无误，下一步通常是进入转写中心生成文稿。",
+    )
+    if st.button("🎙️ 用这些素材去转写", key="go_to_transcribe_from_library"):
+        st.session_state.current_page = PAGE_TRANSCRIBE
+        st.rerun()
 
 
 def _start_download_task(url: str, max_count: int) -> None:
     """启动下载任务"""
     task_id = str(uuid.uuid4())[:8]
-    st.info(f"🚀 任务已提交 (ID: {task_id})")
-    
+    st.info(f"🚀 下载任务已提交 (ID: {task_id})")
+
     def _worker():
-        from web.components.task_queue import update_task_progress, mark_task_success, mark_task_failed
-        
-        try:
-            from media_tools.douyin.core.downloader import download_by_url
-            
-            update_task_progress(0.1, "正在解析链接...")
-            result = download_by_url(url, max_counts=max_count)
-            update_task_progress(1.0, "下载完成")
-            mark_task_success(result)
-        except Exception as e:
-            mark_task_failed(str(e))
-    
-    run_task_in_background(_worker, task_id, "download", f"下载: {url[:50]}...")
+        from media_tools.douyin.core.downloader import download_by_url
+
+        update_task_progress(0.1, "正在解析链接...")
+        result = download_by_url(url, max_counts=max_count)
+        update_task_progress(1.0, "素材下载完成")
+        return result
+
+    run_task_in_background(
+        _worker,
+        task_id,
+        "download",
+        f"下载素材: {url[:50]}...",
+        success_message="素材已下载到本地素材库",
+    )
     st.rerun()
 
 
 def _start_batch_download_task(max_per_user: int) -> None:
     """启动批量下载任务"""
     task_id = str(uuid.uuid4())[:8]
-    st.info(f"🚀 批量任务已提交 (ID: {task_id})")
-    
+    st.info(f"🚀 批量拉取任务已提交 (ID: {task_id})")
+
     def _worker():
-        from web.components.task_queue import update_task_progress, mark_task_success, mark_task_failed
-        
-        try:
-            from media_tools.douyin.utils.following import list_users
-            from media_tools.douyin.core.downloader import download_by_url
-            
-            users = list_users()
-            if not users:
-                mark_task_failed("关注列表为空")
-                return
-            
-            total = len(users)
-            success_list = []
-            failed_list = []
-            
-            for i, user in enumerate(users):
-                progress = (i + 1) / total
-                nickname = user.get("nickname", user.get("name", user.get("uid", "")))
-                update_task_progress(progress, f"正在下载 {nickname} ({i+1}/{total})")
-                
-                sec_user_id = user.get("sec_user_id", "")
-                if sec_user_id:
-                    url = f"https://www.douyin.com/user/{sec_user_id}"
-                    try:
-                        download_by_url(url, max_counts=max_per_user)
-                        success_list.append(nickname)
-                    except Exception as e:
-                        failed_list.append({"user": nickname, "error": str(e)})
-                        logging.warning(f"下载失败: {nickname} - {e}")
-            
-            result = {
-                "total_users": total,
-                "success_count": len(success_list),
-                "failed_count": len(failed_list),
-                "success_list": success_list,
-                "failed_list": failed_list,
-            }
-            mark_task_success(result)
-        except Exception as e:
-            mark_task_failed(str(e))
-    
-    run_task_in_background(_worker, task_id, "batch_download", f"批量下载 {max_per_user} 个/博主")
+        from media_tools.douyin.core.downloader import download_by_url
+        from media_tools.douyin.utils.following import list_users
+
+        users = list_users()
+        if not users:
+            raise ValueError("关注列表为空，请先添加来源")
+
+        total = len(users)
+        success_list = []
+        failed_list = []
+
+        for i, user in enumerate(users):
+            progress = (i + 1) / total
+            nickname = user.get("nickname", user.get("name", user.get("uid", "")))
+            update_task_progress(progress, f"正在拉取 {nickname} ({i + 1}/{total})")
+
+            sec_user_id = user.get("sec_user_id", "")
+            if not sec_user_id:
+                failed_list.append({"user": nickname, "error": "缺少 sec_user_id"})
+                continue
+
+            url = f"https://www.douyin.com/user/{sec_user_id}"
+            try:
+                download_by_url(url, max_counts=max_per_user)
+                success_list.append(nickname)
+            except Exception as e:
+                failed_list.append({"user": nickname, "error": str(e)})
+                logging.warning(f"下载失败: {nickname} - {e}")
+
+        return {
+            "total_users": total,
+            "success_count": len(success_list),
+            "failed_count": len(failed_list),
+            "success_list": success_list,
+            "failed_list": failed_list,
+        }
+
+    run_task_in_background(
+        _worker,
+        task_id,
+        "batch_download",
+        f"批量拉取素材: {max_per_user} 个/来源",
+        success_message="批量素材拉取完成",
+    )
     st.rerun()

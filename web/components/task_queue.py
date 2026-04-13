@@ -1,18 +1,20 @@
 """
 后台任务队列组件 - 基于状态文件的轮询机制
 
-工作原理:
-1. 用户提交任务 → 写入 task_state.json
-2. 后台线程/子进程执行任务，定时更新状态文件
-3. 前端页面每 2 秒读取状态文件，显示进度
+当前能力：
+1. 页面提交任务 → 写入 task_state.json
+2. 后台线程执行任务，定时更新状态文件
+3. 前端页面轮询状态文件，显示当前任务与历史记录
+
+说明：
+- 当前更接近“单任务后台执行 + 历史记录”，并非完整多任务队列。
 """
 
 import json
 import threading
-import time
+from datetime import datetime
 from pathlib import Path
 from typing import Any, Callable
-from datetime import datetime
 
 # 状态文件路径
 _STATE_FILE = Path(".task_state.json")
@@ -99,8 +101,6 @@ def mark_task_success(result: Any = None, message: str = "任务完成") -> None
     state["result"] = result
     state["completed_at"] = datetime.now().isoformat()
     save_task_state(state)
-    
-    # 保存到历史记录
     _save_to_history(state)
 
 
@@ -114,8 +114,6 @@ def mark_task_failed(error: str) -> None:
     state["error"] = error
     state["completed_at"] = datetime.now().isoformat()
     save_task_state(state)
-    
-    # 保存到历史记录
     _save_to_history(state)
 
 
@@ -146,12 +144,18 @@ def run_task_in_background(
     task_id: str,
     task_type: str,
     description: str = "",
+    success_message: str = "任务完成",
     *args,
     **kwargs,
 ) -> None:
-    """在后台线程中执行任务"""
-    # 初始化任务状态
-    reset_cancel_flag()  # 启动时重置取消标志
+    """在后台线程中执行任务
+
+    约定：
+    - `task_func` 负责执行业务并返回结果
+    - 业务函数内部可调用 `update_task_progress()` 更新进度
+    - 成功/失败状态由此包装器统一写入，避免重复覆盖状态
+    """
+    reset_cancel_flag()
     initial_state = create_task(task_id, task_type, description)
     save_task_state(initial_state)
 
@@ -159,20 +163,26 @@ def run_task_in_background(
         try:
             update_task_progress(0.0, "任务开始执行")
 
-            # 检查是否取消
             if is_task_cancelled():
                 mark_task_failed("任务已取消")
                 return
 
             result = task_func(*args, **kwargs)
 
-            # 再次检查是否取消
+            current_state = load_task_state()
+            if current_state and current_state.get("status") in {"success", "failed"}:
+                return
+
             if is_task_cancelled():
                 mark_task_failed("任务已取消")
                 return
 
-            mark_task_success(result, "任务完成")
+            mark_task_success(result, success_message)
         except Exception as e:
+            current_state = load_task_state()
+            if current_state and current_state.get("status") in {"success", "failed"}:
+                return
+
             if is_task_cancelled():
                 mark_task_failed("任务已取消")
             else:
@@ -194,35 +204,34 @@ def _save_to_history(state: dict) -> None:
         with open(history_file, "a", encoding="utf-8") as f:
             f.write(json.dumps(state, ensure_ascii=False) + "\n")
     except Exception:
-        pass  # 静默失败，不影响主流程
+        pass
 
 
 def load_task_history(limit: int = 10) -> list[dict]:
     """加载任务历史记录
-    
+
     Args:
         limit: 返回最近的 N 条记录
-        
+
     Returns:
         任务历史列表（最新在前）
     """
     history_file = _get_history_file()
     if not history_file.exists():
         return []
-    
+
     try:
         with open(history_file, "r", encoding="utf-8") as f:
             lines = f.readlines()
-        
-        # 返回最新的 limit 条记录
+
         recent_lines = lines[-limit:]
         history = []
-        for line in reversed(recent_lines):  # 最新在前
+        for line in reversed(recent_lines):
             try:
                 history.append(json.loads(line.strip()))
             except json.JSONDecodeError:
                 continue
-        
+
         return history
     except Exception:
         return []

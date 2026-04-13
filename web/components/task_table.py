@@ -3,77 +3,74 @@
 """
 
 import streamlit as st
+
 from web.components.task_queue import load_task_history
-from web.utils import safe_json_display
+from web.components.ui_patterns import render_empty_state, render_summary_metrics, render_table_section
+from web.utils import format_timestamp, get_task_status_label, get_task_type_label, safe_json_display
 
 
 def render_task_table(limit: int = 10) -> None:
-    """渲染任务历史表格
-    
-    Args:
-        limit: 显示最近 N 条记录
-    """
+    """渲染任务历史表格"""
     history = load_task_history(limit=limit)
-    
+
     if not history:
-        st.info("暂无任务历史")
+        render_empty_state("暂无任务历史。", "执行过下载或转写任务后，这里会自动显示最近记录。")
         return
-    
-    # 表格数据
+
+    success_count = sum(1 for task in history if task.get("status") == "success")
+    failed_count = sum(1 for task in history if task.get("status") == "failed")
+
+    render_summary_metrics(
+        [
+            {"label": "最近任务", "value": len(history)},
+            {"label": "成功", "value": success_count},
+            {"label": "失败", "value": failed_count},
+        ]
+    )
+
     table_data = []
     for task in history:
-        table_data.append({
-            "状态": _get_status_icon(task.get("status")),
-            "类型": task.get("task_type", "未知"),
-            "描述": task.get("description", "")[:30],
-            "进度": f"{task.get('progress', 0)*100:.0f}%",
-            "完成时间": task.get("completed_at", "")[:19] if task.get("completed_at") else "-",
-        })
-    
-    st.dataframe(
+        table_data.append(
+            {
+                "状态": get_task_status_label(task.get("status"), with_icon=True),
+                "类型": get_task_type_label(task.get("task_type", "未知")),
+                "说明": task.get("description", "")[:40] or "-",
+                "结果": task.get("message", "")[:40] or "-",
+                "完成时间": format_timestamp(task.get("completed_at") or task.get("updated_at")),
+            }
+        )
+
+    render_table_section(
         table_data,
-        use_container_width=True,
-        hide_index=True,
+        empty_message="当前没有可展示的任务记录。",
+        hint="如需查看更多细节，可展开完整历史查看原始任务信息。",
     )
-    
-    # 显示详情按钮
+
     if st.button("📜 查看完整历史", key="view_full_history"):
         _render_full_history(history)
-
-
-def _get_status_icon(status: str) -> str:
-    """获取状态图标"""
-    icons = {
-        "success": "✅",
-        "failed": "❌",
-        "running": "🔄",
-        "pending": "⏳",
-    }
-    return icons.get(status, "❓")
 
 
 def _render_full_history(history: list) -> None:
     """显示完整任务历史"""
     st.divider()
     st.subheader("完整任务历史")
-    
+
     for i, task in enumerate(history):
         task_id = task.get("task_id", "未知")[:8]
-        task_type = task.get("task_type", "未知")
+        task_type = get_task_type_label(task.get("task_type", "未知"))
         status = task.get("status", "unknown")
+        status_text = get_task_status_label(status, with_icon=True)
         message = task.get("message", "")
-        
-        if status == "success":
-            st.success(f"✅ [{task_type}] {message} (ID: {task_id})")
-        elif status == "failed":
-            st.error(f"❌ [{task_type}] {message} (ID: {task_id})")
-        else:
-            st.info(f"⏳ [{task_type}] {message} (ID: {task_id})")
-        
-        # 显示详情
+        completed_at = format_timestamp(task.get("completed_at") or task.get("updated_at"))
+
+        st.markdown(f"**{status_text} [{task_type}]**  ")
+        st.caption(f"任务 ID: {task_id} | 完成时间: {completed_at}")
+        if message:
+            st.write(message)
+
         if st.button(f"查看详情 {i}", key=f"history_detail_{i}"):
-            with st.expander("完整任务信息"):
+            with st.expander("完整任务信息", expanded=True):
                 safe_json_display(task)
-        
+
         if i < len(history) - 1:
             st.divider()

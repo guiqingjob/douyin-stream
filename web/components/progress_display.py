@@ -2,77 +2,93 @@
 进度显示组件
 """
 
-import time
 import streamlit as st
 
-from web.components.task_queue import load_task_state, clear_task_state, cancel_task, is_task_cancelled
-from web.utils import safe_json_display
+from web.components.task_queue import cancel_task, clear_task_state, load_task_state
+from web.components.ui_patterns import render_empty_state, render_summary_metrics
+from web.utils import get_task_status_label, get_task_type_label, safe_json_display
 
 
-def render_task_progress(refresh_interval: float = 2.0) -> bool:
-    """
-    渲染任务进度条
+def render_task_progress(empty_message: str = "当前没有正在执行的任务") -> bool:
+    """渲染当前任务进度
 
     Args:
-        refresh_interval: 刷新间隔（秒）
+        empty_message: 无任务时显示的文案
 
     Returns:
-        是否任务已完成
+        bool: 当前是否存在处于 pending/running 状态的任务
     """
     state = load_task_state()
     if state is None:
-        st.info("当前无运行中的任务")
+        render_empty_state(empty_message)
         return False
 
     task_type = state.get("task_type", "未知")
     status = state.get("status", "pending")
     progress = state.get("progress", 0.0)
     message = state.get("message", "")
+    description = state.get("description", "")
 
-    st.info(f"📌 任务类型: {task_type} | 状态: {status}")
+    render_summary_metrics(
+        [
+            {"label": "任务类型", "value": get_task_type_label(task_type)},
+            {"label": "当前状态", "value": get_task_status_label(status)},
+            {"label": "当前进度", "value": f"{progress * 100:.0f}%"},
+        ]
+    )
 
-    # 进度条
-    progress_bar = st.progress(progress)
+    if description:
+        st.caption(f"任务说明：{description}")
 
-    # 状态消息
+    st.progress(progress)
+
     if status == "pending":
         st.warning(f"⏳ {message}")
-    elif status == "running":
+        return True
+
+    if status == "running":
         st.info(f"🔄 {message}")
-        # 添加取消按钮
-        if st.button("🛑 取消任务", type="secondary", key="cancel_task_btn"):
+        if st.button("🛑 取消当前任务", type="secondary", key="cancel_task_btn"):
             cancel_task()
             st.warning("已发送取消信号，任务正在停止...")
             st.rerun()
-    elif status == "success":
+        return True
+
+    if status == "success":
         st.success(f"✅ {message}")
         if state.get("result"):
             _display_task_result(state["result"])
         clear_task_state()
-        return True
-    elif status == "failed":
+        return False
+
+    if status == "failed":
         st.error(f"❌ {message}")
         clear_task_state()
-        return True
+        return False
 
     return False
 
 
 def _display_task_result(result) -> None:
     """显示任务结果，处理批量操作的统计报告"""
-    # 检查是否是批量操作的统计报告
     if isinstance(result, dict) and "success_count" in result and "failed_count" in result:
         total = result.get("total_files", result.get("total_users", 0))
         success = result.get("success_count", 0)
         failed = result.get("failed_count", 0)
 
-        # 显示统计摘要
-        cols = st.columns(3)
-        cols[0].metric("总计", total)
-        cols[1].metric("成功", success, delta=None if success == 0 else f"{success/total*100:.1f}%")
-        cols[2].metric("失败", failed, delta=None if failed == 0 else f"-{failed/total*100:.1f}%")
+        render_summary_metrics(
+            [
+                {"label": "总计", "value": total},
+                {"label": "成功", "value": success, "delta": None if total == 0 else f"{(success / total) * 100:.1f}%"},
+                {"label": "失败", "value": failed, "delta": None if total == 0 else f"-{(failed / total) * 100:.1f}%"},
+            ]
+        )
 
-        # 显示失败详情
+        if success > 0 and success <= 20:
+            with st.expander("查看成功列表"):
+                for item in result.get("success_list", []):
+                    st.success(f"✅ {item}")
+
         if failed > 0:
             with st.expander(f"查看 {failed} 个失败项详情"):
                 for item in result.get("failed_list", []):
@@ -82,54 +98,14 @@ def _display_task_result(result) -> None:
                         st.warning(f"**{name}**: {error}")
                     else:
                         st.warning(str(item))
+        return
 
-        # 显示成功列表（仅当数量较少时）
-        if success > 0 and success <= 20:
-            with st.expander("查看成功列表"):
-                success_list = result.get("success_list", [])
-                for item in success_list:
-                    st.success(f"✅ {item}")
-    else:
-        # 普通结果，使用安全 JSON 显示
-        safe_json_display(result)
+    safe_json_display(result)
 
 
 def render_task_history() -> None:
     """渲染任务历史页面"""
-    from web.components.task_queue import load_task_history
-    
+    from web.components.task_table import render_task_table
+
     st.subheader("📜 任务历史")
-    
-    history = load_task_history(limit=20)
-    
-    if not history:
-        st.info("暂无任务历史")
-        return
-    
-    for i, task in enumerate(history):
-        task_id = task.get("task_id", "未知")[:8]
-        task_type = task.get("task_type", "未知")
-        status = task.get("status", "unknown")
-        message = task.get("message", "")
-        created_at = task.get("created_at", "")
-        completed_at = task.get("completed_at", "")
-        
-        # 根据状态显示不同颜色
-        if status == "success":
-            st.success(f"✅ [{task_type}] {message} (ID: {task_id})")
-        elif status == "failed":
-            st.error(f"❌ [{task_type}] {message} (ID: {task_id})")
-        else:
-            st.info(f"⏳ [{task_type}] {message} (ID: {task_id})")
-        
-        # 显示时间信息
-        if created_at:
-            st.caption(f"创建时间: {created_at[:19]} | 完成时间: {completed_at[:19] if completed_at else '未完成'}")
-        
-        # 显示详情
-        if st.button(f"查看详情 {i}", key=f"history_detail_{i}"):
-            with st.expander("完整任务信息"):
-                safe_json_display(task)
-        
-        if i < len(history) - 1:
-            st.divider()
+    render_task_table(limit=20)
