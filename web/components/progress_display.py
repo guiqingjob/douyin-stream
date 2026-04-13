@@ -58,12 +58,19 @@ def render_task_progress(empty_message: str = "当前没有正在执行的任务
         st.success(f"✅ {message}")
         if state.get("result"):
             _display_task_result(state["result"])
-        clear_task_state()
+        
+        col1, col2 = st.columns([1, 4])
+        with col1:
+            if st.button("🧹 清除状态", key="clear_success_state_btn"):
+                clear_task_state()
+                st.rerun()
         return False
 
     if status == "failed":
         st.error(f"❌ {message}")
-        clear_task_state()
+        if st.button("🧹 清除状态", key="clear_failed_state_btn"):
+            clear_task_state()
+            st.rerun()
         return False
 
     return False

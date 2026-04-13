@@ -9,7 +9,7 @@ import uuid
 import streamlit as st
 
 from web.components.progress_display import render_task_history, render_task_progress
-from web.components.task_queue import run_task_in_background, update_task_progress
+from web.components.task_queue import load_task_state, run_task_in_background, update_task_progress
 from web.components.ui_patterns import render_empty_state, render_highlight_card, render_summary_metrics, render_table_section
 from web.constants import DOWNLOADS_DIR, PAGE_TRANSCRIBE
 from web.utils import format_size, format_timestamp
@@ -103,24 +103,33 @@ def _render_batch_download() -> None:
         _start_batch_download_task(max_per_user)
 
 
+@st.fragment(run_every=2)
+def _poll_download_task() -> None:
+    is_running = render_task_progress(empty_message="当前没有正在执行的下载任务")
+    if not is_running:
+        st.rerun()
+
 def _render_current_task() -> None:
     """当前任务"""
     st.subheader("📌 当前任务")
     st.caption("当前版本以单任务后台执行为主，适合先跑通一个任务再继续下一步。")
 
-    is_running = render_task_progress(empty_message="当前没有正在执行的下载任务")
+    state = load_task_state()
+    is_active = state is not None and state.get("status") in {"pending", "running"}
 
-    if is_running:
-        time.sleep(2)
-        st.rerun()
+    if is_active:
+        _poll_download_task()
         return
 
-    render_empty_state(
-        "当前没有下载任务在执行。",
-        "通常下一步是去素材库确认结果，或者直接进入转写中心继续处理。",
-    )
-    if st.button("🎙️ 去转写中心", use_container_width=False, key="go_transcribe_from_download"):
-        st.switch_page("web/pages/transcribe_center.py")
+    render_task_progress(empty_message="当前没有正在执行的下载任务")
+    
+    if state is None or state.get("status") not in {"success", "failed"}:
+        render_empty_state(
+            "当前没有下载任务在执行。",
+            "通常下一步是去素材库确认结果，或者直接进入转写中心继续处理。",
+        )
+        if st.button("🎙️ 去转写中心", use_container_width=False, key="go_transcribe_from_download"):
+            st.switch_page("web/pages/transcribe_center.py")
 
 
 def _render_material_library() -> None:

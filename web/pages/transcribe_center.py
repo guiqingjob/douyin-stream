@@ -11,7 +11,7 @@ from pathlib import Path
 import streamlit as st
 
 from web.components.progress_display import render_task_history, render_task_progress
-from web.components.task_queue import run_task_in_background, update_task_progress
+from web.components.task_queue import load_task_state, run_task_in_background, update_task_progress
 from web.components.ui_patterns import render_empty_state, render_highlight_card, render_summary_metrics, render_table_section
 from web.constants import DOWNLOADS_DIR, QWEN_AUTH_PATH, TEMP_UPLOADS_DIR, TRANSCRIPTS_DIR
 from web.utils import format_size, format_timestamp
@@ -107,19 +107,28 @@ def _render_batch_transcribe() -> None:
         _start_batch_transcribe_task()
 
 
+@st.fragment(run_every=2)
+def _poll_transcribe_task() -> None:
+    is_running = render_task_progress(empty_message="当前没有正在执行的转写任务")
+    if not is_running:
+        st.rerun()
+
 def _render_current_task() -> None:
     """当前任务"""
     st.subheader("📌 当前任务")
     st.caption("当前版本以单任务后台执行为主，任务完成后结果会写入文稿库。")
 
-    is_running = render_task_progress(empty_message="当前没有正在执行的转写任务")
+    state = load_task_state()
+    is_active = state is not None and state.get("status") in {"pending", "running"}
 
-    if is_running:
-        time.sleep(2)
-        st.rerun()
+    if is_active:
+        _poll_transcribe_task()
         return
 
-    render_empty_state("当前没有转写任务在执行。", "如果已经上传文件或准备好素材，可以立即发起新的文稿生成任务。")
+    render_task_progress(empty_message="当前没有正在执行的转写任务")
+
+    if state is None or state.get("status") not in {"success", "failed"}:
+        render_empty_state("当前没有转写任务在执行。", "如果已经上传文件或准备好素材，可以立即发起新的文稿生成任务。")
 
 
 def _render_transcript_library() -> None:
@@ -195,8 +204,11 @@ def _start_transcribe_task(file_path: str) -> None:
         config = load_pipeline_config()
         orchestrator = create_orchestrator(config)
 
+        async def _run_transcribe():
+            return await orchestrator.transcribe_with_retry(file_path)
+
         update_task_progress(0.3, "正在上传文件...")
-        result = asyncio.run(orchestrator.transcribe_with_retry(file_path))
+        result = asyncio.run(_run_transcribe())
 
         update_task_progress(1.0, "文稿生成完成")
 
@@ -240,16 +252,19 @@ def _start_batch_transcribe_task() -> None:
         config = load_pipeline_config()
         orchestrator = create_orchestrator(config)
 
-        for i, video_file in enumerate(video_files):
-            progress = (i + 1) / total
-            update_task_progress(progress, f"正在生成文稿 {video_file.name} ({i + 1}/{total})")
+        async def _run_batch():
+            for i, video_file in enumerate(video_files):
+                progress = (i + 1) / total
+                update_task_progress(progress, f"正在生成文稿 {video_file.name} ({i + 1}/{total})")
 
-            try:
-                asyncio.run(orchestrator.transcribe_with_retry(str(video_file)))
-                success_list.append(video_file.name)
-            except Exception as e:
-                failed_list.append({"file": video_file.name, "error": str(e)})
-                logging.warning(f"转写失败: {video_file.name} - {e}")
+                try:
+                    await orchestrator.transcribe_with_retry(str(video_file))
+                    success_list.append(video_file.name)
+                except Exception as e:
+                    failed_list.append({"file": video_file.name, "error": str(e)})
+                    logging.warning(f"转写失败: {video_file.name} - {e}")
+
+        asyncio.run(_run_batch())
 
         return {
             "total_files": total,
