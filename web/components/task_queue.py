@@ -16,8 +16,8 @@ from datetime import datetime
 from pathlib import Path
 from typing import Any, Callable
 
-# 状态文件路径
-_STATE_FILE = Path(".task_state.json")
+from web.constants import PROJECT_ROOT, TASK_STATE_FILE
+
 
 # 线程锁，防止并发读写状态文件时的竞态条件
 _state_lock = threading.Lock()
@@ -28,7 +28,7 @@ _cancel_flag = threading.Event()
 
 def _get_state_file() -> Path:
     """获取状态文件路径"""
-    return Path(__file__).parent.parent / _STATE_FILE
+    return TASK_STATE_FILE
 
 
 def create_task(
@@ -194,7 +194,7 @@ def run_task_in_background(
 
 def _get_history_file() -> Path:
     """获取历史记录文件路径"""
-    return Path(__file__).parent.parent / ".task_history.jsonl"
+    return PROJECT_ROOT / ".task_history.jsonl"
 
 
 def _save_to_history(state: dict) -> None:

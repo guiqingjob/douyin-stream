@@ -110,7 +110,8 @@ class ConfigManager:
             return Path(path)
 
         # 默认使用项目根目录下的 downloads/
-        return Path(__file__).parent.parent.parent / "downloads"
+        project_root = Path(__file__).parent.parent.parent.parent.parent.resolve()
+        return project_root / "downloads"
 
     def get_db_path(self):
         """获取数据库路径"""
@@ -119,7 +120,8 @@ class ConfigManager:
             return Path(path)
 
         # 默认使用项目根目录下的 douyin_users.db
-        return Path(__file__).parent.parent.parent / "douyin_users.db"
+        project_root = Path(__file__).parent.parent.parent.parent.parent.resolve()
+        return project_root / "douyin_users.db"
 
     def get_naming(self):
         """获取文件命名格式"""
@@ -146,8 +148,9 @@ class ConfigManager:
         if path:
             return Path(path)
 
-        # 默认使用 config/following.json
-        return Path(__file__).parent.parent.parent / "config" / "following.json"
+        # 默认使用项目根目录下的 config/following.json
+        project_root = Path(__file__).parent.parent.parent.parent.parent.resolve()
+        return project_root / "config" / "following.json"
 
     def validate(self):
         """

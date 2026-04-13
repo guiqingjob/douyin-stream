@@ -5,7 +5,7 @@
 import streamlit as st
 from pathlib import Path
 
-from web.constants import DOWNLOADS_DIR, TRANSCRIPTS_DIR
+from web.constants import DOWNLOADS_DIR, PROJECT_ROOT, TRANSCRIPTS_DIR
 from web.utils import format_size
 
 
@@ -53,11 +53,10 @@ def _get_dir_size(directory: Path) -> int:
 
 def _get_other_size() -> int:
     """计算其他文件占用（数据库、配置、认证等）"""
-    project_root = Path(__file__).parent.parent.parent
     other_dirs = [
-        project_root / ".auth",
-        project_root / "config",
-        project_root / "backups",
+        PROJECT_ROOT / ".auth",
+        PROJECT_ROOT / "config",
+        PROJECT_ROOT / "backups",
     ]
     
     total = 0
@@ -69,7 +68,7 @@ def _get_other_size() -> int:
                 pass
     
     # 加上数据库文件
-    db_file = project_root / "douyin_users.db"
+    db_file = PROJECT_ROOT / "douyin_users.db"
     if db_file.exists():
         total += db_file.stat().st_size
     

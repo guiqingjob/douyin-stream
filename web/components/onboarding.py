@@ -5,10 +5,11 @@
 """
 
 import streamlit as st
-from pathlib import Path
+
+from web.constants import PROJECT_ROOT
 
 # 标记文件路径
-_FIRST_VISIT_FILE = Path(__file__).parent.parent / ".first_visit_done"
+_FIRST_VISIT_FILE = PROJECT_ROOT / ".first_visit_done"
 
 
 def _is_first_visit() -> bool:

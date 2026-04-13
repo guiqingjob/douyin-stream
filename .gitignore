@@ -120,3 +120,7 @@ test_report.txt
 
 # 导出
 config_export/
+
+web/.first_visit_done
+web/.task_state.json
+web/.task_history.jsonl
