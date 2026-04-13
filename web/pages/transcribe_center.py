@@ -22,15 +22,12 @@ from web.utils import format_size, format_timestamp
 st.title("🎙️ 转写中心")
 st.caption("把视频或音频素材，变成可整理、可搜索、可再利用的文稿。")
 
-tab1, tab2, tab3 = st.tabs(["🚀 发起转写", "📌 当前任务", "📝 文稿库"])
+col1, col2 = st.columns([2, 1], gap='large')
 
-with tab1:
+with col1:
     _render_new_transcribe()
-with tab2:
+with col2:
     _render_current_task()
-with tab3:
-    _render_transcript_library()
-
 st.divider()
 st.subheader("📜 最近任务历史")
 st.caption("统一查看最近转写相关任务的结果与状态变化。")
@@ -129,62 +126,6 @@ def _render_current_task() -> None:
 
     if state is None or state.get("status") not in {"success", "failed"}:
         render_empty_state("当前没有转写任务在执行。", "如果已经上传文件或准备好素材，可以立即发起新的文稿生成任务。")
-
-
-def _render_transcript_library() -> None:
-    """文稿库"""
-    st.subheader("📝 文稿库")
-    st.caption("这里展示已经生成的文稿文件，便于确认输出结果和后续整理。")
-
-    if not TRANSCRIPTS_DIR.exists():
-        render_empty_state("文稿目录不存在。", "完成一次转写后，系统会自动创建并写入文稿目录。")
-        return
-
-    md_files = list(TRANSCRIPTS_DIR.rglob("*.md"))
-    total_size = sum(f.stat().st_size for f in md_files)
-    sorted_files = sorted(md_files, key=lambda x: x.stat().st_mtime, reverse=True)
-
-    latest_name = "-"
-    latest_time = "-"
-    if sorted_files:
-        latest_name = sorted_files[0].name[:40]
-        latest_time = format_timestamp(sorted_files[0].stat().st_mtime)
-
-    render_summary_metrics(
-        [
-            {"label": "文稿数量", "value": len(md_files)},
-            {"label": "总占用", "value": format_size(total_size)},
-            {"label": "最近生成", "value": latest_time},
-            {"label": "最近文件", "value": latest_name},
-        ]
-    )
-
-    if not sorted_files:
-        render_empty_state("文稿库为空。", "先发起一次转写任务，生成第一篇文稿。")
-        return
-
-    latest_file = sorted_files[0]
-    render_highlight_card(
-        "最近生成文稿",
-        latest_file.name,
-        [
-            f"大小：{format_size(latest_file.stat().st_size)}",
-            f"时间：{format_timestamp(latest_file.stat().st_mtime)}",
-        ],
-    )
-
-    render_table_section(
-        [
-            {
-                "文件名": f.name[:60],
-                "大小": format_size(f.stat().st_size),
-                "修改时间": format_timestamp(f.stat().st_mtime),
-            }
-            for f in sorted_files[:20]
-        ],
-        empty_message="当前没有可展示的文稿记录。",
-        hint="如果要继续整理文稿，可以直接在本地 `transcripts/` 目录中处理。",
-    )
 
 
 def _start_transcribe_task(file_path: str) -> None:

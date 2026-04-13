@@ -20,15 +20,12 @@ from web.utils import format_size, format_timestamp
 st.title("📥 下载中心")
 st.caption("把抖音链接或关注来源，变成本地素材库中的视频文件。")
 
-tab1, tab2, tab3 = st.tabs(["🚀 创建任务", "📌 当前任务", "🎬 素材库"])
+col1, col2 = st.columns([2, 1], gap='large')
 
-with tab1:
+with col1:
     _render_new_download()
-with tab2:
+with col2:
     _render_current_task()
-with tab3:
-    _render_material_library()
-
 st.divider()
 st.subheader("📜 最近任务历史")
 st.caption("统一查看最近下载相关任务的结果与状态变化。")
@@ -130,64 +127,6 @@ def _render_current_task() -> None:
         )
         if st.button("🎙️ 去转写中心", use_container_width=False, key="go_transcribe_from_download"):
             st.switch_page("web/pages/transcribe_center.py")
-
-
-def _render_material_library() -> None:
-    """素材库"""
-    st.subheader("🎬 素材库")
-    st.caption("这里展示已经下载到本地的素材文件，方便确认结果和后续转写。")
-
-    if not DOWNLOADS_DIR.exists():
-        render_empty_state("素材目录不存在。", "如果这是首次使用，先创建一个下载任务。")
-        return
-
-    video_files = list(DOWNLOADS_DIR.rglob("*.mp4"))
-    total_size = sum(f.stat().st_size for f in video_files)
-    sorted_files = sorted(video_files, key=lambda x: x.stat().st_mtime, reverse=True)
-
-    latest_name = "-"
-    latest_time = "-"
-    if sorted_files:
-        latest_name = sorted_files[0].name[:40]
-        latest_time = format_timestamp(sorted_files[0].stat().st_mtime)
-
-    render_summary_metrics(
-        [
-            {"label": "素材数量", "value": len(video_files)},
-            {"label": "总占用", "value": format_size(total_size)},
-            {"label": "最近入库", "value": latest_time},
-            {"label": "最近文件", "value": latest_name},
-        ]
-    )
-
-    if not sorted_files:
-        render_empty_state("素材库为空。", "先去左侧创建一个下载任务，拿到第一批素材。")
-        return
-
-    latest_file = sorted_files[0]
-    render_highlight_card(
-        "最近入库素材",
-        latest_file.name,
-        [
-            f"大小：{format_size(latest_file.stat().st_size)}",
-            f"时间：{format_timestamp(latest_file.stat().st_mtime)}",
-        ],
-    )
-
-    render_table_section(
-        [
-            {
-                "文件名": f.name[:60],
-                "大小": format_size(f.stat().st_size),
-                "修改时间": format_timestamp(f.stat().st_mtime),
-            }
-            for f in sorted_files[:20]
-        ],
-        empty_message="当前没有可展示的数据。",
-        hint="如果素材已经确认无误，下一步通常是进入转写中心生成文稿。",
-    )
-    if st.button("🎙️ 用这些素材去转写", key="go_to_transcribe_from_library"):
-        st.switch_page("web/pages/transcribe_center.py")
 
 
 def _start_download_task(url: str, max_count: int) -> None:

@@ -67,23 +67,28 @@ render_onboarding()
 pg_home = st.Page("web/pages/home.py", title="仪表盘", icon="🏠", default=True)
 pg_download = st.Page("web/pages/download_center.py", title="下载中心", icon="📥")
 pg_transcribe = st.Page("web/pages/transcribe_center.py", title="转写中心", icon="🎙️")
+pg_assets = st.Page("web/pages/asset_library.py", title="资产大盘", icon="📂")
 
 pg_following = st.Page("web/pages/following_mgmt.py", title="关注管理", icon="👥")
 pg_accounts = st.Page("web/pages/accounts.py", title="账号与认证", icon="🔑")
 pg_cleanup = st.Page("web/pages/cleanup.py", title="存储清理", icon="🧹")
 pg_settings = st.Page("web/pages/settings.py", title="系统配置", icon="⚙️")
 
+with st.sidebar:
+    st.title("🎬 Media Tools")
+    st.caption("本地内容工作台")
+    st.caption("下载素材 → 转写文稿 → 管理结果")
+    st.divider()
+
 pg = st.navigation(
     {
         "核心工作流": [pg_home, pg_download, pg_transcribe],
+        "资产管理": [pg_assets],
         "系统与配置": [pg_following, pg_accounts, pg_cleanup, pg_settings]
     }
 )
 
 with st.sidebar:
-    st.title("🎬 Media Tools")
-    st.caption("本地内容工作台")
-    st.caption("下载素材 → 转写文稿 → 管理结果")
     st.divider()
     st.caption(f"项目路径: `{PROJECT_ROOT}`")
 
