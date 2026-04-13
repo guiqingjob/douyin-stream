@@ -27,6 +27,20 @@ from media_tools.logger import get_logger
 logger = get_logger('web')
 
 
+def _check_auth() -> bool:
+    """检查 Qwen 认证状态 (V2: 查数据库)"""
+    try:
+        import sqlite3
+        from media_tools.douyin.core.config_mgr import get_config
+        db_path = get_config().get_db_path()
+        with sqlite3.connect(db_path) as conn:
+            cursor = conn.cursor()
+            cursor.execute("SELECT 1 FROM auth_credentials WHERE platform = 'qwen' AND is_valid = 1")
+            return cursor.fetchone() is not None
+    except Exception:
+        # Fallback 到旧版文件检查
+        return QWEN_AUTH_PATH.exists()
+
 
 # render_transcribe_center
 """渲染转写中心页面"""
@@ -140,8 +154,8 @@ def _start_transcribe_task(file_path: str) -> None:
     st.info(f"🚀 转写任务已提交 (ID: {task_id})")
 
     def _worker():
-        if not QWEN_AUTH_PATH.exists():
-            raise ValueError("Qwen 认证文件不存在，请先完成认证")
+        if not _check_auth():
+            raise ValueError("Qwen 认证无效或未完成，请先完成认证")
 
         update_task_progress(0.1, "正在初始化转写...")
 
@@ -183,8 +197,8 @@ def _start_batch_transcribe_task() -> None:
     st.info(f"🚀 批量转写任务已提交 (ID: {task_id})")
 
     def _worker():
-        if not QWEN_AUTH_PATH.exists():
-            raise ValueError("Qwen 认证文件不存在，请先完成认证")
+        if not _check_auth():
+            raise ValueError("Qwen 认证无效或未完成，请先完成认证")
 
         video_files = list(DOWNLOADS_DIR.rglob("*.mp4"))
         total = len(video_files)

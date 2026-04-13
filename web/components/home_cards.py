@@ -40,7 +40,18 @@ def render_home_status_cards() -> dict:
         pass
 
     # 检查 Qwen 认证
-    status["qwen_ok"] = QWEN_AUTH_PATH.exists() and QWEN_AUTH_PATH.stat().st_size > 50
+    try:
+        from media_tools.douyin.core.config_mgr import get_config
+        import sqlite3
+        
+        cfg = get_config()
+        with sqlite3.connect(cfg.get_db_path()) as conn:
+            cursor = conn.cursor()
+            cursor.execute("SELECT 1 FROM auth_credentials WHERE platform = 'qwen' AND is_valid = 1")
+            status["qwen_ok"] = cursor.fetchone() is not None
+    except Exception:
+        # Fallback 到旧版文件检查
+        status["qwen_ok"] = QWEN_AUTH_PATH.exists() and QWEN_AUTH_PATH.stat().st_size > 50
 
     # 检查环境
     try:

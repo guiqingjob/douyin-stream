@@ -181,7 +181,19 @@ def _check_douyin_auth() -> bool:
 
 def _check_qwen_auth() -> bool:
     """检查 Qwen 认证"""
-    return QWEN_AUTH_PATH.exists() and QWEN_AUTH_PATH.stat().st_size > 50
+    try:
+        from media_tools.douyin.core.config_mgr import get_config
+        import sqlite3
+        
+        cfg = get_config()
+        with sqlite3.connect(cfg.get_db_path()) as conn:
+            cursor = conn.cursor()
+            cursor.execute("SELECT 1 FROM auth_credentials WHERE platform = 'qwen' AND is_valid = 1")
+            return cursor.fetchone() is not None
+    except Exception:
+        # Fallback 到旧版文件检查
+        from web.constants import QWEN_AUTH_PATH
+        return QWEN_AUTH_PATH.exists() and QWEN_AUTH_PATH.stat().st_size > 50
 
 
 def _backup_configs() -> str | None:

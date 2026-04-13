@@ -49,6 +49,17 @@ def _check_douyin_auth() -> bool:
 
 def _check_qwen_auth() -> bool:
     """检查 Qwen 认证状态"""
-    if QWEN_AUTH_PATH.exists():
-        return QWEN_AUTH_PATH.stat().st_size > 50  # 有效文件应大于50字节
-    return False
+    try:
+        from media_tools.douyin.core.config_mgr import get_config
+        import sqlite3
+        
+        cfg = get_config()
+        with sqlite3.connect(cfg.get_db_path()) as conn:
+            cursor = conn.cursor()
+            cursor.execute("SELECT 1 FROM auth_credentials WHERE platform = 'qwen' AND is_valid = 1")
+            return cursor.fetchone() is not None
+    except Exception:
+        # Fallback
+        if QWEN_AUTH_PATH.exists():
+            return QWEN_AUTH_PATH.stat().st_size > 50
+        return False
