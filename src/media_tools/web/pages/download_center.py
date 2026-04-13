@@ -3,35 +3,44 @@
 """
 
 import logging
-import time
 import uuid
 
 import streamlit as st
 
+from media_tools.logger import get_logger
 from media_tools.web.components.progress_display import render_task_history, render_task_progress
 from media_tools.web.components.task_queue import load_task_state, run_task_in_background, update_task_progress
 from media_tools.web.components.ui_patterns import (
+    render_cta_section,
     render_empty_state,
-    render_highlight_card,
     render_page_header,
     render_summary_metrics,
-    render_table_section,
-    render_cta_section,
 )
-from media_tools.web.constants import DOWNLOADS_DIR, PAGE_TRANSCRIBE
-from media_tools.web.utils import format_size, format_timestamp, get_page_path
+from media_tools.web.services.status import get_system_status
+from media_tools.web.utils import get_page_path
 
-from media_tools.logger import get_logger
 logger = get_logger('web')
 
+DOWNLOAD_TASK_TYPES = ["download", "batch_download"]
 
 
-# render_download_center
-"""渲染下载中心页面"""
+def _render_download_summary() -> dict:
+    status = get_system_status()
+    render_summary_metrics(
+        [
+            {"label": "来源数量", "value": status["source_count"]},
+            {"label": "本地素材", "value": status["downloads_count"]},
+            {"label": "待转写", "value": status["pending_transcripts"]},
+        ]
+    )
+    if not status["cookie_ok"]:
+        st.warning("当前尚未配置可用的抖音 Cookie，下载任务大概率无法成功。建议先去“账号与认证”页面完成配置。")
+    return status
+
+
 def _render_new_download() -> None:
-    """创建下载任务"""
-    st.subheader("🚀 创建素材获取任务")
-    st.caption("先决定是临时下载一个链接，还是按关注列表批量拉取。")
+    st.subheader("① 创建素材获取任务")
+    st.caption("这里应该只负责“把来源变成素材”，不要混入转写和资产管理逻辑。")
 
     mode = st.radio(
         "获取方式",
@@ -46,7 +55,6 @@ def _render_new_download() -> None:
 
 
 def _render_single_download() -> None:
-    """单链接下载"""
     st.markdown("**适合临时验证、单条采集或快速拿到一个样例视频。**")
 
     url = st.text_input(
@@ -64,12 +72,10 @@ def _render_single_download() -> None:
         if not url:
             st.warning("请输入链接")
             return
-
         _start_download_task(url, max_count)
 
 
 def _render_batch_download() -> None:
-    """批量下载关注来源"""
     st.markdown("**适合日常更新素材库：按已保存的来源逐个拉取内容。**")
 
     try:
@@ -78,11 +84,10 @@ def _render_batch_download() -> None:
         users = list_users()
         source_count = len(users)
         st.info(f"当前已配置 **{source_count}** 个来源")
-    except Exception as e:
-        logger.exception('发生异常')
+    except Exception as exc:
+        logger.exception('读取关注列表失败')
         source_count = 0
-        users = []
-        st.warning(f"无法读取关注列表：{e}")
+        st.warning(f"无法读取关注列表：{exc}")
 
     col1, col2 = st.columns([1, 2])
     with col1:
@@ -99,41 +104,51 @@ def _render_batch_download() -> None:
 
 @st.fragment(run_every=2)
 def _poll_download_task() -> None:
-    is_running = render_task_progress(empty_message="当前没有正在执行的下载任务")
+    is_running = render_task_progress(
+        empty_message="当前没有正在执行的下载任务",
+        task_types=DOWNLOAD_TASK_TYPES,
+    )
     if not is_running:
         st.rerun()
 
-def _render_current_task() -> None:
-    """当前任务"""
-    st.subheader("📌 当前任务")
-    st.caption("当前版本以单任务后台执行为主，适合先跑通一个任务再继续下一步。")
 
-    state = load_task_state()
+def _render_current_task() -> None:
+    st.subheader("② 当前下载任务")
+    st.caption("这里只展示下载类任务，避免和转写任务互相串台。")
+
+    state = load_task_state(task_types=DOWNLOAD_TASK_TYPES)
     is_active = state is not None and state.get("status") in {"pending", "running"}
 
     if is_active:
         _poll_download_task()
         return
 
-    render_task_progress(empty_message="当前没有正在执行的下载任务")
-    
-    if state is None or state.get("status") not in {"success", "failed"}:
+    render_task_progress(
+        empty_message="当前没有正在执行的下载任务",
+        task_types=DOWNLOAD_TASK_TYPES,
+    )
+
+    if state is None:
         render_empty_state(
             "当前没有下载任务在执行。",
-            "通常下一步是去素材库确认结果，或者直接进入转写中心继续处理。",
-            icon="📭"
+            "通常下一步是创建一个素材获取任务，或者去关注管理完善来源列表。",
+            icon="📭",
         )
-        if render_cta_section(
-            "下一步", 
-            "把刚下载的视频变成文稿", 
-            "🎙️ 去转写中心", 
-            "go_transcribe_from_download"
-        ):
-            st.switch_page(get_page_path("transcribe_center.py"))
+        return
+
+    if state.get("status") in {"success", "failed", "cancelled"}:
+        return
+
+    if render_cta_section(
+        "下一步",
+        "把刚下载的视频继续处理成文稿。",
+        "🎙️ 去转写中心",
+        "go_transcribe_from_download",
+    ):
+        st.switch_page(get_page_path("transcribe_center.py"))
 
 
 def _start_download_task(url: str, max_count: int) -> None:
-    """启动下载任务"""
     task_id = str(uuid.uuid4())[:8]
     st.info(f"🚀 下载任务已提交 (ID: {task_id})")
 
@@ -156,7 +171,6 @@ def _start_download_task(url: str, max_count: int) -> None:
 
 
 def _start_batch_download_task(max_per_user: int) -> None:
-    """启动批量下载任务"""
     task_id = str(uuid.uuid4())[:8]
     st.info(f"🚀 批量拉取任务已提交 (ID: {task_id})")
 
@@ -179,8 +193,7 @@ def _start_batch_download_task(max_per_user: int) -> None:
 
             sec_user_id = user.get("sec_user_id", "")
             uid = user.get("uid", "")
-            
-            # 如果没有 sec_user_id，尝试使用 uid 构建 URL
+
             if sec_user_id and sec_user_id.startswith("MS4w"):
                 url = f"https://www.douyin.com/user/{sec_user_id}"
             elif uid:
@@ -195,21 +208,20 @@ def _start_batch_download_task(max_per_user: int) -> None:
                     success_list.append(nickname)
                 else:
                     failed_list.append({"user": nickname, "error": "下载失败 (无可用新视频或访问受限)"})
-            except Exception as e:
-                logger.exception('发生异常')
-                failed_list.append({"user": nickname, "error": str(e)})
-                logging.warning(f"下载异常: {nickname} - {e}")
+            except Exception as exc:
+                logger.exception('下载异常')
+                failed_list.append({"user": nickname, "error": str(exc)})
+                logging.warning(f"下载异常: {nickname} - {exc}")
 
-        # 只要有成功或部分成功，就不抛出致命异常，而是正常返回结果对象
         if len(failed_list) == total and total > 0:
             raise RuntimeError(f"全部 {total} 个用户下载失败，请检查网络或 Cookie 状态。")
-            
+
         return {
             "success_count": len(success_list),
             "failed_count": len(failed_list),
             "success_list": success_list,
             "failed_list": failed_list,
-            "total_users": total
+            "total_users": total,
         }
 
     run_task_in_background(
@@ -220,15 +232,26 @@ def _start_batch_download_task(max_per_user: int) -> None:
         success_message="批量素材拉取完成",
     )
     st.rerun()
-render_page_header("📥 下载中心", "把抖音链接或关注来源，变成本地素材库中的视频文件。")
+
+
+render_page_header("📥 下载中心", "专注做一件事：把来源或链接变成本地素材，不在这里处理转写。")
+status = _render_download_summary()
 
 col1, col2 = st.columns([2, 1], gap='large')
-
 with col1:
     _render_new_download()
 with col2:
     _render_current_task()
+
 st.divider()
-st.subheader("📜 最近任务历史")
-st.caption("统一查看最近下载相关任务的结果与状态变化。")
-render_task_history()
+st.subheader("③ 下载任务历史")
+st.caption("仅展示下载相关任务，避免把转写进度混进来。")
+render_task_history(task_types=DOWNLOAD_TASK_TYPES)
+
+if status["downloads_count"] > 0 and render_cta_section(
+    "素材已准备好？",
+    "下一步去转写中心，把素材转成可编辑文稿。",
+    "🎙️ 去转写中心",
+    "download_to_transcribe_footer",
+):
+    st.switch_page(get_page_path("transcribe_center.py"))

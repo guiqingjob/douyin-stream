@@ -2,27 +2,31 @@
 进度显示组件
 """
 
+from __future__ import annotations
+
+from typing import Iterable
+
 import streamlit as st
 
 from media_tools.web.components.task_queue import cancel_task, clear_task_state, load_task_state
-from media_tools.web.components.ui_patterns import render_empty_state, render_summary_metrics, render_status_badge
+from media_tools.web.components.ui_patterns import render_empty_state, render_summary_metrics
 from media_tools.web.utils import get_task_status_label, get_task_type_label, safe_json_display
 
 from media_tools.logger import get_logger
 logger = get_logger('web')
 
 
-
-def render_task_progress(empty_message: str = "当前没有正在执行的任务") -> bool:
+def render_task_progress(
+    empty_message: str = "当前没有正在执行的任务",
+    *,
+    task_types: str | Iterable[str] | None = None,
+) -> bool:
     """渲染当前任务进度
-
-    Args:
-        empty_message: 无任务时显示的文案
 
     Returns:
         bool: 当前是否存在处于 pending/running 状态的任务
     """
-    state = load_task_state()
+    state = load_task_state(task_types=task_types)
     if state is None:
         render_empty_state(empty_message, icon="🛌")
         return False
@@ -52,8 +56,8 @@ def render_task_progress(empty_message: str = "当前没有正在执行的任务
 
     if status == "running":
         st.info(f"🔄 {message}")
-        if st.button("🛑 取消当前任务", type="secondary", key="cancel_task_btn"):
-            cancel_task()
+        if st.button("🛑 取消当前任务", type="secondary", key=f"cancel_task_btn_{task_type}"):
+            cancel_task(task_id=state.get("task_id"))
             st.warning("已发送取消信号，任务正在停止...")
             st.rerun()
         return True
@@ -62,18 +66,21 @@ def render_task_progress(empty_message: str = "当前没有正在执行的任务
         st.success(f"✅ {message}")
         if state.get("result"):
             _display_task_result(state["result"])
-        
-        col1, col2 = st.columns([1, 4])
+
+        col1, _ = st.columns([1, 4])
         with col1:
-            if st.button("🧹 清除状态", key="clear_success_state_btn"):
-                clear_task_state()
+            if st.button("🧹 清除状态", key=f"clear_success_state_btn_{task_type}"):
+                clear_task_state(task_id=state.get("task_id"))
                 st.rerun()
         return False
 
-    if status == "failed":
-        st.error(f"❌ {message}")
-        if st.button("🧹 清除状态", key="clear_failed_state_btn"):
-            clear_task_state()
+    if status in {"failed", "cancelled"}:
+        if status == "cancelled":
+            st.warning(f"⚠️ {message}")
+        else:
+            st.error(f"❌ {message}")
+        if st.button("🧹 清除状态", key=f"clear_failed_state_btn_{task_type}"):
+            clear_task_state(task_id=state.get("task_id"))
             st.rerun()
         return False
 
@@ -114,9 +121,9 @@ def _display_task_result(result) -> None:
     safe_json_display(result)
 
 
-def render_task_history() -> None:
+def render_task_history(*, task_types: str | Iterable[str] | None = None) -> None:
     """渲染任务历史页面"""
     from media_tools.web.components.task_table import render_task_table
 
     st.subheader("📜 任务历史")
-    render_task_table(limit=20)
+    render_task_table(limit=20, task_types=task_types)

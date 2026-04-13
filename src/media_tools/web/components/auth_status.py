@@ -2,64 +2,37 @@
 认证状态卡片组件
 """
 
+from __future__ import annotations
+
 import streamlit as st
 
-from media_tools.web.constants import QWEN_AUTH_PATH
-from media_tools.web.utils import format_size
-
 from media_tools.logger import get_logger
+from media_tools.web.components.ui_patterns import render_summary_metrics
+from media_tools.web.services.status import check_douyin_auth, check_qwen_auth
+
 logger = get_logger('web')
 
 
-
 def render_auth_status_card() -> None:
-    """渲染认证状态卡片"""
-    st.subheader("🔐 认证状态")
-
-    col1, col2 = st.columns(2)
-
-    with col1:
-        douyin_auth = _check_douyin_auth()
-        if douyin_auth:
-            st.success("✅ 抖音已认证")
-        else:
-            st.error("❌ 抖音未认证")
-            st.caption("可在「账号与配额 -> 认证配置」中粘贴 Cookie")
-
-    with col2:
-        qwen_auth = _check_qwen_auth()
-        if qwen_auth:
-            st.success("✅ Qwen 转写已认证")
-        else:
-            st.error("❌ Qwen 转写未认证")
-            st.caption("可在「账号与配额 -> 认证配置」中粘贴 Cookie")
-
-
-def _check_douyin_auth() -> bool:
-    """检查抖音认证状态"""
+    """渲染轻量认证状态摘要卡。"""
     try:
-        from media_tools.douyin.core.config_mgr import get_config
-
-        config = get_config()
-        return config.has_cookie()
+        douyin_auth = check_douyin_auth()
     except Exception:
-        logger.exception('发生异常')
-        return False
+        logger.exception('检查抖音认证状态失败')
+        douyin_auth = False
 
-
-def _check_qwen_auth() -> bool:
-    """检查 Qwen 认证状态"""
     try:
-        from media_tools.douyin.core.config_mgr import get_config
-        import sqlite3
-        
-        cfg = get_config()
-        with sqlite3.connect(cfg.get_db_path()) as conn:
-            cursor = conn.cursor()
-            cursor.execute("SELECT 1 FROM auth_credentials WHERE platform = 'qwen' AND is_valid = 1")
-            return cursor.fetchone() is not None
+        qwen_auth = check_qwen_auth()
     except Exception:
-        # Fallback
-        if QWEN_AUTH_PATH.exists():
-            return QWEN_AUTH_PATH.stat().st_size > 50
-        return False
+        logger.exception('检查 Qwen 认证状态失败')
+        qwen_auth = False
+
+    render_summary_metrics(
+        [
+            {'label': '抖音认证', 'value': '已就绪' if douyin_auth else '未认证'},
+            {'label': 'Qwen 认证', 'value': '已就绪' if qwen_auth else '未认证'},
+        ]
+    )
+
+    if not douyin_auth or not qwen_auth:
+        st.caption('缺少认证时，可前往「账号与认证」页面补齐下载或转写所需授权。')

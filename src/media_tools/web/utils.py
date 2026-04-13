@@ -23,6 +23,7 @@ _TASK_STATUS_LABELS = {
     "running": "执行中",
     "success": "已完成",
     "failed": "失败",
+    "cancelled": "已取消",
 }
 
 _TASK_STATUS_WITH_ICON = {
@@ -30,6 +31,7 @@ _TASK_STATUS_WITH_ICON = {
     "running": "🔄 执行中",
     "success": "✅ 已完成",
     "failed": "❌ 失败",
+    "cancelled": "⚪ 已取消",
 }
 
 

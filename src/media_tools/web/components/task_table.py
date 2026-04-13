@@ -2,6 +2,10 @@
 任务表格组件
 """
 
+from __future__ import annotations
+
+from typing import Iterable
+
 import streamlit as st
 
 from media_tools.web.components.task_queue import load_task_history
@@ -12,23 +16,22 @@ from media_tools.logger import get_logger
 logger = get_logger('web')
 
 
-
-def render_task_table(limit: int = 10) -> None:
+def render_task_table(limit: int = 10, *, task_types: str | Iterable[str] | None = None) -> None:
     """渲染任务历史表格"""
-    history = load_task_history(limit=limit)
+    history = load_task_history(limit=limit, task_types=task_types)
 
     if not history:
         render_empty_state("暂无任务历史。", "执行过下载或转写任务后，这里会自动显示最近记录。", icon="📋")
         return
 
     success_count = sum(1 for task in history if task.get("status") == "success")
-    failed_count = sum(1 for task in history if task.get("status") == "failed")
+    failed_count = sum(1 for task in history if task.get("status") in {"failed", "cancelled"})
 
     render_summary_metrics(
         [
             {"label": "最近任务", "value": len(history)},
             {"label": "成功", "value": success_count},
-            {"label": "失败", "value": failed_count},
+            {"label": "异常/取消", "value": failed_count},
         ]
     )
 
