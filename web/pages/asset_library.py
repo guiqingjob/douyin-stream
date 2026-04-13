@@ -8,6 +8,10 @@ from web.constants import DOWNLOADS_DIR, TRANSCRIPTS_DIR
 from web.components.ui_patterns import render_empty_state, render_summary_metrics, render_table_section, render_highlight_card
 from web.utils import format_size, format_timestamp
 
+from media_tools.logger import get_logger
+logger = get_logger('web')
+
+
 st.title("📂 资产大盘")
 st.caption("全局查看已下载的素材与已生成的文稿。")
 

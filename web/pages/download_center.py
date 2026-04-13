@@ -14,6 +14,10 @@ from web.components.ui_patterns import render_empty_state, render_highlight_card
 from web.constants import DOWNLOADS_DIR, PAGE_TRANSCRIBE
 from web.utils import format_size, format_timestamp
 
+from media_tools.logger import get_logger
+logger = get_logger('web')
+
+
 
 # render_download_center
 """渲染下载中心页面"""
@@ -68,6 +72,7 @@ def _render_batch_download() -> None:
         source_count = len(users)
         st.info(f"当前已配置 **{source_count}** 个来源")
     except Exception as e:
+        logger.exception('发生异常')
         source_count = 0
         st.warning(f"无法读取关注列表：{e}")
 
@@ -168,6 +173,7 @@ def _start_batch_download_task(max_per_user: int) -> None:
                 download_by_url(url, max_counts=max_per_user)
                 success_list.append(nickname)
             except Exception as e:
+                logger.exception('发生异常')
                 failed_list.append({"user": nickname, "error": str(e)})
                 logging.warning(f"下载失败: {nickname} - {e}")
 

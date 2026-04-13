@@ -8,6 +8,10 @@ from web.components.task_queue import load_task_history
 from web.components.ui_patterns import render_empty_state, render_summary_metrics, render_table_section
 from web.utils import format_timestamp, get_task_status_label, get_task_type_label, safe_json_display
 
+from media_tools.logger import get_logger
+logger = get_logger('web')
+
+
 
 def render_task_table(limit: int = 10) -> None:
     """渲染任务历史表格"""

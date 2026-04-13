@@ -16,6 +16,10 @@ from web.components.ui_patterns import render_empty_state, render_highlight_card
 from web.constants import DOWNLOADS_DIR, QWEN_AUTH_PATH, TEMP_UPLOADS_DIR, TRANSCRIPTS_DIR
 from web.utils import format_size, format_timestamp
 
+from media_tools.logger import get_logger
+logger = get_logger('web')
+
+
 
 # render_transcribe_center
 """渲染转写中心页面"""
@@ -140,6 +144,7 @@ def _start_transcribe_task(file_path: str) -> None:
         try:
             Path(file_path).unlink()
         except Exception:
+            logger.exception('发生异常')
             pass
 
         return result
@@ -186,6 +191,7 @@ def _start_batch_transcribe_task() -> None:
                     await orchestrator.transcribe_with_retry(str(video_file))
                     success_list.append(video_file.name)
                 except Exception as e:
+                    logger.exception('发生异常')
                     failed_list.append({"file": video_file.name, "error": str(e)})
                     logging.warning(f"转写失败: {video_file.name} - {e}")
 

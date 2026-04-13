@@ -9,6 +9,10 @@ import streamlit as st
 from web.constants import QWEN_AUTH_PATH
 from web.utils import format_size, safe_json_display
 
+from media_tools.logger import get_logger
+logger = get_logger('web')
+
+
 
 # render_accounts
 """渲染账号与配额页面"""
@@ -73,6 +77,7 @@ def _get_quota() -> dict | None:
             "remaining_minutes": snapshot.remaining_minutes if hasattr(snapshot, "remaining_minutes") else 0,
         }
     except Exception as e:
+        logger.exception('发生异常')
         st.error(f"配额查询失败: {e}")
         return None
 st.title("🔑 账号与配额")

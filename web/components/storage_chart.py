@@ -8,6 +8,10 @@ from pathlib import Path
 from web.constants import DOWNLOADS_DIR, PROJECT_ROOT, TRANSCRIPTS_DIR
 from web.utils import format_size
 
+from media_tools.logger import get_logger
+logger = get_logger('web')
+
+
 
 def render_storage_chart() -> None:
     """渲染存储使用图表"""
@@ -48,6 +52,7 @@ def _get_dir_size(directory: Path) -> int:
     try:
         return sum(f.stat().st_size for f in directory.rglob("*") if f.is_file())
     except Exception:
+        logger.exception('发生异常')
         return 0
 
 
@@ -65,6 +70,7 @@ def _get_other_size() -> int:
             try:
                 total += sum(f.stat().st_size for f in d.rglob("*") if f.is_file())
             except Exception:
+                logger.exception('发生异常')
                 pass
     
     # 加上数据库文件

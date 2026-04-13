@@ -8,6 +8,10 @@ from web.components.home_cards import render_home_status_cards
 from web.components.storage_chart import render_storage_chart
 from web.components.task_table import render_task_table
 from web.constants import (
+
+from media_tools.logger import get_logger
+logger = get_logger('web')
+
     PAGE_DOWNLOAD,
     PAGE_FOLLOWING,
     PAGE_SETTINGS,

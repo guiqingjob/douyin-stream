@@ -8,6 +8,10 @@ import streamlit as st
 
 from web.constants import PROJECT_ROOT
 
+from media_tools.logger import get_logger
+logger = get_logger('web')
+
+
 # 标记文件路径
 _FIRST_VISIT_FILE = PROJECT_ROOT / ".first_visit_done"
 
@@ -73,6 +77,7 @@ def render_onboarding() -> None:
                                 else:
                                     st.error(f"❌ {name}: {info.get('message', '')}")
                 except Exception as e:
+                    logger.exception('发生异常')
                     st.error(f"环境检测失败: {e}")
     
     # 步骤 2: 配置 Cookie
@@ -115,6 +120,7 @@ def render_onboarding() -> None:
                         st.session_state.onboarding_step = 3
                         st.rerun()
                     except Exception as e:
+                        logger.exception('发生异常')
                         st.error(f"保存失败: {e}")
     
     # 步骤 3: 添加关注
@@ -155,6 +161,7 @@ def render_onboarding() -> None:
                             else:
                                 st.error("添加失败，请检查链接是否正确")
                         except Exception as e:
+                            logger.exception('发生异常')
                             st.error(f"添加失败: {e}")
     
     # 步骤 4: 完成

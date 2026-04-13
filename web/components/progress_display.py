@@ -8,6 +8,10 @@ from web.components.task_queue import cancel_task, clear_task_state, load_task_s
 from web.components.ui_patterns import render_empty_state, render_summary_metrics
 from web.utils import get_task_status_label, get_task_type_label, safe_json_display
 
+from media_tools.logger import get_logger
+logger = get_logger('web')
+
+
 
 def render_task_progress(empty_message: str = "当前没有正在执行的任务") -> bool:
     """渲染当前任务进度

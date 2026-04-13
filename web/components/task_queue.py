@@ -18,6 +18,10 @@ from typing import Any, Callable
 
 from web.constants import PROJECT_ROOT, TASK_STATE_FILE
 
+from media_tools.logger import get_logger
+logger = get_logger('web')
+
+
 
 # 线程锁，防止并发读写状态文件时的竞态条件
 _state_lock = threading.Lock()
@@ -71,6 +75,7 @@ def load_task_state() -> dict | None:
             with open(state_file, encoding="utf-8") as f:
                 return json.load(f)
     except Exception:
+        logger.exception('发生异常')
         return None
 
 
@@ -179,6 +184,7 @@ def run_task_in_background(
 
             mark_task_success(result, success_message)
         except Exception as e:
+            logger.exception('发生异常')
             current_state = load_task_state()
             if current_state and current_state.get("status") in {"success", "failed"}:
                 return
@@ -204,6 +210,7 @@ def _save_to_history(state: dict) -> None:
         with open(history_file, "a", encoding="utf-8") as f:
             f.write(json.dumps(state, ensure_ascii=False) + "\n")
     except Exception:
+        logger.exception('发生异常')
         pass
 
 
@@ -234,4 +241,5 @@ def load_task_history(limit: int = 10) -> list[dict]:
 
         return history
     except Exception:
+        logger.exception('发生异常')
         return []

@@ -8,6 +8,10 @@ import streamlit as st
 
 from web.constants import PROJECT_ROOT, QWEN_AUTH_PATH
 
+from media_tools.logger import get_logger
+logger = get_logger('web')
+
+
 
 # render_settings
 """渲染系统配置页面"""
@@ -51,6 +55,7 @@ def _run_env_check() -> None:
             st.warning("⚠️ Qwen 认证: 未配置")
 
     except Exception as e:
+        logger.exception('发生异常')
         st.error(f"检测失败: {e}")
 
 
@@ -123,6 +128,7 @@ def _load_presets() -> dict:
                         preset["label"] = default_presets.get(key, {}).get("label", key)
                 return {**default_presets, **config["presets"]}
         except Exception:
+            logger.exception('发生异常')
             pass
 
     return default_presets
@@ -168,6 +174,7 @@ def _check_douyin_auth() -> bool:
 
         return get_config().has_cookie()
     except Exception:
+        logger.exception('发生异常')
         return False
 
 
@@ -185,6 +192,7 @@ def _backup_configs() -> str | None:
         backup_path = mgr.backup_configs()
         return str(backup_path)
     except Exception:
+        logger.exception('发生异常')
         return None
 
 
@@ -196,6 +204,7 @@ def _fix_common_issues() -> None:
         mgr = ConfigManager()
         mgr.fix_common_issues()
     except Exception:
+        logger.exception('发生异常')
         pass
 
 
@@ -206,6 +215,7 @@ def _apply_preset(preset_name: str) -> bool:
 
         return apply_preset(preset_name, auto_apply=True)
     except Exception:
+        logger.exception('发生异常')
         return False
 st.title("⚙️ 系统配置")
 st.caption("先做环境检测，再处理备份修复和预设应用。")

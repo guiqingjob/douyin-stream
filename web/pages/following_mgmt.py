@@ -9,6 +9,10 @@ import streamlit as st
 from web.components.ui_patterns import render_empty_state, render_highlight_card, render_summary_metrics, render_table_section
 from web.constants import PAGE_DOWNLOAD
 
+from media_tools.logger import get_logger
+logger = get_logger('web')
+
+
 
 # render_following_mgmt
 """渲染关注管理页面"""
@@ -88,6 +92,7 @@ def _render_following_list() -> None:
         if st.button("📥 去下载中心批量拉取", key="go_download_from_following"):
             st.switch_page("web/pages/download_center.py")
     except Exception as e:
+        logger.exception('发生异常')
         st.error(f"加载来源列表失败: {e}")
 
 
@@ -159,6 +164,7 @@ def _add_user(url: str) -> tuple:
 
         return add_user(url)
     except Exception as e:
+        logger.exception('发生异常')
         return False, str(e)
 
 
@@ -170,6 +176,7 @@ def _export_users() -> str:
         data = load_following()
         return json.dumps(data, ensure_ascii=False, indent=2)
     except Exception:
+        logger.exception('发生异常')
         return ""
 
 
@@ -189,10 +196,12 @@ def _import_users(content: str) -> tuple:
                     add_user(uid, user, merge=True)
                     count += 1
             except Exception:
+                logger.exception('发生异常')
                 continue
 
         return True, f"成功导入 {count} 个来源"
     except Exception as e:
+        logger.exception('发生异常')
         return False, f"导入失败: {e}"
 st.title("👥 关注管理")
 st.caption("把你持续观察的博主整理成来源列表，供后续批量拉取素材使用。")

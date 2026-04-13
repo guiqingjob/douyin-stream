@@ -7,6 +7,10 @@ import streamlit as st
 from web.constants import QWEN_AUTH_PATH
 from web.utils import format_size
 
+from media_tools.logger import get_logger
+logger = get_logger('web')
+
+
 
 def render_auth_status_card() -> None:
     """渲染认证状态卡片"""
@@ -39,6 +43,7 @@ def _check_douyin_auth() -> bool:
         config = get_config()
         return config.has_cookie()
     except Exception:
+        logger.exception('发生异常')
         return False
 
 

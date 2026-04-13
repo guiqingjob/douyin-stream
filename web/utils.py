@@ -6,6 +6,10 @@ from datetime import datetime
 
 import streamlit as st
 
+from media_tools.logger import get_logger
+logger = get_logger('web')
+
+
 _TASK_TYPE_LABELS = {
     "download": "单链接下载",
     "batch_download": "批量拉取素材",

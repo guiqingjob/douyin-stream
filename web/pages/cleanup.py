@@ -10,6 +10,10 @@ import streamlit as st
 from web.constants import DB_FILE, DOWNLOADS_DIR, LOGS_DIR, PROJECT_ROOT
 from web.utils import format_size
 
+from media_tools.logger import get_logger
+logger = get_logger('web')
+
+
 
 # render_cleanup
 """渲染清理与备份页面"""
@@ -82,6 +86,7 @@ def _clean_deleted_videos() -> bool:
         deleted, _ = clean_deleted_videos(auto_confirm=True)
         return deleted > 0
     except Exception:
+        logger.exception('发生异常')
         return False
 
 
@@ -94,6 +99,7 @@ def _get_db_stats() -> dict | None:
         user_count = execute_query("SELECT COUNT(*) FROM user_info_web")[0][0]
         return {"video_count": video_count, "user_count": user_count}
     except Exception:
+        logger.exception('发生异常')
         return None
 
 
@@ -105,6 +111,7 @@ def _clean_db_records() -> tuple[int, int]:
         cleaned, skipped = clean_deleted_videos(auto_confirm=True)
         return cleaned, skipped
     except Exception as e:
+        logger.exception('发生异常')
         st.error(f"清理失败: {e}")
         return 0, 0
 
@@ -191,6 +198,7 @@ def _create_backup() -> tuple[bool, str]:
 
         return True, str(backup_filename)
     except Exception as e:
+        logger.exception('发生异常')
         import logging
 
         logging.error(f"备份失败: {e}")

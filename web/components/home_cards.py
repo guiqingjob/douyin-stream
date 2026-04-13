@@ -9,6 +9,10 @@ import streamlit as st
 from web.constants import DOWNLOADS_DIR, QWEN_AUTH_PATH, TRANSCRIPTS_DIR
 from web.utils import format_size
 
+from media_tools.logger import get_logger
+logger = get_logger('web')
+
+
 
 def render_home_status_cards() -> dict:
     """渲染工作台状态卡片
@@ -32,6 +36,7 @@ def render_home_status_cards() -> dict:
 
         status["cookie_ok"] = get_config().has_cookie()
     except Exception:
+        logger.exception('发生异常')
         pass
 
     # 检查 Qwen 认证
@@ -44,6 +49,7 @@ def render_home_status_cards() -> dict:
         passed, _ = check_all()
         status["env_ok"] = passed
     except Exception:
+        logger.exception('发生异常')
         pass
 
     # 统计素材与文稿
@@ -51,12 +57,14 @@ def render_home_status_cards() -> dict:
         try:
             status["downloads_count"] = sum(1 for f in DOWNLOADS_DIR.rglob("*.mp4") if f.is_file())
         except Exception:
+            logger.exception('发生异常')
             pass
 
     if TRANSCRIPTS_DIR.exists():
         try:
             status["transcripts_count"] = sum(1 for f in TRANSCRIPTS_DIR.rglob("*.md") if f.is_file())
         except Exception:
+            logger.exception('发生异常')
             pass
 
     # 计算存储使用
@@ -66,6 +74,7 @@ def render_home_status_cards() -> dict:
             try:
                 total_size += sum(f.stat().st_size for f in directory.rglob("*") if f.is_file())
             except Exception:
+                logger.exception('发生异常')
                 pass
 
     status["storage_usage"] = format_size(total_size)

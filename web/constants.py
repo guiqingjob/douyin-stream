@@ -5,6 +5,10 @@ Web 管理面板常量定义
 
 from pathlib import Path
 
+from media_tools.logger import get_logger
+logger = get_logger('web')
+
+
 # 项目根目录
 PROJECT_ROOT = Path(__file__).parent.parent
 

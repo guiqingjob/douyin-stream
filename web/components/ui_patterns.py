@@ -6,6 +6,10 @@ from typing import Iterable, Sequence
 
 import streamlit as st
 
+from media_tools.logger import get_logger
+logger = get_logger('web')
+
+
 
 def render_summary_metrics(items: Sequence[dict]) -> None:
     """渲染统一摘要指标区

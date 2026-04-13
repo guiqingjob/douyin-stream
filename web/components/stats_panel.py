@@ -8,6 +8,10 @@ import streamlit as st
 from web.constants import DOWNLOADS_DIR, TRANSCRIPTS_DIR
 from web.utils import format_size
 
+from media_tools.logger import get_logger
+logger = get_logger('web')
+
+
 
 def render_stats_panel() -> None:
     """渲染统计面板"""
@@ -48,6 +52,7 @@ def _get_stats() -> dict:
         users = list_users()
         stats["following_count"] = len(users)
     except Exception as e:
+        logger.exception('发生异常')
         logging.warning(f"获取关注列表失败: {e}")
 
     # 已下载视频数
@@ -56,6 +61,7 @@ def _get_stats() -> dict:
             video_files = list(DOWNLOADS_DIR.rglob("*.mp4"))
             stats["downloaded_videos"] = len(video_files)
         except Exception as e:
+            logger.exception('发生异常')
             logging.warning(f"扫描下载目录失败: {e}")
 
     # 已转写文稿数
@@ -64,6 +70,7 @@ def _get_stats() -> dict:
             md_files = list(TRANSCRIPTS_DIR.rglob("*.md"))
             stats["transcripts_count"] = len(md_files)
         except Exception as e:
+            logger.exception('发生异常')
             logging.warning(f"扫描转写目录失败: {e}")
 
     # 磁盘占用
@@ -73,6 +80,7 @@ def _get_stats() -> dict:
             try:
                 total_size += sum(f.stat().st_size for f in d.rglob("*") if f.is_file())
             except Exception as e:
+                logger.exception('发生异常')
                 logging.warning(f"计算目录大小失败: {e}")
 
     stats["disk_usage"] = format_size(total_size)
