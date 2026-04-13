@@ -5,6 +5,7 @@ from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
 import json
+import re
 import uuid
 
 from playwright.async_api import async_playwright
@@ -12,7 +13,7 @@ from playwright.async_api import async_playwright
 from .auth_state import resolve_qwen_auth_state_for_playwright
 from .config import load_config
 from .http import api_json
-from .runtime import as_absolute, ensure_dir
+from .runtime import ensure_dir
 
 
 @dataclass(frozen=True, slots=True)
@@ -130,8 +131,8 @@ async def get_quota_snapshot(
         try:
             quota_json = await api_json(
                 api,
-                "https://www.qianwen.com/zhiwen/api/equity/get_quota?c=tongyi-web",
-                None,
+                "https://api.qianwen.com/growth/user/benefit/base",
+                {"requestId": str(uuid.uuid4())},
                 {
                     "referer": referer,
                     "platform": "QIANWEN",
@@ -142,18 +143,44 @@ async def get_quota_snapshot(
         finally:
             await api.dispose()
 
-    data = quota_json.get("data", {}) if isinstance(quota_json, dict) else {}
-    used_upload = number_value(data.get("usedQuota", {}).get("upload"))
-    total_upload = number_value(data.get("totalQuota", {}).get("upload"))
-    remaining_upload = max(0, total_upload - used_upload)
-    gratis_upload = str(data.get("gratisQuota", {}).get("upload", "")).lower() == "true"
+    data = quota_json.get("data", []) if isinstance(quota_json, dict) else []
+    tingwu_benefit = {}
+    if isinstance(data, list):
+        tingwu_benefit = next(
+            (item for item in data if isinstance(item, dict) and item.get("benefitType") == "TINGWU_TRANSCRIPTION_DURATION"),
+            {},
+        )
+
+    if not tingwu_benefit:
+        return QuotaSnapshot(
+            raw=quota_json,
+            used_upload=0,
+            total_upload=0,
+            remaining_upload=0,
+            gratis_upload=False,
+            free=False,
+        )
+
+    used_hours = number_value(tingwu_benefit.get("usageQuota"))
+    remaining_hours = number_value(tingwu_benefit.get("remainingQuota"))
+    total_hours = used_hours + remaining_hours
+
+    used_minutes = used_hours * 60
+    remaining_minutes = remaining_hours * 60
+    total_minutes = total_hours * 60
+
+    total_quota_str = str(tingwu_benefit.get("totalQuotaAndUnit", ""))
+    total_match = re.search(r"共(\d+)小时(\d+)分钟", total_quota_str)
+    if total_match:
+        total_minutes = int(total_match.group(1)) * 60 + int(total_match.group(2))
+
     return QuotaSnapshot(
         raw=quota_json,
-        used_upload=used_upload,
-        total_upload=total_upload,
-        remaining_upload=remaining_upload,
-        gratis_upload=gratis_upload,
-        free=bool(data.get("free")),
+        used_upload=used_minutes,
+        total_upload=total_minutes,
+        remaining_upload=remaining_minutes,
+        gratis_upload=False,
+        free=bool(remaining_hours > 0),
     )
 
 
