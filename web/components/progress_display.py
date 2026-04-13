@@ -92,3 +92,44 @@ def _display_task_result(result) -> None:
     else:
         # 普通结果，使用安全 JSON 显示
         safe_json_display(result)
+
+
+def render_task_history() -> None:
+    """渲染任务历史页面"""
+    from web.components.task_queue import load_task_history
+    
+    st.subheader("📜 任务历史")
+    
+    history = load_task_history(limit=20)
+    
+    if not history:
+        st.info("暂无任务历史")
+        return
+    
+    for i, task in enumerate(history):
+        task_id = task.get("task_id", "未知")[:8]
+        task_type = task.get("task_type", "未知")
+        status = task.get("status", "unknown")
+        message = task.get("message", "")
+        created_at = task.get("created_at", "")
+        completed_at = task.get("completed_at", "")
+        
+        # 根据状态显示不同颜色
+        if status == "success":
+            st.success(f"✅ [{task_type}] {message} (ID: {task_id})")
+        elif status == "failed":
+            st.error(f"❌ [{task_type}] {message} (ID: {task_id})")
+        else:
+            st.info(f"⏳ [{task_type}] {message} (ID: {task_id})")
+        
+        # 显示时间信息
+        if created_at:
+            st.caption(f"创建时间: {created_at[:19]} | 完成时间: {completed_at[:19] if completed_at else '未完成'}")
+        
+        # 显示详情
+        if st.button(f"查看详情 {i}", key=f"history_detail_{i}"):
+            with st.expander("完整任务信息"):
+                safe_json_display(task)
+        
+        if i < len(history) - 1:
+            st.divider()

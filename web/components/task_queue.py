@@ -97,7 +97,11 @@ def mark_task_success(result: Any = None, message: str = "任务完成") -> None
     state["progress"] = 1.0
     state["message"] = message
     state["result"] = result
+    state["completed_at"] = datetime.now().isoformat()
     save_task_state(state)
+    
+    # 保存到历史记录
+    _save_to_history(state)
 
 
 def mark_task_failed(error: str) -> None:
@@ -108,7 +112,11 @@ def mark_task_failed(error: str) -> None:
     state["status"] = "failed"
     state["message"] = f"错误: {error}"
     state["error"] = error
+    state["completed_at"] = datetime.now().isoformat()
     save_task_state(state)
+    
+    # 保存到历史记录
+    _save_to_history(state)
 
 
 def clear_task_state() -> None:
@@ -150,19 +158,19 @@ def run_task_in_background(
     def _worker():
         try:
             update_task_progress(0.0, "任务开始执行")
-            
+
             # 检查是否取消
             if is_task_cancelled():
                 mark_task_failed("任务已取消")
                 return
-                
+
             result = task_func(*args, **kwargs)
-            
+
             # 再次检查是否取消
             if is_task_cancelled():
                 mark_task_failed("任务已取消")
                 return
-                
+
             mark_task_success(result, "任务完成")
         except Exception as e:
             if is_task_cancelled():
@@ -172,3 +180,49 @@ def run_task_in_background(
 
     thread = threading.Thread(target=_worker, daemon=True)
     thread.start()
+
+
+def _get_history_file() -> Path:
+    """获取历史记录文件路径"""
+    return Path(__file__).parent.parent / ".task_history.jsonl"
+
+
+def _save_to_history(state: dict) -> None:
+    """保存任务状态到历史记录（JSONL 格式）"""
+    try:
+        history_file = _get_history_file()
+        with open(history_file, "a", encoding="utf-8") as f:
+            f.write(json.dumps(state, ensure_ascii=False) + "\n")
+    except Exception:
+        pass  # 静默失败，不影响主流程
+
+
+def load_task_history(limit: int = 10) -> list[dict]:
+    """加载任务历史记录
+    
+    Args:
+        limit: 返回最近的 N 条记录
+        
+    Returns:
+        任务历史列表（最新在前）
+    """
+    history_file = _get_history_file()
+    if not history_file.exists():
+        return []
+    
+    try:
+        with open(history_file, "r", encoding="utf-8") as f:
+            lines = f.readlines()
+        
+        # 返回最新的 limit 条记录
+        recent_lines = lines[-limit:]
+        history = []
+        for line in reversed(recent_lines):  # 最新在前
+            try:
+                history.append(json.loads(line.strip()))
+            except json.JSONDecodeError:
+                continue
+        
+        return history
+    except Exception:
+        return []

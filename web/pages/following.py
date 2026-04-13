@@ -61,17 +61,31 @@ def _render_user_list() -> None:
 
         selected = st.selectbox("选择要删除的博主", list(user_options.keys()))
 
-        # 添加确认步骤
-        confirm_delete = st.checkbox(f"⚠️ 确认删除 {selected}？")
-
-        if st.button("删除选中", type="primary", disabled=not confirm_delete):
-            uid = user_options[selected]
-            ok = _remove_user(uid)
-            if ok:
-                st.success(f"已删除: {selected}")
-                st.rerun()
-            else:
-                st.error("删除失败")
+        # 使用两步骤确认：先点击删除按钮，再弹窗确认
+        if "confirm_delete_uid" not in st.session_state:
+            st.session_state.confirm_delete_uid = None
+        
+        if st.button("🗑️ 删除选中", type="primary"):
+            st.session_state.confirm_delete_uid = selected
+        
+        # 显示确认步骤
+        if st.session_state.confirm_delete_uid == selected:
+            st.warning(f"⚠️ 确认删除 **{selected}**？此操作不可恢复！")
+            col1, col2 = st.columns(2)
+            with col1:
+                if st.button("✅ 确认删除", type="primary"):
+                    uid = user_options[selected]
+                    ok = _remove_user(uid)
+                    if ok:
+                        st.success(f"已删除: {selected}")
+                        st.session_state.confirm_delete_uid = None
+                        st.rerun()
+                    else:
+                        st.error("删除失败")
+            with col2:
+                if st.button("❌ 取消"):
+                    st.session_state.confirm_delete_uid = None
+                    st.rerun()
 
     except Exception as e:
         st.error(f"加载关注列表失败: {e}")

@@ -25,7 +25,18 @@ def render_transcribe() -> None:
     
     # 显示任务进度
     st.divider()
-    render_task_progress()
+    is_running = render_task_progress()
+    
+    # 任务历史按钮
+    if st.button("📜 查看任务历史", key="show_task_history_transcribe"):
+        from web.components.progress_display import render_task_history
+        render_task_history()
+    
+    # 如果有任务在运行，自动刷新页面
+    if is_running:
+        import time as time_module
+        time_module.sleep(2)
+        st.rerun()
 
 
 def _render_single_transcribe() -> None:
