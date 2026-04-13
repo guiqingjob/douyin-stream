@@ -51,10 +51,18 @@ def _render_db_cleanup() -> None:
         db_size = db_path.stat().st_size
         st.info(f"数据库文件大小: {_format_size(db_size)}")
 
+        # 显示数据库统计信息
+        db_stats = _get_db_stats()
+        if db_stats:
+            st.info(f"数据库记录: {db_stats['video_count']} 条视频, {db_stats['user_count']} 个用户")
+
         if st.button("清理过期数据库记录", type="primary"):
-            st.warning("此操作将删除数据库中的过期记录，确定继续？")
-            # 这里可以接入实际的清理逻辑
-            st.success("清理完成")
+            with st.spinner("正在清理..."):
+                cleaned, skipped = _clean_db_records()
+                if cleaned > 0:
+                    st.success(f"清理完成: 已删除 {cleaned} 条记录，跳过 {skipped} 条")
+                else:
+                    st.info("无需清理，数据库记录与本地文件一致")
     else:
         st.info("数据库文件不存在")
 
@@ -86,6 +94,30 @@ def _clean_deleted_videos() -> bool:
         return deleted > 0
     except Exception:
         return False
+
+
+def _get_db_stats() -> dict | None:
+    """获取数据库统计信息"""
+    try:
+        from scripts.core.db_helper import execute_query
+
+        video_count = execute_query("SELECT COUNT(*) FROM video_metadata")[0][0]
+        user_count = execute_query("SELECT COUNT(*) FROM user_info_web")[0][0]
+        return {"video_count": video_count, "user_count": user_count}
+    except Exception:
+        return None
+
+
+def _clean_db_records() -> tuple[int, int]:
+    """清理过期数据库记录，返回 (清理数量, 跳过数量)"""
+    try:
+        from scripts.core.cleaner import clean_deleted_videos
+
+        cleaned, skipped = clean_deleted_videos(auto_confirm=True)
+        return cleaned, skipped
+    except Exception as e:
+        st.error(f"清理失败: {e}")
+        return 0, 0
 
 
 def _clean_old_logs() -> None:

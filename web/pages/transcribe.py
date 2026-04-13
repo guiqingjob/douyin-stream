@@ -107,6 +107,9 @@ def _start_transcribe_task(file_path: str) -> None:
             mark_task_success({"file": file_path, "status": result.status if hasattr(result, "status") else "success"})
         except Exception as e:
             mark_task_failed(str(e))
+        finally:
+            # 转写完成后清理临时文件
+            _cleanup_temp_file(file_path)
 
     run_task_in_background(_worker, task_id, "transcribe", f"转写: {Path(file_path).name}")
     st.rerun()
@@ -156,3 +159,15 @@ def _start_batch_transcribe_task(files: list[Path]) -> None:
 
     run_task_in_background(_worker, task_id, "batch_transcribe", f"批量转写 {len(files)} 个文件")
     st.rerun()
+
+
+def _cleanup_temp_file(file_path: str) -> None:
+    """清理临时文件"""
+    import logging
+    try:
+        path = Path(file_path)
+        if path.exists() and str(path).startswith("temp_uploads"):
+            path.unlink()
+            logging.info(f"已清理临时文件: {file_path}")
+    except Exception as e:
+        logging.warning(f"临时文件清理失败: {file_path} - {e}")

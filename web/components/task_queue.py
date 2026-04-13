@@ -17,6 +17,9 @@ from datetime import datetime
 # 状态文件路径
 _STATE_FILE = Path(".task_state.json")
 
+# 线程锁，防止并发读写状态文件时的竞态条件
+_state_lock = threading.Lock()
+
 
 def _get_state_file() -> Path:
     """获取状态文件路径"""
@@ -44,22 +47,24 @@ def create_task(
 
 
 def save_task_state(task_state: dict) -> None:
-    """保存任务状态到文件"""
+    """保存任务状态到文件（线程安全）"""
     task_state["updated_at"] = datetime.now().isoformat()
     state_file = _get_state_file()
     state_file.parent.mkdir(parents=True, exist_ok=True)
-    with open(state_file, "w", encoding="utf-8") as f:
-        json.dump(task_state, f, ensure_ascii=False, indent=2)
+    with _state_lock:
+        with open(state_file, "w", encoding="utf-8") as f:
+            json.dump(task_state, f, ensure_ascii=False, indent=2)
 
 
 def load_task_state() -> dict | None:
-    """读取当前任务状态"""
+    """读取当前任务状态（线程安全）"""
     state_file = _get_state_file()
     if not state_file.exists():
         return None
     try:
-        with open(state_file, encoding="utf-8") as f:
-            return json.load(f)
+        with _state_lock:
+            with open(state_file, encoding="utf-8") as f:
+                return json.load(f)
     except Exception:
         return None
 
