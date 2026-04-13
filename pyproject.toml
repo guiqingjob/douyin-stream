@@ -9,7 +9,7 @@ description = "抖音下载 + Qwen 转写一体化媒体工具"
 readme = "README.md"
 requires-python = ">=3.11"
 dependencies = [
-  "f2>=1.0.0",
+  "f2>=0.0.1.0",
   "playwright>=1.40.0,<2",
   "pyyaml>=6.0.0",
   "questionary>=2.0.0,<3",
