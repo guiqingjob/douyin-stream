@@ -263,7 +263,6 @@ async def run_real_flow(
     output_dir = Path(download_dir).resolve()
     mime_type = guess_mime_type(input_path)
     stats = input_path.stat()
-    file_buffer = input_path.read_bytes()
     quota_before = await get_quota_snapshot(auth_state_path=auth_state_path)
     log = _make_flow_logger(input_path.name)
 
@@ -293,9 +292,10 @@ async def run_real_flow(
             log(f"genRecordId: {token['genRecordId']}")
             log(f"recordId: {token['recordId']}")
 
+            # 修复：使用文件路径而非加载整个文件到内存
             await upload_file_to_oss(
                 token=token,
-                file_buffer=file_buffer,
+                file_path=input_path,  # 传递路径而非字节缓冲
                 mime_type=mime_type,
                 on_progress=_make_upload_progress_logger(log),
             )

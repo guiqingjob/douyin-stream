@@ -216,7 +216,12 @@ async def visit_equity_page(auth_state_path: str | Path) -> None:
     resolved = resolve_qwen_auth_state_for_playwright(auth_state_path)
 
     async with async_playwright() as playwright:
-        browser = await playwright.chromium.launch(channel="chrome", headless=True)
+        # 修复：尝试使用Chrome，如果不可用则回退到默认浏览器
+        try:
+            browser = await playwright.chromium.launch(channel="chrome", headless=True)
+        except Exception:
+            # Chrome不可用时回退到默认浏览器
+            browser = await playwright.chromium.launch(headless=True)
         try:
             context = await browser.new_context(storage_state=resolved.storage_state)
             page = await context.new_page()

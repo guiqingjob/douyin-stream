@@ -146,6 +146,37 @@ def setup_logger(
     return logger
 
 
-# 全局单例
-logger = setup_logger()
+class LoggerProxy:
+    """兼容旧代码中 `logger.info()` 空调用的轻量代理。"""
 
+    def __init__(self, base_logger: logging.Logger):
+        self._base_logger = base_logger
+
+    def __getattr__(self, name):
+        return getattr(self._base_logger, name)
+
+    def debug(self, message: str = "", *args, **kwargs):
+        self._base_logger.debug("" if message is None else message, *args, **kwargs)
+
+    def info(self, message: str = "", *args, **kwargs):
+        self._base_logger.info("" if message is None else message, *args, **kwargs)
+
+    def warning(self, message: str = "", *args, **kwargs):
+        self._base_logger.warning("" if message is None else message, *args, **kwargs)
+
+    def error(self, message: str = "", *args, **kwargs):
+        self._base_logger.error("" if message is None else message, *args, **kwargs)
+
+    def critical(self, message: str = "", *args, **kwargs):
+        self._base_logger.critical("" if message is None else message, *args, **kwargs)
+
+    def exception(self, message: str = "", *args, **kwargs):
+        self._base_logger.exception("" if message is None else message, *args, **kwargs)
+
+    def log(self, level, message: str = "", *args, **kwargs):
+        # 修复：添加log()方法的None保护
+        self._base_logger.log(level, "" if message is None else message, *args, **kwargs)
+
+
+# 全局单例
+logger = LoggerProxy(setup_logger())

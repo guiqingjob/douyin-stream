@@ -76,5 +76,7 @@ async def execute_flow_with_fallback(
                 raise
             print(f"Account {account.account_id or 'default'} failed: {error}")
             print("Trying next account...")
-    assert last_error is not None
+    # 修复：使用显式检查而非assert
+    if last_error is None:
+        raise RuntimeError("All accounts failed but no error was captured")
     raise last_error

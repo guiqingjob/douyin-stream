@@ -66,6 +66,16 @@ def get_active_tasks():
     except Exception:
         return []
 
+@router.get("/history")
+def get_task_history():
+    try:
+        with get_db_connection() as conn:
+            conn.row_factory = sqlite3.Row
+            cursor = conn.execute("SELECT * FROM task_queue ORDER BY update_time DESC LIMIT 50")
+            return [dict(row) for row in cursor.fetchall()]
+    except Exception:
+        return []
+
 @router.get("/{task_id}")
 def get_task_status(task_id: str):
     try:

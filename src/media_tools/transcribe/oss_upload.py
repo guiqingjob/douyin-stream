@@ -154,6 +154,54 @@ def direct_upload_with_presigned_url(url: str, file_buffer: bytes, mime_type: st
         return
 
 
+def _direct_upload_with_presigned_url_from_path(url: str, file_path: Path, mime_type: str) -> None:
+    """从文件路径直接上传到预签名URL"""
+    with open(file_path, 'rb') as f:
+        req = urllib_request.Request(
+            url,
+            data=f.read(),
+            method="PUT",
+            headers={"content-type": mime_type},
+        )
+        with _open_request(req):
+            return
+
+
+def abort_multipart_upload(sts: dict[str, Any], upload_id: str) -> None:
+    """取消分片上传，清理已上传的分片"""
+    oss_date = formatdate(usegmt=True)
+    headers = {
+        "x-oss-date": oss_date,
+        "x-oss-security-token": sts["securityToken"],
+        "x-oss-user-agent": "qwen-web-capture/0.1",
+    }
+    authorization = sign_oss_request(
+        method="DELETE",
+        bucket=sts["bucket"],
+        object_key=sts["fileKey"],
+        access_key_id=sts["accessKeyId"],
+        access_key_secret=sts["accessKeySecret"],
+        date_value=oss_date,
+        oss_headers=headers,
+        subresources={"uploadId": upload_id},
+    )
+    req = urllib_request.Request(
+        build_oss_url(
+            sts["bucket"],
+            sts["endpoint"],
+            sts["fileKey"],
+            {"uploadId": upload_id},
+        ),
+        method="DELETE",
+        headers={
+            **headers,
+            "authorization": authorization,
+        },
+    )
+    with _open_request(req):
+        return
+
+
 def upload_part(sts: dict[str, Any], upload_id: str, part_number: int, chunk: bytes, mime_type: str) -> str:
     oss_date = formatdate(usegmt=True)
     content_md5 = md5_base64(chunk)
@@ -263,20 +311,54 @@ def complete_multipart_upload(sts: dict[str, Any], upload_id: str, parts: list[d
 async def upload_file_to_oss(
     *,
     token: dict[str, Any],
-    file_buffer: bytes,
+    file_buffer: bytes | None = None,
+    file_path: str | Path | None = None,
     mime_type: str,
     part_size: int = 1024 * 1024,
     on_progress: ProgressCallback | None = None,
     upload_mode: str | None = None,
 ) -> None:
+    """上传文件到OSS
+    
+    Args:
+        token: OSS令牌
+        file_buffer: 文件字节缓冲区（小文件使用）
+        file_path: 文件路径（大文件使用，避免OOM）
+        mime_type: MIME类型
+        part_size: 分片大小
+        on_progress: 进度回调
+        upload_mode: 上传模式
+    """
+    # 验证token的必需键
+    required_keys = ["getLink", "sts", "bucket", "endpoint", "fileKey", "accessKeyId", "accessKeySecret", "securityToken"]
+    for key in required_keys:
+        if key not in token:
+            raise ValueError(f"Token missing required key: {key}")
+    
     callback = on_progress or (lambda _event: None)
     mode = (upload_mode or os.environ.get("QWEN_OSS_UPLOAD_MODE", "multipart")).strip().lower()
     if mode not in {"multipart", "auto", "direct"}:
         raise ValueError(f"Unsupported OSS upload mode: {mode}")
 
+    # 确定使用文件路径还是字节缓冲
+    use_file_path = file_path is not None and file_buffer is None
+    if use_file_path:
+        file_path = Path(file_path)
+        if not file_path.exists():
+            raise FileNotFoundError(f"File not found: {file_path}")
+        file_size = file_path.stat().st_size
+    elif file_buffer is not None:
+        file_size = len(file_buffer)
+    else:
+        raise ValueError("Either file_buffer or file_path must be provided")
+
     if mode in {"auto", "direct"}:
         try:
-            await asyncio.to_thread(direct_upload_with_presigned_url, token["getLink"], file_buffer, mime_type)
+            if use_file_path:
+                # 使用文件路径上传
+                await asyncio.to_thread(_direct_upload_with_presigned_url_from_path, token["getLink"], file_path, mime_type)
+            else:
+                await asyncio.to_thread(direct_upload_with_presigned_url, token["getLink"], file_buffer, mime_type)
             callback({"type": "direct-upload-complete"})
             return
         except Exception as error:
@@ -287,13 +369,38 @@ async def upload_file_to_oss(
     upload_id = await asyncio.to_thread(initiate_multipart_upload, token["sts"], mime_type)
     callback({"type": "multipart-started", "uploadId": upload_id})
 
-    total_parts = (len(file_buffer) + part_size - 1) // part_size
     parts: list[dict[str, Any]] = []
-    for offset, part_number in zip(range(0, len(file_buffer), part_size), range(1, total_parts + 1), strict=True):
-        chunk = file_buffer[offset : offset + part_size]
-        etag = await asyncio.to_thread(upload_part, token["sts"], upload_id, part_number, chunk, mime_type)
-        parts.append({"partNumber": part_number, "etag": etag})
-        callback({"type": "part-uploaded", "partNumber": part_number, "totalParts": total_parts})
+    part_number = 0
+    
+    try:
+        if use_file_path:
+            # 使用文件路径进行分片上传（避免OOM）
+            total_parts = (file_size + part_size - 1) // part_size
+            with open(file_path, 'rb') as f:
+                for part_number in range(1, total_parts + 1):
+                    chunk = f.read(part_size)
+                    if not chunk:
+                        break
+                    etag = await asyncio.to_thread(upload_part, token["sts"], upload_id, part_number, chunk, mime_type)
+                    parts.append({"partNumber": part_number, "etag": etag})
+                    callback({"type": "part-uploaded", "partNumber": part_number, "totalParts": total_parts})
+        else:
+            # 使用字节缓冲进行分片上传
+            total_parts = (file_size + part_size - 1) // part_size
+            for offset, part_number in zip(range(0, len(file_buffer), part_size), range(1, total_parts + 1), strict=True):
+                chunk = file_buffer[offset : offset + part_size]
+                etag = await asyncio.to_thread(upload_part, token["sts"], upload_id, part_number, chunk, mime_type)
+                parts.append({"partNumber": part_number, "etag": etag})
+                callback({"type": "part-uploaded", "partNumber": part_number, "totalParts": total_parts})
 
-    await asyncio.to_thread(complete_multipart_upload, token["sts"], upload_id, parts)
-    callback({"type": "multipart-complete"})
+        await asyncio.to_thread(complete_multipart_upload, token["sts"], upload_id, parts)
+        callback({"type": "multipart-complete"})
+    except Exception as e:
+        # 修复：multipart上传失败时清理已上传的分片
+        if upload_id:
+            try:
+                await asyncio.to_thread(abort_multipart_upload, token["sts"], upload_id)
+                callback({"type": "multipart-aborted", "uploadId": upload_id})
+            except Exception as abort_error:
+                callback({"type": "multipart-abort-failed", "uploadId": upload_id, "error": abort_error})
+        raise e
