@@ -1,7 +1,0 @@
-[
-  {
-    "id": "default",
-    "label": "默认账号",
-    "storageStatePath": ".auth/qwen-storage-state.json"
-  }
-]

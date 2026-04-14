@@ -166,3 +166,14 @@ PLAN.md
 README_V2.md
 TEST_PLAN_USER_SCENARIOS.md
 TROUBLESHOOTING.md
+
+# Additional environment directories
+.auth/
+.qwen/
+.streamlit/
+config/
+docs/
+references/
+scripts/
+tests/
+transcripts/
