@@ -2,28 +2,42 @@
 
 > 一个围绕 **素材获取 → 文稿生成 → 结果管理** 组织的本地内容工作台。
 >
-> 当前主入口：**Streamlit Web 面板**（分支：`feature/streamlit-web`）。
+> 当前主入口：**React 网页端**（前端基于 React + Vite，后端基于 FastAPI）。
 
 [![License](https://img.shields.io/badge/license-MIT-blue.svg)](LICENSE.txt)
 [![Python Version](https://img.shields.io/badge/python-3.11%2B-brightgreen.svg)](https://www.python.org/)
 
 ---
 
-## 新版本定位
-
-Media Tools 现在不再强调“全自动神器”式表达，而是明确定位为：
+## 核心功能
 
 **一个帮助你把视频素材更快转成文稿，并在本地完成管理与整理的内容工作台。**
 
-这意味着项目的主线很清楚：
-
-1. **获取素材**：从抖音链接或来源列表拉取视频
-2. **生成文稿**：把视频 / 音频转写成可整理的文字稿
-3. **管理结果**：查看任务、维护来源、管理空间、检查配置
+1. **可视化发现**：输入博主链接，直观地预览、勾选需要下载的视频。
+2. **AI 转写阅读**：把视频自动转写成文字稿，并提供类 macOS 的沉浸式阅读器。
+3. **本地内容管理**：维护抖音账号池、管理多并发任务队列、一键删除不再需要的素材与记录。
 
 ---
 
-## 适合谁使用
+## 快速启动 (Quick Start)
+
+项目包含 Python 后端（FastAPI）和前端（React）。推荐使用自带的一键启动脚本：
+
+### 1. 运行一键脚本
+```bash
+./run.sh
+```
+该脚本会自动检查依赖，并在终端内**同时启动后端 API (端口 8000) 和前端 React (端口 5173/5174)**。
+
+启动后，打开浏览器访问前端地址即可开始使用。
+
+### 2. 独立命令 (可选)
+如果你想分开启动或者只构建静态资源：
+```bash
+./run.sh backend    # 仅启动 FastAPI 后端
+./run.sh frontend   # 仅启动 React 网页
+./run.sh build      # 编译前端产物到 frontend/dist/
+```
 
 这个版本更适合下面这些场景：
 
