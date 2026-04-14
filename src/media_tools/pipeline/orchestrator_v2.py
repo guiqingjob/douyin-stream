@@ -1,19 +1,19 @@
 """Pipeline 流程编排器 V2 - 增强版
 
-在原有 orchestrator.py 基础上新增：
+在原有基础上提供：
 - 失败自动重试机制（可配置次数和指数退避延迟）
 - 断点续传支持（状态持久化到 JSON 文件）
 - 实时进度追踪（进度回调函数）
 - 批量操作汇总报告（详细执行报告）
 - 更好的错误处理（区分网络、配额、认证等错误类型）
-
-向后兼容：保留原有 orchestrator.py 不变
 """
 from __future__ import annotations
 
 import asyncio
 import json
 import logging
+import re
+import sqlite3
 import time
 from dataclasses import dataclass, field, asdict
 from enum import Enum
@@ -24,13 +24,53 @@ from ..transcribe.flow import run_real_flow
 from ..transcribe.runtime import get_export_config, ensure_dir, now_stamp
 from ..transcribe.config import load_config as load_transcribe_config
 from .config import PipelineConfig, load_pipeline_config
-from .orchestrator import _lookup_video_title
 
 # 配置日志记录器
 logger = logging.getLogger(__name__)
 
 # 状态文件默认路径
 DEFAULT_STATE_FILE = ".pipeline_state.json"
+
+
+# --- helpers moved from orchestrator.py (V1) ---
+
+def _clean_title_for_export(raw_title: str) -> str | None:
+    """清洗标题用于导出文件名：去掉换行和 #话题标签"""
+    main_part = raw_title.replace('<br>', '\n').split('\n')[0]
+    if '#' in main_part:
+        clean = main_part[:main_part.index('#')].strip()
+    else:
+        clean = main_part.strip()
+    clean = re.sub(r'[<>:"/\\|?*]', '', clean).strip()
+    if len(clean) > 50:
+        clean = clean[:50]
+    return clean if len(clean) > 2 else None
+
+
+def _lookup_video_title(video_path: Path) -> str | None:
+    """从数据库查询视频标题（通过文件名中的 aweme_id）"""
+    aweme_matches = re.findall(r'\d{15,}', video_path.name)
+    if not aweme_matches:
+        return None
+
+    aweme_id = aweme_matches[0]
+    try:
+        from media_tools.douyin.core.config_mgr import get_config as get_douyin_config
+        db_path = get_douyin_config().get_db_path()
+        with sqlite3.connect(str(db_path), timeout=15.0) as conn:
+            conn.execute("PRAGMA journal_mode=WAL;")
+            cursor = conn.cursor()
+            cursor.execute("SELECT desc FROM video_metadata WHERE aweme_id = ?", (aweme_id,))
+            row = cursor.fetchone()
+            if not row or not row[0]:
+                cursor.execute("SELECT title FROM media_assets WHERE asset_id = ?", (aweme_id,))
+                row = cursor.fetchone()
+            if row and row[0]:
+                return _clean_title_for_export(row[0])
+    except Exception as e:
+        logger.warning(f"查询视频标题失败: {e}")
+
+    return None
 
 
 class ErrorType(Enum):
@@ -911,3 +951,25 @@ def print_enhanced_summary(report: BatchReport) -> None:
                     logger.info(f"    (尝试了 {r['attempts']} 次)")
 
     logger.info("=" * 60)
+
+
+def run_pipeline_batch(
+    video_paths: list[Path],
+    config: Optional[PipelineConfig] = None,
+    auth_state_path: Optional[Path] = None,
+) -> list:
+    """同步包装器：批量转写（兼容原 orchestrator.py V1 接口）
+
+    downloader.py 通过此函数在同步上下文中调用异步流水线。
+    """
+    report = asyncio.run(run_enhanced_pipeline(video_paths, config=config, auth_state_path=auth_state_path))
+
+    class _Compat:
+        """Lightweight shim: r.success / r.video_path / r.transcript_path / r.error"""
+        def __init__(self, d: dict):
+            self.success = d.get("success", False)
+            self.video_path = Path(d["video_path"])
+            self.transcript_path = Path(d["transcript_path"]) if d.get("transcript_path") else None
+            self.error = d.get("error")
+
+    return [_Compat(r) for r in report.results]

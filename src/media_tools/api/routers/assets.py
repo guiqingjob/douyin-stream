@@ -1,15 +1,13 @@
 from fastapi import APIRouter, Query, HTTPException
 from media_tools.douyin.core.config_mgr import get_config
+from media_tools.db.core import get_db_connection
 from typing import Optional
 import sqlite3
-import os
+import logging
 from pathlib import Path
 
 router = APIRouter(prefix="/api/v1/assets", tags=["assets"])
-
-def get_db_connection():
-    db_path = get_config().get_db_path()
-    return sqlite3.connect(db_path)
+logger = logging.getLogger(__name__)
 
 @router.get("/")
 def list_assets(creator_uid: Optional[str] = Query(None)):
@@ -25,6 +23,7 @@ def list_assets(creator_uid: Optional[str] = Query(None)):
                 cursor = conn.execute("SELECT asset_id, creator_uid, title, video_status, transcript_status, transcript_path FROM media_assets")
             return [dict(row) for row in cursor.fetchall()]
     except Exception:
+        logger.exception("list_assets failed")
         return []
 
 @router.get("/{asset_id}/transcript")
@@ -79,7 +78,7 @@ def delete_asset(asset_id: str):
                     try:
                         full_video_path.unlink()
                     except Exception as e:
-                        print(f"Failed to delete video file {full_video_path}: {e}")
+                        logger.warning(f"Failed to delete video file {full_video_path}: {e}")
                         
             # Delete transcript file
             if transcript_name:
@@ -88,7 +87,7 @@ def delete_asset(asset_id: str):
                     try:
                         full_transcript_path.unlink()
                     except Exception as e:
-                        print(f"Failed to delete transcript file {full_transcript_path}: {e}")
+                        logger.warning(f"Failed to delete transcript file {full_transcript_path}: {e}")
             
             # Delete from database
             conn.execute("DELETE FROM media_assets WHERE asset_id = ?", (asset_id,))

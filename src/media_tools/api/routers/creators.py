@@ -1,23 +1,65 @@
 from fastapi import APIRouter, HTTPException
 from media_tools.douyin.core.config_mgr import get_config
+from media_tools.db.core import get_db_connection
 import sqlite3
 import shutil
+import logging
+from pydantic import BaseModel
 
 router = APIRouter(prefix="/api/v1/creators", tags=["creators"])
+logger = logging.getLogger(__name__)
 
-def get_db_connection():
-    db_path = get_config().get_db_path()
-    return sqlite3.connect(db_path)
+
+class CreatorCreateRequest(BaseModel):
+    url: str
 
 @router.get("/")
 def list_creators():
     try:
         with get_db_connection() as conn:
             conn.row_factory = sqlite3.Row
-            cursor = conn.execute("SELECT uid, nickname, sec_user_id, sync_status FROM creators")
+            cursor = conn.execute("""
+                SELECT
+                    c.uid,
+                    c.nickname,
+                    c.sec_user_id,
+                    c.sync_status,
+                    c.avatar,
+                    c.bio,
+                    c.last_fetch_time,
+                    COUNT(ma.asset_id) AS asset_count,
+                    COALESCE(SUM(CASE WHEN ma.video_status = 'downloaded' THEN 1 ELSE 0 END), 0) AS downloaded_videos_count,
+                    COALESCE(SUM(CASE WHEN ma.transcript_status = 'completed' THEN 1 ELSE 0 END), 0) AS transcript_completed_count,
+                    COALESCE(SUM(CASE WHEN ma.transcript_status NOT IN ('completed', 'none') THEN 1 ELSE 0 END), 0) AS transcript_pending_count
+                FROM creators c
+                LEFT JOIN media_assets ma ON ma.creator_uid = c.uid
+                GROUP BY c.uid, c.nickname, c.sec_user_id, c.sync_status, c.avatar, c.bio, c.last_fetch_time
+                ORDER BY
+                    CASE WHEN c.last_fetch_time IS NULL THEN 1 ELSE 0 END,
+                    c.last_fetch_time DESC,
+                    c.nickname COLLATE NOCASE ASC
+            """)
             return [dict(row) for row in cursor.fetchall()]
     except Exception:
+        logger.exception("list_creators failed")
         return []
+
+
+@router.post("/")
+def create_creator(req: CreatorCreateRequest):
+    try:
+        from media_tools.douyin.core.following_mgr import add_user
+
+        success, user_info = add_user(req.url)
+        if success:
+            return {"status": "created", "creator": user_info}
+        if user_info:
+            return {"status": "exists", "creator": user_info}
+        raise HTTPException(status_code=400, detail="无法添加创作者，请检查主页链接是否有效")
+    except HTTPException:
+        raise
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
 
 @router.delete("/{uid}")
 def delete_creator(uid: str):
@@ -50,7 +92,7 @@ def delete_creator(uid: str):
                         try:
                             full_video_path.unlink()
                         except Exception as e:
-                            print(f"Failed to delete video file {full_video_path}: {e}")
+                            logger.warning(f"Failed to delete video file {full_video_path}: {e}")
                             
                 # Delete transcript file
                 if transcript_name:
@@ -59,7 +101,7 @@ def delete_creator(uid: str):
                         try:
                             full_transcript_path.unlink()
                         except Exception as e:
-                            print(f"Failed to delete transcript file {full_transcript_path}: {e}")
+                            logger.warning(f"Failed to delete transcript file {full_transcript_path}: {e}")
             
             # Also try to delete the creator's download folder if it exists
             # Usually it's named after the nickname or uid
@@ -70,7 +112,7 @@ def delete_creator(uid: str):
                         try:
                             shutil.rmtree(creator_dir)
                         except Exception as e:
-                            print(f"Failed to delete creator directory {creator_dir}: {e}")
+                            logger.warning(f"Failed to delete creator directory {creator_dir}: {e}")
             
             # Delete assets from database
             conn.execute("DELETE FROM media_assets WHERE creator_uid = ?", (uid,))
