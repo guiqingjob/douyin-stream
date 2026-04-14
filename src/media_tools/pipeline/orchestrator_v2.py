@@ -575,6 +575,27 @@ class OrchestratorV2:
                     max_attempts=max_attempts,
                     transcript_path=str(result.transcript_path) if result.transcript_path else "",
                 )
+                
+                # 同步更新数据库
+                try:
+                    from media_tools.douyin.core.config_mgr import get_config
+                    import sqlite3
+                    db_path = get_config().get_db_path()
+                    with sqlite3.connect(db_path) as conn:
+                        cursor = conn.cursor()
+                        cursor.execute("""
+                            UPDATE media_assets 
+                            SET transcript_path = ?, transcript_status = 'completed', update_time = CURRENT_TIMESTAMP
+                            WHERE video_path LIKE ? OR title LIKE ?
+                        """, (
+                            str(result.transcript_path.name) if result.transcript_path else "", 
+                            f"%{video_path.name}%",
+                            f"%{video_path.stem}%"
+                        ))
+                        conn.commit()
+                except Exception as e:
+                    logger.warning(f"更新 media_assets 转写状态失败: {e}")
+
                 self._fire_progress(1, 1, video_path, "成功")
                 logger.info(f"视频处理成功: {video_path} (尝试 {attempt} 次, 耗时 {result.duration:.1f}s)")
                 return result
