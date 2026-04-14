@@ -78,3 +78,30 @@ def get_task_status(task_id: str):
             return {"status": "NOT_FOUND"}
     except Exception:
         return {"status": "ERROR"}
+
+from typing import List
+class BatchPipelineRequest(BaseModel):
+    video_urls: List[str]
+    auto_delete: bool = True
+
+def _background_batch_worker(task_id: str, req: BatchPipelineRequest):
+    try:
+        from media_tools.pipeline.worker import run_batch_pipeline
+        result = run_batch_pipeline(
+            video_urls=req.video_urls,
+            update_progress_fn=lambda p, m: update_task_progress(task_id, p, m),
+            delete_after=req.auto_delete
+        )
+        msg = f"批量处理完成：成功 {result.get('success_count', 0)} 个，失败 {result.get('failed_count', 0)} 个"
+        with get_db_connection() as conn:
+            conn.execute("UPDATE task_queue SET status='COMPLETED', progress=1.0, payload=? WHERE task_id=?", (f'{{"msg": "{msg}"}}', task_id))
+    except Exception as e:
+        with get_db_connection() as conn:
+            conn.execute("UPDATE task_queue SET status='FAILED', error_msg=? WHERE task_id=?", (str(e), task_id))
+
+@router.post("/pipeline/batch")
+def trigger_batch_pipeline(req: BatchPipelineRequest, background_tasks: BackgroundTasks):
+    task_id = str(uuid.uuid4())
+    update_task_progress(task_id, 0.0, f"Initializing batch pipeline for {len(req.video_urls)} videos...")
+    background_tasks.add_task(_background_batch_worker, task_id, req)
+    return {"task_id": task_id, "status": "started"}
