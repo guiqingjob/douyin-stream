@@ -146,3 +146,6 @@ run_script.py
 test_db.py
 test_dl.py
 test_path.py
+
+# 临时/实验性测试目录（如需纳入正式测试请再显式提交）
+tests/pipeline/
