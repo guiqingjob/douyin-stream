@@ -24,6 +24,7 @@ from ..transcribe.flow import run_real_flow
 from ..transcribe.runtime import get_export_config, ensure_dir, now_stamp
 from ..transcribe.config import load_config as load_transcribe_config
 from .config import PipelineConfig, load_pipeline_config
+from .orchestrator import _lookup_video_title
 
 # 配置日志记录器
 logger = logging.getLogger(__name__)
@@ -473,6 +474,9 @@ class OrchestratorV2:
         export_config = get_export_config(self.config.export_format)
 
         try:
+            # 从数据库查询视频标题
+            video_title = _lookup_video_title(video_path)
+
             # 执行转写流程
             result = await run_real_flow(
                 file_path=video_path,
@@ -481,6 +485,7 @@ class OrchestratorV2:
                 export_config=export_config,
                 should_delete=self.config.delete_after_export,
                 account_id=self.config.account_id,
+                title=video_title,
             )
 
             # 可选：删除原视频
@@ -580,18 +585,35 @@ class OrchestratorV2:
                 try:
                     from media_tools.douyin.core.config_mgr import get_config
                     import sqlite3
+                    import re
                     db_path = get_config().get_db_path()
-                    with sqlite3.connect(db_path) as conn:
+                    with sqlite3.connect(db_path, timeout=15.0) as conn:
+                        conn.execute("PRAGMA journal_mode=WAL;")
                         cursor = conn.cursor()
-                        cursor.execute("""
-                            UPDATE media_assets 
-                            SET transcript_path = ?, transcript_status = 'completed', update_time = CURRENT_TIMESTAMP
-                            WHERE video_path LIKE ? OR title LIKE ?
-                        """, (
-                            str(result.transcript_path.name) if result.transcript_path else "", 
-                            f"%{video_path.name}%",
-                            f"%{video_path.stem}%"
-                        ))
+                        
+                        transcript_name = str(result.transcript_path.name) if result.transcript_path else ""
+                        aweme_matches = re.findall(r'\d{19}', video_path.name)
+                        
+                        if aweme_matches:
+                            asset_id = aweme_matches[0]
+                            cursor.execute("""
+                                UPDATE media_assets 
+                                SET transcript_path = ?, transcript_status = 'completed', update_time = CURRENT_TIMESTAMP
+                                WHERE asset_id = ?
+                            """, (
+                                transcript_name, 
+                                asset_id
+                            ))
+                        else:
+                            cursor.execute("""
+                                UPDATE media_assets 
+                                SET transcript_path = ?, transcript_status = 'completed', update_time = CURRENT_TIMESTAMP
+                                WHERE video_path LIKE ? OR title LIKE ?
+                            """, (
+                                transcript_name, 
+                                f"%{video_path.name}%",
+                                f"%{video_path.stem}%"
+                            ))
                         conn.commit()
                 except Exception as e:
                     logger.warning(f"更新 media_assets 转写状态失败: {e}")

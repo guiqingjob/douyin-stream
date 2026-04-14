@@ -13,10 +13,7 @@ import sys
 from datetime import datetime
 from pathlib import Path
 
-import f2
-from f2.apps.douyin.db import AsyncUserDB
-from f2.apps.douyin.handler import DouyinHandler
-from f2.utils.conf_manager import ConfigManager
+from .f2_helper import get_f2_kwargs as _build_f2_kwargs
 
 from .ui import (
     error,
@@ -39,58 +36,32 @@ def _get_skill_dir():
     return get_config().project_root
 
 
-def _merge_config(main_conf: dict, custom_conf: dict) -> dict:
-    """合并配置"""
-    result = (main_conf or {}).copy()
-    for key, value in (custom_conf or {}).items():
-        if isinstance(value, dict) and key in result and isinstance(result[key], dict):
-            result[key].update(value)
-        else:
-            result[key] = value
-    return result
-
-
 def _get_f2_kwargs() -> dict:
     """获取 F2 所需的配置参数"""
-    config = get_config()
+    return _build_f2_kwargs()
 
-    # 加载 F2 默认配置
-    try:
-        main_conf_manager = ConfigManager(f2.F2_CONFIG_FILE_PATH)
-        all_conf = main_conf_manager.config
-        main_conf = all_conf.get("douyin", {}) if all_conf else {}
-    except Exception:
-        main_conf = {}
 
-    # 加载自定义配置
-    custom_conf = {
-        "cookie": config.get_cookie(),
-        "path": str(config.get_download_path()),
-    }
-
-    # 合并配置
-    kwargs = _merge_config(main_conf, custom_conf)
-
-    # 添加必要参数
-    kwargs["app_name"] = "douyin"
-    kwargs["mode"] = "post"
-    kwargs["path"] = str(config.get_download_path())
-
-    # 确保 headers 存在
-    if not kwargs.get("headers"):
-        kwargs["headers"] = {
-            "User-Agent": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36",
-            "Referer": "https://www.douyin.com/",
-        }
-
-    return kwargs
+def _prepare_f2_temp_dir(downloads_path: Path) -> Path:
+    """清理并重建 F2 临时目录，避免残留文件和缺失父目录。"""
+    f2_temp_path = downloads_path / "douyin"
+    if f2_temp_path.exists():
+        if f2_temp_path.is_dir():
+            shutil.rmtree(f2_temp_path)
+        else:
+            f2_temp_path.unlink()
+        logger.info("已清理 F2 临时目录")
+        logger.info(info("[清理] F2 临时目录"))
+    f2_temp_path.mkdir(parents=True, exist_ok=True)
+    return f2_temp_path
 
 
 def _create_video_metadata_table():
     """确保视频元数据表存在"""
     config = get_config()
     db_path = config.get_db_path()
-    conn = sqlite3.connect(str(db_path))
+    conn = sqlite3.connect(str(db_path), timeout=15.0)
+    conn.execute("PRAGMA journal_mode=WAL;")
+    conn.execute("PRAGMA journal_mode=WAL;")
     cursor = conn.cursor()
 
     cursor.execute(
@@ -135,7 +106,8 @@ def _save_video_metadata_from_raw(raw_data: dict, nickname: str = ""):
 
     config = get_config()
     db_path = config.get_db_path()
-    conn = sqlite3.connect(str(db_path))
+    conn = sqlite3.connect(str(db_path), timeout=15.0)
+    conn.execute("PRAGMA journal_mode=WAL;")
     cursor = conn.cursor()
 
     fetch_time = int(datetime.now().timestamp())
@@ -178,6 +150,63 @@ def _save_video_metadata_from_raw(raw_data: dict, nickname: str = ""):
     conn.commit()
     conn.close()
     return saved_count
+
+
+def _save_single_video_metadata(video: dict, nickname: str = "") -> int:
+    """保存单个视频的元数据"""
+    if not video:
+        return 0
+
+    aweme_id = video.get("aweme_id", "")
+    if not aweme_id:
+        return 0
+
+    config = get_config()
+    db_path = config.get_db_path()
+    conn = sqlite3.connect(str(db_path), timeout=15.0)
+    conn.execute("PRAGMA journal_mode=WAL;")
+    cursor = conn.cursor()
+
+    stats = video.get("statistics", {}) or {}
+    author = video.get("author", {}) or {}
+    video_nickname = (
+        video.get("nickname")
+        or author.get("nickname")
+        or nickname
+    )
+    uid = (
+        video.get("uid")
+        or author.get("uid")
+        or video.get("sec_user_id", "")
+    )
+
+    cursor.execute(
+        """
+        INSERT OR REPLACE INTO video_metadata
+        (aweme_id, uid, nickname, desc, create_time, duration,
+         digg_count, comment_count, collect_count, share_count, play_count,
+         fetch_time)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+    """,
+        (
+            aweme_id,
+            uid,
+            video_nickname,
+            video.get("desc", ""),
+            video.get("create_time", 0),
+            video.get("video", {}).get("duration", 0) if video.get("video") else 0,
+            stats.get("digg_count", 0),
+            stats.get("comment_count", 0),
+            stats.get("collect_count", 0),
+            stats.get("share_count", 0),
+            stats.get("play_count", 0),
+            int(datetime.now().timestamp()),
+        ),
+    )
+
+    conn.commit()
+    conn.close()
+    return 1
 
 
 def _clean_video_title(raw_title: str) -> str:
@@ -231,12 +260,13 @@ def _rename_videos_in_downloads(nickname: str, uid: str, downloads_path: Path) -
     # 连接数据库获取该博主最近的视频标题
     conn = None
     try:
-        conn = sqlite3.connect(str(db_path))
+        conn = sqlite3.connect(str(db_path), timeout=15.0)
+        conn.execute("PRAGMA journal_mode=WAL;")
         cursor = conn.cursor()
 
-        # 查询该博主最近下载的视频标题
+        # 查询该博主所有视频标题（不限数量，确保批量下载时全部能匹配）
         cursor.execute(
-            "SELECT aweme_id, desc FROM video_metadata WHERE uid = ? ORDER BY fetch_time DESC LIMIT 10",
+            "SELECT aweme_id, desc FROM video_metadata WHERE uid = ? ORDER BY fetch_time DESC",
             (uid,)
         )
         recent_videos = cursor.fetchall()
@@ -258,12 +288,27 @@ def _rename_videos_in_downloads(nickname: str, uid: str, downloads_path: Path) -
 
             stem = f.stem
 
-            # 方法1：尝试从文件名提取 aweme_id
+            # 方法0：直接从文件名提取 aweme_id（处理 F2 原始格式如 7620767195682364133_video.mp4）
             aweme_id = None
-            for vid in title_map.keys():
-                if vid in stem:
-                    aweme_id = vid
-                    break
+            aweme_match = re.match(r'^(\d{15,})(?:_video)?$', stem)
+            if aweme_match:
+                candidate = aweme_match.group(1)
+                if candidate in title_map:
+                    aweme_id = candidate
+                else:
+                    # 不在 title_map 里，直接查 DB
+                    cursor.execute("SELECT desc FROM video_metadata WHERE aweme_id = ?", (candidate,))
+                    row = cursor.fetchone()
+                    if row and row[0]:
+                        title_map[candidate] = row[0]
+                        aweme_id = candidate
+
+            # 方法1：尝试从文件名匹配 title_map 中的 aweme_id
+            if not aweme_id:
+                for vid in title_map.keys():
+                    if vid in stem:
+                        aweme_id = vid
+                        break
 
             # 方法2：如果文件名不包含 aweme_id，使用标题关键词匹配
             if not aweme_id:
@@ -377,7 +422,8 @@ def _sync_media_assets(uid: str, nickname: str, folder_name: str):
     downloads_path = config.get_download_path()
 
     try:
-        conn = sqlite3.connect(str(db_path))
+        conn = sqlite3.connect(str(db_path), timeout=15.0)
+        conn.execute("PRAGMA journal_mode=WAL;")
         cursor = conn.cursor()
 
         # 获取该用户的所有视频元数据
@@ -479,7 +525,7 @@ def _generate_data():
     generate_data()
 
 
-async def _download_with_stats(url: str, max_counts: int = None):
+async def _download_with_stats(url: str, max_counts: int = None, skip_existing: bool = True):
     """
     使用 F2 API 下载视频并保存统计数据
 
@@ -487,6 +533,9 @@ async def _download_with_stats(url: str, max_counts: int = None):
         url: 用户主页 URL
         max_counts: 最大下载数量
     """
+    from f2.apps.douyin.db import AsyncUserDB
+    from f2.apps.douyin.handler import DouyinHandler
+
     logger.info(f"开始下载: {url}")
     kwargs = _get_f2_kwargs()
     kwargs["url"] = url
@@ -499,11 +548,7 @@ async def _download_with_stats(url: str, max_counts: int = None):
     downloads_path = config.get_download_path()
 
     # 清理临时目录
-    f2_temp_path = downloads_path / "douyin"
-    if f2_temp_path.exists():
-        shutil.rmtree(f2_temp_path)
-        logger.info("已清理 F2 临时目录")
-        logger.info(info("[清理] F2 临时目录"))
+    f2_temp_path = _prepare_f2_temp_dir(downloads_path)
 
     logger.info(info("[下载] 开始下载..."))
     logger.info(info(f"[路径] {downloads_path}"))
@@ -538,7 +583,9 @@ async def _download_with_stats(url: str, max_counts: int = None):
         user_path = await handler.get_or_add_user_data(kwargs, sec_user_id, db)
 
     # 从数据库获取用户信息（通过 sec_user_id 查找）
-    conn = sqlite3.connect(str(config.get_db_path()))
+    db_path = config.get_db_path()
+    conn = sqlite3.connect(str(db_path), timeout=15.0)
+    conn.execute("PRAGMA journal_mode=WAL;")
     cursor = conn.cursor()
     cursor.execute(
         "SELECT uid, nickname FROM user_info_web WHERE sec_user_id LIKE ? LIMIT 1",
@@ -549,7 +596,8 @@ async def _download_with_stats(url: str, max_counts: int = None):
     
     # 如果没找到，使用最新记录（向后兼容）
     if not user_info:
-        conn = sqlite3.connect(str(config.get_db_path()))
+        conn = sqlite3.connect(str(db_path), timeout=15.0)
+        conn.execute("PRAGMA journal_mode=WAL;")
         cursor = conn.cursor()
         cursor.execute(
             "SELECT uid, nickname FROM user_info_web ORDER BY ROWID DESC LIMIT 1"
@@ -566,37 +614,40 @@ async def _download_with_stats(url: str, max_counts: int = None):
 
     # 统计本地已有视频（增量下载）
     existing_videos = set()
-    if user_path.exists():
-        existing_videos = {f.stem for f in user_path.glob("*.mp4")}
-        if existing_videos:
-            logger.info(info(f"[本地] 已有 {len(existing_videos)} 个视频文件，将跳过已下载的"))
+    if skip_existing:
+        if user_path.exists():
+            existing_videos = {f.stem for f in user_path.glob("*.mp4")}
+            if existing_videos:
+                logger.info(info(f"[本地] 已有 {len(existing_videos)} 个视频文件，将跳过已下载的"))
 
-    # 同时从数据库获取已下载的视频 ID（防止文件被删除后重复下载）
-    config = get_config()
-    db_path = config.get_db_path()
-    try:
-        conn = sqlite3.connect(str(db_path))
-        cursor = conn.cursor()
-        cursor.execute(
-            "SELECT aweme_id FROM video_metadata WHERE uid = ? AND aweme_id != ''",
-            (uid,)
-        )
-        db_videos = {row[0] for row in cursor.fetchall() if row[0]}
-        conn.close()
-        
-        if db_videos:
-            # 合并本地文件和数据库记录
-            new_from_db = db_videos - existing_videos
-            if new_from_db:
-                logger.info(info(f"[数据库] 发现 {len(new_from_db)} 条历史记录（文件可能已删除）"))
-            existing_videos.update(db_videos)
-    except Exception as e:
-        logger.warning(f"查询数据库失败: {e}")
+        # 同时从数据库获取已下载的视频 ID（防止文件被删除后重复下载）
+        try:
+            conn = sqlite3.connect(str(db_path), timeout=15.0)
+            conn.execute("PRAGMA journal_mode=WAL;")
+            cursor = conn.cursor()
+            cursor.execute(
+                "SELECT aweme_id FROM video_metadata WHERE uid = ? AND aweme_id != ''",
+                (uid,)
+            )
+            db_videos = {row[0] for row in cursor.fetchall() if row[0]}
+            conn.close()
+            
+            if db_videos:
+                # 合并本地文件和数据库记录
+                new_from_db = db_videos - existing_videos
+                if new_from_db:
+                    logger.info(info(f"[数据库] 发现 {len(new_from_db)} 条历史记录（文件可能已删除）"))
+                existing_videos.update(db_videos)
+        except Exception as e:
+            logger.warning(f"查询数据库失败: {e}")
+    else:
+        logger.info(info("[模式] 全量重拉：不跳过已存在视频"))
 
     # 收集所有视频数据
     total_downloaded = 0
     total_skipped = 0
     total_stats_saved = 0
+    new_aweme_ids = []
 
     logger.info(info("[下载] 正在获取视频列表..."))
     logger.info("正在获取视频列表...")
@@ -613,15 +664,18 @@ async def _download_with_stats(url: str, max_counts: int = None):
                 stats_saved = _save_video_metadata_from_raw(raw_data, nickname)
                 total_stats_saved += stats_saved
 
-                # 增量下载：过滤已存在的视频
-                new_videos = []
-                for video in video_list:
-                    aweme_id = video.get('aweme_id', '') if isinstance(video, dict) else getattr(video, 'aweme_id', '')
-                    if aweme_id and aweme_id not in existing_videos:
-                        new_videos.append(video)
-                        existing_videos.add(aweme_id)
-                    else:
-                        total_skipped += 1
+                # 增量/全量：过滤或全量重拉
+                if skip_existing:
+                    new_videos = []
+                    for video in video_list:
+                        aweme_id = video.get('aweme_id', '') if isinstance(video, dict) else getattr(video, 'aweme_id', '')
+                        if aweme_id and aweme_id not in existing_videos:
+                            new_videos.append(video)
+                            existing_videos.add(aweme_id)
+                        else:
+                            total_skipped += 1
+                else:
+                    new_videos = list(video_list)
 
                 if new_videos:
                     # 只下载新视频
@@ -629,7 +683,14 @@ async def _download_with_stats(url: str, max_counts: int = None):
                         kwargs, new_videos, user_path
                     )
                     total_downloaded += len(new_videos)
-                    logger.info(info(f"[下载] 本页 {len(new_videos)} 个新视频（跳过 {len(video_list) - len(new_videos)} 个已有）"))
+                    for video in new_videos:
+                        aweme_id = video.get('aweme_id', '') if isinstance(video, dict) else getattr(video, 'aweme_id', '')
+                        if aweme_id:
+                            new_aweme_ids.append(aweme_id)
+                    if skip_existing:
+                        logger.info(info(f"[下载] 本页 {len(new_videos)} 个新视频（跳过 {len(video_list) - len(new_videos)} 个已有）"))
+                    else:
+                        logger.info(info(f"[下载] 本页 {len(new_videos)} 个视频（全量重拉）"))
                 else:
                     logger.info(info(f"[跳过] 本页 {len(video_list)} 个视频均为本地已有"))
 
@@ -674,6 +735,23 @@ async def _download_with_stats(url: str, max_counts: int = None):
     logger.info(info("[数据] 生成 Web 数据文件..."))
     _generate_data()
 
+    new_files = []
+    if new_aweme_ids and folder_name:
+        try:
+            conn = sqlite3.connect(str(db_path), timeout=15.0)
+            conn.execute("PRAGMA journal_mode=WAL;")
+            cursor = conn.cursor()
+            placeholders = ','.join(['?'] * len(new_aweme_ids))
+            cursor.execute(f"SELECT video_path FROM media_assets WHERE asset_id IN ({placeholders})", new_aweme_ids)
+            for row in cursor.fetchall():
+                if row[0]:
+                    full_path = downloads_path / row[0]
+                    if full_path.exists():
+                        new_files.append(str(full_path))
+            conn.close()
+        except Exception as e:
+            logger.error(f"查询新文件路径失败: {e}")
+
     logger.info(f"下载完成: 共 {total_downloaded} 个视频")
     logger.info(success(f"\n[完成] 共下载 {total_downloaded} 个视频"))
     if folder_name:
@@ -682,11 +760,12 @@ async def _download_with_stats(url: str, max_counts: int = None):
     return {
         'success': True,
         'uid': uid,
-        'nickname': nickname
+        'nickname': nickname,
+        'new_files': new_files
     }
 
 
-def download_by_url_sync(url, max_counts=None):
+def download_by_url_sync(url, max_counts=None, skip_existing: bool = True):
     """同步包装器：通过 URL 下载单个博主的视频"""
     try:
         # 检查是否已有运行中的事件循环
@@ -712,22 +791,23 @@ def download_by_url_sync(url, max_counts=None):
             )
         else:
             # 没有运行中的循环，可以安全使用 asyncio.run()
-            return asyncio.run(_download_with_stats(url, max_counts))
+            return asyncio.run(_download_with_stats(url, max_counts, skip_existing=skip_existing))
     except Exception as e:
         logger.info(error(f"下载出错: {e}"))
         return False
 
 
-def download_by_url(url, max_counts=None):
+def download_by_url(url, max_counts=None, disable_auto_transcribe=False, skip_existing: bool = True):
     """
     通过 URL 下载单个博主的视频
 
     Args:
         url: 博主主页 URL
         max_counts: 最大下载数量
+        disable_auto_transcribe: 是否禁用自动转写
 
     Returns:
-        dict: 包含 success, uid, nickname 的字典，或 False
+        dict: 包含 success, uid, nickname, new_files 的字典，或 False
     """
     print_header("下载博主视频")
     logger.info(info(f"博主 URL: {url}"))
@@ -738,10 +818,10 @@ def download_by_url(url, max_counts=None):
     logger.info(info("开始下载..."))
     logger.info()
 
-    result = download_by_url_sync(url, max_counts)
+    result = download_by_url_sync(url, max_counts, skip_existing=skip_existing)
 
     # 【修复异步报错】：下载完成后触发自动转写（此时事件循环已关闭）
-    if isinstance(result, dict) and result.get('success'):
+    if not disable_auto_transcribe and isinstance(result, dict) and result.get('success'):
         try:
             _trigger_auto_transcribe(result['uid'], result['nickname'])
         except Exception as e:
@@ -755,7 +835,107 @@ def download_by_url(url, max_counts=None):
         return False
 
 
-def download_by_uid(uid, max_counts=None):
+async def download_aweme_by_url(url: str):
+    """按单个视频 URL 精确下载一个视频"""
+    from f2.apps.douyin.db import AsyncUserDB
+    from f2.apps.douyin.handler import DouyinHandler
+    from f2.apps.douyin.utils import AwemeIdFetcher
+
+    print_header("下载单个视频")
+    logger.info(info(f"视频 URL: {url}"))
+    logger.info()
+
+    config = get_config()
+    downloads_path = config.get_download_path()
+    kwargs = _get_f2_kwargs()
+    kwargs["url"] = url
+
+    _prepare_f2_temp_dir(downloads_path)
+
+    _create_video_metadata_table()
+
+    try:
+        aweme_id = await AwemeIdFetcher.get_aweme_id(url)
+    except Exception as e:
+        logger.info(error(f"解析视频 ID 失败: {e}"))
+        return False
+
+    if not aweme_id:
+        logger.info(error("无法解析视频 ID"))
+        return False
+
+    handler = DouyinHandler(kwargs)
+
+    try:
+        aweme_data = await handler.fetch_one_video(aweme_id)
+    except Exception as e:
+        logger.info(error(f"获取视频详情失败: {e}"))
+        return False
+
+    aweme_dict = aweme_data._to_dict()
+    uid = str(aweme_dict.get("uid") or aweme_dict.get("author", {}).get("uid") or "")
+    nickname = str(aweme_dict.get("nickname") or aweme_dict.get("author", {}).get("nickname") or "")
+
+    async with AsyncUserDB(str(config.get_db_path())) as db:
+        user_path = await handler.get_or_add_user_data(kwargs, aweme_data.sec_user_id, db)
+
+    before_files = {p.resolve() for p in user_path.glob("*.mp4")} if user_path.exists() else set()
+
+    _save_single_video_metadata(aweme_dict, nickname=nickname)
+
+    await handler.downloader.create_download_tasks(kwargs, aweme_dict, user_path)
+
+    folder_name = None
+
+    post_path = downloads_path / "douyin" / "post"
+    if post_path.exists():
+        for folder in post_path.iterdir():
+            if folder.is_dir():
+                folder_name = _reorganize_files(folder.name, uid) or folder_name
+
+    folder_name = _rename_videos_in_downloads(nickname, uid, downloads_path) or folder_name or user_path.name
+
+    if uid:
+        _sync_media_assets(uid, nickname, folder_name)
+        _update_last_fetch_time(uid, nickname or folder_name)
+
+    _generate_data()
+
+    new_files: list[str] = []
+    target_dir = downloads_path / folder_name if folder_name else user_path
+    if target_dir.exists():
+        for file_path in target_dir.glob("*.mp4"):
+            if file_path.resolve() not in before_files:
+                new_files.append(str(file_path))
+
+    try:
+        with sqlite3.connect(str(config.get_db_path()), timeout=15.0) as conn:
+            conn.execute("PRAGMA journal_mode=WAL;")
+            cursor = conn.cursor()
+            cursor.execute(
+                "SELECT video_path FROM media_assets WHERE asset_id = ?",
+                (aweme_id,),
+            )
+            row = cursor.fetchone()
+            if row and row[0]:
+                full_path = downloads_path / row[0]
+                if full_path.exists():
+                    if str(full_path) not in new_files:
+                        new_files.append(str(full_path))
+    except Exception as e:
+        logger.warning(f"查询单视频文件路径失败: {e}")
+
+    logger.info(success(f"[完成] 单个视频下载成功: {aweme_id}"))
+    return {
+        "success": True,
+        "uid": uid,
+        "nickname": nickname,
+        "aweme_id": aweme_id,
+        "new_files": new_files,
+    }
+
+
+def download_by_uid(uid, max_counts=None, skip_existing: bool = True):
     """
     通过 UID 下载博主视频
 
@@ -783,11 +963,7 @@ def download_by_uid(uid, max_counts=None):
     name = user.get("nickname", user.get("name", "未知"))
     logger.info(info(f"博主: {name} (UID: {uid})"))
 
-    result = download_by_url(url, max_counts)
-
-    # 检查是否开启全自动模式
-    if isinstance(result, dict) and result.get('success'):
-        _trigger_auto_transcribe(uid, name)
+    result = download_by_url(url, max_counts, skip_existing=skip_existing)
     
     return result
 

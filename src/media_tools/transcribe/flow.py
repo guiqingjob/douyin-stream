@@ -205,7 +205,7 @@ def build_export_output_path(
         # 限制长度
         if len(clean_title) > 50:
             clean_title = clean_title[:50] + "..."
-        filename = f"{clean_title}.md"
+        filename = f"{clean_title}{export_config.extension}"
     else:
         source_path = Path(input_path)
         filename = f"{source_path.stem}-{stamp}{export_config.extension}"
@@ -258,6 +258,7 @@ async def run_real_flow(
     should_delete: bool = False,
     account_id: str = "",
     export_gate: asyncio.Semaphore | None = None,
+    title: str | None = None,
 ) -> FlowResult:
     input_path = Path(file_path).resolve()
     output_dir = Path(download_dir).resolve()
@@ -340,15 +341,15 @@ async def run_real_flow(
             
             run_stamp = now_stamp()
 
-            # 从数据库获取视频原始标题
-            title = _get_video_title_from_db(input_path)
+            # 从数据库获取视频原始标题（优先使用调用方传入的 title）
+            resolved_title = title or _get_video_title_from_db(input_path)
 
             export_out = build_export_output_path(
                 input_path=input_path,
                 output_dir=output_dir,
                 export_config=export_config,
                 run_stamp=run_stamp,
-                title=title,
+                title=resolved_title,
             )
 
             ensure_dir(output_dir)
