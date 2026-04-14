@@ -18,7 +18,6 @@ dependencies = [
 
 [project.scripts]
 media-tools-cli = "media_tools.cli_main:main"
-media-tools-web = "media_tools.web.run:main"
 # Qwen 转写 CLI（保留原有命令）
 qwen-transcribe = "media_tools.transcribe.cli.main:main"
 qwt = "media_tools.transcribe.cli.main:main"
