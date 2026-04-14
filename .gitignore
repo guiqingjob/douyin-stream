@@ -149,3 +149,20 @@ test_path.py
 
 # 临时/实验性测试目录（如需纳入正式测试请再显式提交）
 tests/pipeline/
+config.yaml
+following.json
+demo_v2_features.py
+*_REPORT*.md
+*_PLAN.md
+*_GUIDE.md
+WEB_*.md
+change.md
+.usage_stats.json
+.first_visit_done
+CLEANER_USAGE.md
+DELIVERABLES.md
+ITERATION_SUMMARY.md
+PLAN.md
+README_V2.md
+TEST_PLAN_USER_SCENARIOS.md
+TROUBLESHOOTING.md
