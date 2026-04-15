@@ -21,8 +21,25 @@ from .ui import (
     success,
     warning,
 )
+from pathlib import Path
+import os
 
 logger = get_logger(__name__)
+
+
+def _resolve_safe_path(base_dir: Path, relative_path: str | None) -> Path | None:
+    """Resolve a path and ensure it stays within base_dir."""
+    if not relative_path:
+        return None
+    try:
+        base = base_dir.resolve()
+        target = (base / relative_path).resolve()
+        if not str(target).startswith(str(base) + os.sep) and str(target) != str(base):
+            logger.warning(f"Path traversal blocked: {relative_path} -> {target}")
+            return None
+        return target
+    except Exception:
+        return None
 
 
 def _resolve_sec_user_id(url: str) -> str | None:
@@ -283,17 +300,17 @@ def remove_user(uid, delete_local=False):
 
     # 删除本地视频文件
     if delete_local:
-        downloads_path = config.get_download_path()
-        user_dir = downloads_path / name
-        if not user_dir.exists():
-            user_dir = downloads_path / str(uid)
+        downloads_path = config.get_download_path().resolve()
+        user_dir = _resolve_safe_path(downloads_path, name)
+        if not user_dir or not user_dir.exists():
+            user_dir = _resolve_safe_path(downloads_path, str(uid))
 
-        if user_dir.exists():
+        if user_dir and user_dir.exists():
             import shutil
             try:
                 shutil.rmtree(user_dir)
                 logger.info(success(f"已删除本地视频文件: {user_dir}"))
-                
+
                 # 同步删除 media_assets 记录
                 with sqlite3.connect(str(db_path)) as conn:
                     cursor = conn.cursor()

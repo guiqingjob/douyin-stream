@@ -14,6 +14,24 @@ from datetime import datetime
 from pathlib import Path
 
 from .f2_helper import get_f2_kwargs as _build_f2_kwargs
+from ..logger import get_logger
+
+logger = get_logger('downloader')
+
+
+def _resolve_safe_path(base_dir: Path, relative_path: str | None) -> Path | None:
+    """Resolve a path and ensure it stays within base_dir."""
+    if not relative_path:
+        return None
+    try:
+        base = base_dir.resolve()
+        target = (base / relative_path).resolve()
+        if not str(target).startswith(str(base) + os.sep) and str(target) != str(base):
+            logger.warning(f"Path traversal blocked: {relative_path} -> {target}")
+            return None
+        return target
+    except Exception:
+        return None
 
 from .ui import (
     error,
@@ -254,7 +272,10 @@ def _rename_videos_in_downloads(nickname: str, uid: str, downloads_path: Path) -
 
     # 博主文件夹
     folder_name = nickname or uid
-    user_dir = downloads_path / folder_name
+    user_dir = _resolve_safe_path(downloads_path, folder_name)
+    if not user_dir:
+        logger.warning(f"Path traversal blocked for folder: {folder_name}")
+        user_dir = _resolve_safe_path(downloads_path, uid) or downloads_path
     user_dir.mkdir(parents=True, exist_ok=True)
 
     # 连接数据库获取该博主最近的视频标题
@@ -381,14 +402,17 @@ def _reorganize_files(nickname: str, uid: str) -> str:
     """整理文件到下载目录/{博主昵称}/"""
     config = get_config()
     downloads_path = config.get_download_path()
-    old_path = downloads_path / "douyin" / "post" / nickname
+    old_path = _resolve_safe_path(downloads_path, f"douyin/post/{nickname}")
 
-    if not old_path.exists():
+    if not old_path or not old_path.exists():
         return None
 
     # 使用博主昵称作为文件夹名
     folder_name = nickname or uid
-    new_path = downloads_path / folder_name
+    new_path = _resolve_safe_path(downloads_path, folder_name)
+    if not new_path:
+        logger.warning(f"Path traversal blocked for folder: {folder_name}")
+        new_path = _resolve_safe_path(downloads_path, uid) or downloads_path
     new_path.mkdir(parents=True, exist_ok=True)
 
     # 移动文件（文件名已经在下载时清洗过，无需重命名）
@@ -432,11 +456,14 @@ def _sync_media_assets(uid: str, nickname: str, folder_name: str):
         
         # 修复：优化文件查找算法，从O(N*M)降到O(N+M)
         # 先扫描一次所有文件，构建查找表
-        user_dir = downloads_path / folder_name
+        user_dir = _resolve_safe_path(downloads_path, folder_name)
+        if not user_dir:
+            logger.warning(f"Path traversal blocked for folder: {folder_name}")
+            user_dir = _resolve_safe_path(downloads_path, uid) or downloads_path
         file_lookup = {}  # {aweme_id: filename}
         keyword_lookup = {}  # {keyword: filename}
-        
-        if user_dir.exists():
+
+        if user_dir and user_dir.exists():
             # 一次性获取所有mp4文件
             all_files = list(user_dir.glob("*.mp4"))
             
@@ -986,11 +1013,11 @@ def _trigger_auto_transcribe(uid, nickname):
     try:
         # 查找博主文件夹
         downloads_path = config.get_download_path()
-        user_dir = downloads_path / nickname
-        
+        user_dir = _resolve_safe_path(downloads_path, nickname)
+
         # 如果昵称目录不存在，尝试用 UID
-        if not user_dir.exists():
-            user_dir = downloads_path / uid
+        if not user_dir or not user_dir.exists():
+            user_dir = _resolve_safe_path(downloads_path, uid)
         
         if not user_dir.exists():
             logger.info("⚠️  未找到下载目录，跳过自动转写")

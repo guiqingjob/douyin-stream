@@ -82,14 +82,20 @@ def startup_scheduler():
             from media_tools.transcribe.account_status import resolve_status_targets
 
             targets = resolve_status_targets()
-            for target in targets:
-                account_id = target.account_id or ""
-                if not has_claimed_equity_today(account_id):
-                    asyncio.run(claim_equity_quota(
-                        account_id=account_id,
-                        auth_state_path=target.auth_state_path,
-                    ))
-                    logger.info(f"Auto-claimed Qwen daily quota for account: {account_id or 'default'}")
+
+            loop = asyncio.new_event_loop()
+            asyncio.set_event_loop(loop)
+            try:
+                for target in targets:
+                    account_id = target.account_id or ""
+                    if not has_claimed_equity_today(account_id):
+                        result = loop.run_until_complete(claim_equity_quota(
+                            account_id=account_id,
+                            auth_state_path=target.auth_state_path,
+                        ))
+                        logger.info(f"Auto-claimed Qwen daily quota for account: {account_id or 'default'} (claimed={getattr(result, 'claimed', False)})")
+            finally:
+                loop.close()
         except Exception as e:
             logger.error(f"Auto-claim Qwen quota failed: {e}")
 

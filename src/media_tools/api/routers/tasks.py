@@ -7,12 +7,38 @@ from fastapi import APIRouter, BackgroundTasks, WebSocket, WebSocketDisconnect
 from pydantic import BaseModel
 from typing import List
 import uuid
+from pathlib import Path
+import sys
+import os
 from media_tools.pipeline.worker import run_pipeline_for_user, run_batch_pipeline, run_download_only
+from media_tools.douyin.core.config_mgr import get_config
 from media_tools.db.core import get_db_connection
 
 router = APIRouter(prefix="/api/v1/tasks", tags=["tasks"])
 logger = logging.getLogger(__name__)
 STALE_TASK_HOURS = 2
+
+
+def _is_allowed_scan_path(dir_path: Path) -> bool:
+    """Restrict directory scanning to safe roots."""
+    resolved = dir_path.resolve()
+    dir_str = str(resolved)
+
+    # Block traversal attempts explicitly
+    if ".." in str(dir_path):
+        return False
+
+    home = Path.home().resolve()
+    downloads = get_config().get_download_path().resolve()
+    allowed_roots = [home, downloads, Path("/tmp").resolve()]
+    if sys.platform == "darwin":
+        allowed_roots.append(Path("/Volumes").resolve())
+
+    for root in allowed_roots:
+        root_str = str(root)
+        if dir_str.startswith(root_str + os.sep) or dir_str == root_str:
+            return True
+    return False
 
 class PipelineRequest(BaseModel):
     url: str
@@ -416,8 +442,10 @@ async def trigger_local_transcribe(req: LocalTranscribeRequest, background_tasks
 
 @router.post("/transcribe/scan")
 def scan_directory(req: ScanDirectoryRequest):
-    from pathlib import Path
+    from fastapi import HTTPException
     dir_path = Path(req.directory)
+    if not _is_allowed_scan_path(dir_path):
+        raise HTTPException(status_code=400, detail="Invalid directory path")
     if not dir_path.is_dir():
         raise HTTPException(status_code=400, detail="目录不存在")
     extensions = {'.mp4', '.mov', '.avi', '.mkv', '.flv', '.webm'}
