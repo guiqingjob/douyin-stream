@@ -4,6 +4,7 @@ from pydantic import BaseModel
 from media_tools.douyin.core.config_mgr import get_config
 from media_tools.db.core import get_db_connection
 from typing import Optional
+import sqlite3
 import logging
 import io
 import zipfile

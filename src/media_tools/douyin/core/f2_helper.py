@@ -25,32 +25,34 @@ _disable_f2_bark_notifications()
 
 
 def _get_active_douyin_cookie_from_pool(db_path) -> str:
-    """从账号池里取一个当前可用的抖音 Cookie 作为兜底。"""
+    """从账号池里取一个当前可用的抖音 Cookie（轮换策略：最久未使用优先）。
+
+    取到后自动更新 last_used，实现 round-robin。
+    """
     try:
         with sqlite3.connect(str(db_path), timeout=15.0) as conn:
             cursor = conn.cursor()
+            # 最久未使用的排前面（NULL 即从未使用，最优先）
             cursor.execute("""
-                CREATE TABLE IF NOT EXISTS Accounts_Pool (
-                    account_id TEXT PRIMARY KEY,
-                    platform TEXT,
-                    cookie_data TEXT,
-                    status TEXT DEFAULT 'active',
-                    last_used TIMESTAMP,
-                    create_time TIMESTAMP DEFAULT CURRENT_TIMESTAMP
-                )
-            """)
-            cursor.execute("""
-                SELECT cookie_data
+                SELECT account_id, cookie_data
                 FROM Accounts_Pool
                 WHERE platform = 'douyin' AND status = 'active' AND cookie_data IS NOT NULL AND cookie_data != ''
                 ORDER BY
-                    CASE WHEN last_used IS NULL THEN 1 ELSE 0 END,
-                    last_used DESC,
+                    CASE WHEN last_used IS NULL THEN 0 ELSE 1 END,
+                    last_used ASC,
                     create_time ASC
                 LIMIT 1
             """)
             row = cursor.fetchone()
-            return row[0] if row and row[0] else ""
+            if row and row[1]:
+                # 更新 last_used 实现轮换
+                cursor.execute(
+                    "UPDATE Accounts_Pool SET last_used = CURRENT_TIMESTAMP WHERE account_id = ?",
+                    (row[0],)
+                )
+                conn.commit()
+                return row[1]
+            return ""
     except Exception:
         return ""
 
@@ -83,9 +85,11 @@ def get_f2_kwargs() -> dict:
         F2 配置字典
     """
     config = get_config()
-    cookie = config.get_cookie()
+
+    # 优先使用账号池（支持多账号轮换），config.yaml cookie 作为兜底
+    cookie = _get_active_douyin_cookie_from_pool(config.get_db_path())
     if not cookie:
-        cookie = _get_active_douyin_cookie_from_pool(config.get_db_path())
+        cookie = config.get_cookie()
 
     # 加载 F2 默认配置
     try:

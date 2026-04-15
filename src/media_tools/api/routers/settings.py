@@ -14,6 +14,10 @@ logger = logging.getLogger(__name__)
 class QwenConfigRequest(BaseModel):
     cookie_string: str
 
+class QwenAccountRequest(BaseModel):
+    cookie_string: str
+    remark: str = ""
+
 class DouyinAccountRequest(BaseModel):
     cookie_string: str
     remark: str = ""
@@ -33,8 +37,12 @@ def get_settings():
         cursor = conn.cursor()
 
         # Get douyin accounts
-        cursor.execute("SELECT account_id, status, last_used, remark FROM Accounts_Pool WHERE platform='douyin'")
-        accounts = [{"id": row[0], "status": row[1], "last_used": row[2], "remark": row[3] or ""} for row in cursor.fetchall()]
+        cursor.execute("SELECT account_id, status, last_used, remark, create_time FROM Accounts_Pool WHERE platform='douyin'")
+        accounts = [{"id": row[0], "status": row[1], "last_used": row[2], "remark": row[3] or "", "create_time": row[4] or ""} for row in cursor.fetchall()]
+
+        # Get qwen accounts
+        cursor.execute("SELECT account_id, status, last_used, remark, create_time FROM Accounts_Pool WHERE platform='qwen'")
+        qwen_accounts = [{"id": row[0], "status": row[1], "last_used": row[2], "remark": row[3] or "", "create_time": row[4] or ""} for row in cursor.fetchall()]
 
         # Get global settings
         cursor.execute("SELECT key, value FROM SystemSettings")
@@ -46,26 +54,29 @@ def get_settings():
     auto_transcribe = config.is_auto_transcribe()
     douyin_accounts_count = len(accounts)
     douyin_primary_configured = config.has_cookie()
-    douyin_cookie_source = "config" if douyin_primary_configured else ("pool" if douyin_accounts_count > 0 else "none")
+    douyin_cookie_source = "pool" if douyin_accounts_count > 0 else ("config" if douyin_primary_configured else "none")
     qwen_configured = has_qwen_auth_state()
+    qwen_accounts_count = len(qwen_accounts)
 
     return {
         "qwen_configured": qwen_configured,
         "douyin_accounts": accounts,
+        "qwen_accounts": qwen_accounts,
         "global_settings": {
             "concurrency": concurrency,
             "auto_delete": auto_delete,
             "auto_transcribe": auto_transcribe,
         },
         "status_summary": {
-            "qwen_ready": qwen_configured,
+            "qwen_ready": qwen_configured or qwen_accounts_count > 0,
             "douyin_ready": douyin_primary_configured or douyin_accounts_count > 0,
             "douyin_accounts_count": douyin_accounts_count,
             "douyin_primary_configured": douyin_primary_configured,
             "douyin_cookie_source": douyin_cookie_source,
+            "qwen_accounts_count": qwen_accounts_count,
             "can_download": douyin_primary_configured or douyin_accounts_count > 0,
-            "can_transcribe": qwen_configured,
-            "can_run_pipeline": (douyin_primary_configured or douyin_accounts_count > 0) and qwen_configured,
+            "can_transcribe": qwen_configured or qwen_accounts_count > 0,
+            "can_run_pipeline": (douyin_primary_configured or douyin_accounts_count > 0) and (qwen_configured or qwen_accounts_count > 0),
         }
     }
 
@@ -167,5 +178,47 @@ def update_qwen_key(req: QwenConfigRequest):
     try:
         save_qwen_cookie_string(req.cookie_string, default_qwen_auth_state_path())
         return {"status": "success"}
+    except Exception as e:
+        raise HTTPException(status_code=400, detail=str(e))
+
+@router.post("/qwen/accounts")
+def add_qwen_account(req: QwenAccountRequest):
+    try:
+        # Validate and save to auth state file (keeps transcription system working)
+        save_qwen_cookie_string(req.cookie_string, default_qwen_auth_state_path())
+        # Also save to Accounts_Pool for pool management
+        account_id = str(uuid.uuid4())
+        with get_db_connection() as conn:
+            conn.execute(
+                "INSERT INTO Accounts_Pool (account_id, platform, cookie_data, remark) VALUES (?, ?, ?, ?)",
+                (account_id, "qwen", req.cookie_string, req.remark)
+            )
+            conn.commit()
+        return {"status": "success", "account_id": account_id}
+    except Exception as e:
+        raise HTTPException(status_code=400, detail=str(e))
+
+@router.delete("/qwen/accounts/{account_id}")
+def delete_qwen_account(account_id: str):
+    try:
+        with get_db_connection() as conn:
+            conn.execute("DELETE FROM Accounts_Pool WHERE account_id=? AND platform='qwen'", (account_id,))
+            conn.commit()
+        return {"status": "success"}
+    except Exception as e:
+        raise HTTPException(status_code=400, detail=str(e))
+
+@router.put("/qwen/accounts/{account_id}/remark")
+def update_qwen_account_remark(account_id: str, req: RemarkRequest):
+    try:
+        with get_db_connection() as conn:
+            cursor = conn.cursor()
+            cursor.execute("UPDATE Accounts_Pool SET remark=? WHERE account_id=? AND platform='qwen'", (req.remark, account_id))
+            if cursor.rowcount == 0:
+                raise HTTPException(status_code=404, detail="Account not found")
+            conn.commit()
+        return {"status": "success"}
+    except HTTPException:
+        raise
     except Exception as e:
         raise HTTPException(status_code=400, detail=str(e))

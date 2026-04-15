@@ -22,7 +22,7 @@ def run_local_transcribe(file_paths: list[str], update_progress_fn=None, delete_
         return {"success_count": 0, "failed_count": 0, "total": 0}
 
     config = load_pipeline_config()
-    orchestrator = create_orchestrator(config)
+    orchestrator = create_orchestrator(config, creator_folder_override="本地上传")
 
     success_count = 0
     failed_count = 0

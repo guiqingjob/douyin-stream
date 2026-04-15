@@ -73,6 +73,41 @@ def _lookup_video_title(video_path: Path) -> str | None:
     return None
 
 
+def _lookup_creator_folder(video_path: Path) -> str | None:
+    """从数据库查询视频所属创作者昵称（用作转写子目录名）"""
+    aweme_matches = re.findall(r'\d{15,}', video_path.name)
+    if not aweme_matches:
+        return None
+
+    aweme_id = aweme_matches[0]
+    try:
+        from media_tools.douyin.core.config_mgr import get_config as get_douyin_config
+        db_path = get_douyin_config().get_db_path()
+        with sqlite3.connect(str(db_path), timeout=15.0) as conn:
+            conn.execute("PRAGMA journal_mode=WAL;")
+            cursor = conn.cursor()
+            # media_assets.creator_uid -> creators.nickname
+            cursor.execute("""
+                SELECT c.nickname
+                FROM media_assets ma
+                JOIN creators c ON ma.creator_uid = c.uid
+                WHERE ma.asset_id = ?
+            """, (aweme_id,))
+            row = cursor.fetchone()
+            if row and row[0]:
+                name = re.sub(r'[<>:"/\\|?*]', '', row[0]).strip()
+                return name if name else None
+            # Fallback: video_metadata.nickname
+            cursor.execute("SELECT nickname FROM video_metadata WHERE aweme_id = ?", (aweme_id,))
+            row = cursor.fetchone()
+            if row and row[0]:
+                name = re.sub(r'[<>:"/\\|?*]', '', row[0]).strip()
+                return name if name else None
+    except Exception as e:
+        logger.warning(f"查询创作者信息失败: {e}")
+    return None
+
+
 class ErrorType(Enum):
     """错误类型枚举"""
     UNKNOWN = "unknown"
@@ -442,6 +477,7 @@ class OrchestratorV2:
         retry_config: Optional[RetryConfig] = None,
         state_file: Path | str = DEFAULT_STATE_FILE,
         on_progress: Optional[ProgressCallback] = None,
+        creator_folder_override: Optional[str] = None,
     ):
         """初始化编排器
 
@@ -451,12 +487,14 @@ class OrchestratorV2:
             retry_config: 重试配置
             state_file: 状态持久化文件路径
             on_progress: 进度回调函数 on_progress(current, total, video_path, status)
+            creator_folder_override: 强制指定转写文件子目录名（如"本地上传"）
         """
         self.config = config or load_pipeline_config()
         self.auth_state_path = auth_state_path
         self.retry_config = retry_config or RetryConfig()
         self.state_manager = PipelineStateManager(state_file)
         self.on_progress = on_progress
+        self._creator_folder_override = creator_folder_override
 
         # 确定认证路径
         if self.auth_state_path is None:
@@ -517,11 +555,16 @@ class OrchestratorV2:
             # 从数据库查询视频标题
             video_title = _lookup_video_title(video_path)
 
+            # 确定创作者子目录
+            creator_folder = self._creator_folder_override or _lookup_creator_folder(video_path) or "未分类"
+            output_dir = str(Path(self.config.output_dir) / creator_folder)
+            Path(output_dir).mkdir(parents=True, exist_ok=True)
+
             # 执行转写流程
             result = await run_real_flow(
                 file_path=video_path,
                 auth_state_path=self.auth_state_path,
-                download_dir=self.config.output_dir,
+                download_dir=output_dir,
                 export_config=export_config,
                 should_delete=self.config.delete_after_export,
                 account_id=self.config.account_id,
@@ -631,7 +674,13 @@ class OrchestratorV2:
                         conn.execute("PRAGMA journal_mode=WAL;")
                         cursor = conn.cursor()
                         
-                        transcript_name = str(result.transcript_path.name) if result.transcript_path else ""
+                        if result.transcript_path:
+                            try:
+                                transcript_name = str(result.transcript_path.relative_to(Path(self.config.output_dir).resolve()))
+                            except ValueError:
+                                transcript_name = str(result.transcript_path.name)
+                        else:
+                            transcript_name = ""
                         aweme_matches = re.findall(r'\d{19}', video_path.name)
                         
                         if aweme_matches:
@@ -843,6 +892,7 @@ def create_orchestrator(
     retry_config: Optional[RetryConfig] = None,
     state_file: Path | str = DEFAULT_STATE_FILE,
     on_progress: Optional[ProgressCallback] = None,
+    creator_folder_override: Optional[str] = None,
 ) -> OrchestratorV2:
     """创建编排器实例的工厂函数
 
@@ -852,6 +902,7 @@ def create_orchestrator(
         retry_config: 重试配置
         state_file: 状态持久化文件路径
         on_progress: 进度回调函数 on_progress(current, total, video_path, status)
+        creator_folder_override: 强制指定转写文件子目录名（如"本地上传"）
 
     Returns:
         OrchestratorV2: 编排器实例
@@ -867,6 +918,7 @@ def create_orchestrator(
         retry_config=retry_config,
         state_file=state_file,
         on_progress=on_progress,
+        creator_folder_override=creator_folder_override,
     )
 
 
