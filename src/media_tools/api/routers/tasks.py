@@ -93,7 +93,6 @@ async def update_task_progress(task_id: str, progress: float, msg: str, task_typ
                    ON CONFLICT(task_id) DO UPDATE SET
                        status = 'RUNNING',
                        progress = excluded.progress,
-                       payload = excluded.payload,
                        update_time = excluded.update_time""",
                 (task_id, task_type, progress, payload_str, now, now)
             )
@@ -141,10 +140,22 @@ async def _background_pipeline_worker(task_id: str, req: PipelineRequest):
             conn.execute("UPDATE task_queue SET status='FAILED', error_msg=? WHERE task_id=?", (str(e), task_id))
         await notify_task_update(task_id, 0.0, str(e), "FAILED", "pipeline")
 
+async def _create_task(task_id: str, task_type: str, request_params: dict):
+    """Create a task with original request parameters stored in payload for retry."""
+    payload_str = json.dumps({**request_params, "msg": "Initializing..."}, ensure_ascii=False)
+    now = datetime.now().isoformat()
+    with get_db_connection() as conn:
+        conn.execute(
+            "INSERT INTO task_queue (task_id, task_type, status, progress, payload, create_time, update_time) VALUES (?, ?, 'RUNNING', 0.0, ?, ?, ?)",
+            (task_id, task_type, payload_str, now, now)
+        )
+    await notify_task_update(task_id, 0.0, "Initializing...", "RUNNING", task_type)
+
+
 @router.post("/pipeline")
 async def trigger_pipeline(req: PipelineRequest, background_tasks: BackgroundTasks):
     task_id = str(uuid.uuid4())
-    await update_task_progress(task_id, 0.0, "Initializing pipeline...")
+    await _create_task(task_id, "pipeline", {"url": req.url, "max_counts": req.max_counts})
     background_tasks.add_task(_background_pipeline_worker, task_id, req)
     return {"task_id": task_id, "status": "started"}
 
@@ -229,7 +240,7 @@ async def _background_batch_worker(task_id: str, req: BatchPipelineRequest):
 @router.post("/pipeline/batch")
 async def trigger_batch_pipeline(req: BatchPipelineRequest, background_tasks: BackgroundTasks):
     task_id = str(uuid.uuid4())
-    await update_task_progress(task_id, 0.0, f"Initializing batch pipeline for {len(req.video_urls)} videos...", "pipeline")
+    await _create_task(task_id, "pipeline", {"video_urls": req.video_urls})
     background_tasks.add_task(_background_batch_worker, task_id, req)
     return {"task_id": task_id, "status": "started"}
 
@@ -255,7 +266,7 @@ async def _background_download_worker(task_id: str, req: DownloadBatchRequest):
 @router.post("/download/batch")
 async def trigger_download_batch(req: DownloadBatchRequest, background_tasks: BackgroundTasks):
     task_id = str(uuid.uuid4())
-    await update_task_progress(task_id, 0.0, f"Initializing download task for {len(req.video_urls)} videos...", "download")
+    await _create_task(task_id, "download", {"video_urls": req.video_urls})
     background_tasks.add_task(_background_download_worker, task_id, req)
     return {"task_id": task_id, "status": "started"}
 
@@ -299,7 +310,7 @@ async def _background_creator_download_worker(task_id: str, uid: str, mode: str 
 @router.post("/download/creator")
 async def trigger_creator_download(req: CreatorDownloadRequest, background_tasks: BackgroundTasks):
     task_id = str(uuid.uuid4())
-    await update_task_progress(task_id, 0.0, f"Initializing creator download for {req.uid}...", f"creator_sync_{req.mode}")
+    await _create_task(task_id, f"creator_sync_{req.mode}", {"uid": req.uid, "mode": req.mode})
     background_tasks.add_task(_background_creator_download_worker, task_id, req.uid, req.mode)
     return {"task_id": task_id, "status": "started"}
 
@@ -356,7 +367,7 @@ async def _background_full_sync_worker(task_id: str, mode: str = "incremental"):
 @router.post("/download/full-sync")
 async def trigger_full_sync(req: FullSyncRequest, background_tasks: BackgroundTasks):
     task_id = str(uuid.uuid4())
-    await update_task_progress(task_id, 0.0, "Initializing full creator sync...", f"full_sync_{req.mode}")
+    await _create_task(task_id, f"full_sync_{req.mode}", {"mode": req.mode})
     background_tasks.add_task(_background_full_sync_worker, task_id, req.mode)
     return {"task_id": task_id, "status": "started"}
 
@@ -399,7 +410,7 @@ async def _background_local_transcribe_worker(task_id: str, req: LocalTranscribe
 @router.post("/transcribe/local")
 async def trigger_local_transcribe(req: LocalTranscribeRequest, background_tasks: BackgroundTasks):
     task_id = str(uuid.uuid4())
-    await update_task_progress(task_id, 0.0, f"准备转写 {len(req.file_paths)} 个本地文件...", "local_transcribe")
+    await _create_task(task_id, "local_transcribe", {"file_paths": req.file_paths, "delete_after": req.delete_after})
     background_tasks.add_task(_background_local_transcribe_worker, task_id, req)
     return {"task_id": task_id, "status": "started"}
 
