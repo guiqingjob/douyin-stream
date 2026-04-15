@@ -7,7 +7,11 @@ import uvicorn
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
-    # Startup
+    # Startup: ensure DB schema is up to date (adds new columns to existing tables)
+    from media_tools.douyin.core.config_mgr import get_config
+    from media_tools.db.core import init_db
+    init_db(get_config().get_db_path())
+
     scheduler.startup_scheduler()
     yield
     # Shutdown
