@@ -115,9 +115,9 @@
 | `media_assets` | 素材 | `db/core.py` | 视频/转写状态、本地路径 |
 | `task_queue` | 任务 | `db/core.py` | 任务类型、进度、状态 |
 | `auth_credentials` | 认证 | `db/core.py` | 平台认证数据（Qwen） |
-| `Accounts_Pool` | 账号池 | `settings.py` / `f2_helper.py` | 抖音 Cookie 账号池 |
-| `SystemSettings` | 设置 | `settings.py` | KV 形式全局设置 |
-| `scheduled_tasks` | 定时任务 | `scheduler.py` | Cron 表达式、启用状态 |
+| `Accounts_Pool` | 账号池 | `db/core.py` | 抖音 Cookie 账号池 |
+| `SystemSettings` | 设置 | `db/core.py` | KV 形式全局设置 |
+| `scheduled_tasks` | 定时任务 | `db/core.py` | Cron 表达式、启用状态 |
 
 ---
 
@@ -136,40 +136,44 @@
 
 ### 5.2 安全问题
 
-| 严重度 | 问题 | 位置 |
-|--------|------|------|
-| **P0** | `config/config.yaml` 含明文抖音 Cookie（session_id 等） | 若已提交到 Git 则已泄露 |
-| **P1** | CORS `allow_origins=["*"]` + `allow_credentials=True` | `app.py` |
+| 严重度 | 问题 | 位置 | 状态 |
+|--------|------|------|------|
+| **P0** | `config/config.yaml` 含明文抖音 Cookie（session_id 等） | 若已提交到 Git 则已泄露 | |
+| ~~**P1**~~ | ~~CORS `allow_origins=["*"]` + `allow_credentials=True`~~ | ~~`app.py`~~ | ✅ 已修复 |
 
 ### 5.3 后端代码质量
 
-| 问题 | 位置 | 说明 |
-|------|------|------|
-| 数据库连接管理不统一 | 各 router 各自 `get_db_connection()` | 部分在连接函数中执行 DDL |
-| 表定义散落多处 | `settings.py`、`f2_helper.py`、`scheduler.py` | 应统一到 `db/core.py` |
-| `INSERT OR REPLACE` 覆盖任务字段 | `tasks.py:93` | 应改用 `UPDATE` 或 `UPSERT` |
-| `conn` 可能未赋值 | `db/core.py:115-119` finally 块 | `sqlite3.connect()` 异常时 NameError |
-| 两套 orchestrator 共存 | `orchestrator.py` + `orchestrator_v2.py` | DB 更新逻辑重复，V1 已过时 |
-| `print()` 代替 logger | `creators.py`、`assets.py` | API 服务中日志丢失 |
-| 异常静默吞没 | `list_creators()` / `list_assets()` | `except Exception: return []` 掩盖严重错误 |
-| `@router.on_event` 已弃用 | `scheduler.py` | 应改用 `lifespan` 上下文管理器 |
-| stale task 清理在 GET 中执行 | `tasks.py` | 读操作触发写操作，并发时可能锁争用 |
+| 问题 | 位置 | 说明 | 状态 |
+|------|------|------|------|
+| ~~数据库连接管理不统一~~ | ~~各 router 各自 `get_db_connection()`~~ | ~~部分在连接函数中执行 DDL~~ | ✅ 已修复 |
+| ~~表定义散落多处~~ | ~~`settings.py`、`f2_helper.py`、`scheduler.py`~~ | ~~应统一到 `db/core.py`~~ | ✅ 已修复 |
+| ~~`INSERT OR REPLACE` 覆盖任务字段~~ | ~~`tasks.py:93`~~ | ~~应改用 `UPDATE` 或 `UPSERT`~~ | ✅ 已修复 |
+| `conn` 可能未赋值 | `db/core.py:115-119` finally 块 | `sqlite3.connect()` 异常时 NameError | |
+| ~~两套 orchestrator 共存~~ | ~~`orchestrator.py` + `orchestrator_v2.py`~~ | ~~DB 更新逻辑重复，V1 已过时~~ | ✅ 已修复（V1 已删除） |
+| ~~`print()` 代替 logger~~ | ~~`creators.py`、`assets.py`~~ | ~~API 服务中日志丢失~~ | ✅ 已修复 |
+| ~~异常静默吞没~~ | ~~`list_creators()` / `list_assets()`~~ | ~~`except Exception: return []` 掩盖严重错误~~ | ✅ 已修复 |
+| ~~`@router.on_event` 已弃用~~ | ~~`scheduler.py`~~ | ~~应改用 `lifespan` 上下文管理器~~ | ✅ 已修复 |
+| stale task 清理在 GET 中执行 | `tasks.py` | 已改为后台定时清理 | ✅ 已修复 |
 
 ### 5.4 前端代码质量
 
-| 问题 | 位置 | 说明 |
-|------|------|------|
-| `Toggle` 组件重复定义 | `Creators.tsx` + `Settings.tsx` | 应抽取到 `components/ui/` |
-| 双重 Toast 错误提示 | `api.ts` 拦截器 + 各页面 catch | 每个失败请求弹两次 Toast |
-| 5 个 API 函数从未使用 | `api.ts` | `triggerPipeline`、`getTaskStatus`、`getActiveTasks`、`deleteSchedule`、`runScheduleNow` |
-| `CardAction` 组件从未使用 | `card.tsx` | 死代码 |
-| `@fontsource-variable/geist` 从未导入 | `package.json` | 无用依赖 |
-| `"use client"` 指令 | `dialog.tsx` | Next.js 产物，Vite 项目无效 |
-| Inbox 素材列表未虚拟化 | `Inbox.tsx` | 素材多时性能差（创作者列表已用 Virtuoso） |
-| Discovery 底部栏硬编码 sidebar 偏移 | `Discovery.tsx` | `left-[calc(50%+8rem)]` 与 sidebar 宽度耦合 |
-| 并发数输入无程序化上限校验 | `Settings.tsx` | HTML `max=10` 不强制执行 |
-| store 中 `(taskUpdate as any).msg` | `useStore.ts:49` | 类型安全逃逸 |
-| 零测试 | `tests/web/` 为空 | 前端无任何测试 |
+| 问题 | 位置 | 说明 | 状态 |
+|------|------|------|------|
+| ~~`Toggle` 组件重复定义~~ | ~~`Creators.tsx` + `Settings.tsx`~~ | ~~应抽取到 `components/ui/`~~ | ✅ 已修复 |
+| ~~双重 Toast 错误提示~~ | ~~`api.ts` 拦截器 + 各页面 catch~~ | ~~每个失败请求弹两次 Toast~~ | ✅ 已修复 |
+| ~~5 个 API 函数从未使用~~ | ~~`api.ts`~~ | ~~`triggerPipeline`、`getTaskStatus`、`getActiveTasks`、`deleteSchedule`、`runScheduleNow`~~ | ✅ 已修复（死代码已删除） |
+| ~~`CardAction` 组件从未使用~~ | ~~`card.tsx`~~ | ~~死代码~~ | ✅ 已修复 |
+| ~~`@fontsource-variable/geist` 从未导入~~ | ~~`package.json`~~ | ~~无用依赖~~ | ✅ 已修复 |
+| ~~`"use client"` 指令~~ | ~~`dialog.tsx`~~ | ~~Next.js 产物，Vite 项目无效~~ | ✅ 已修复 |
+| ~~Inbox 素材列表未虚拟化~~ | ~~`Inbox.tsx`~~ | ~~素材多时性能差（创作者列表已用 Virtuoso）~~ | ✅ 已修复 |
+| ~~Discovery 底部栏硬编码 sidebar 偏移~~ | ~~`Discovery.tsx`~~ | ~~`left-[calc(50%+8rem)]` 与 sidebar 宽度耦合~~ | ✅ 已修复 |
+| 并发数输入无程序化上限校验 | `Settings.tsx` | HTML `max=10` 不强制执行 | |
+| store 中 `(taskUpdate as any).msg` | `useStore.ts:49` | 类型安全逃逸 | |
+| 零测试 | `tests/web/` 为空 | 前端无任何测试 | |
+| ~~Settings 保存按钮无 loading~~ | ~~`Settings.tsx`~~ | ~~保存时无反馈~~ | ✅ 已修复 |
+| ~~Settings 删除账号无确认~~ | ~~`Settings.tsx`~~ | ~~删除操作无二次确认~~ | ✅ 已修复 |
+| ~~`index.html` lang/title 未设置~~ | ~~`index.html`~~ | ~~语言和标题缺失~~ | ✅ 已修复 |
+| ~~全局 `*` transition~~ | ~~`index.css`~~ | ~~影响性能和动画控制~~ | ✅ 已修复 |
 
 ### 5.5 遗留垃圾
 
@@ -231,37 +235,45 @@
 
 - [ ] **修复子模块配置**：添加 `.gitmodules` 或将 frontend 改为 monorepo 结构
 - [ ] **删除或修复 `__main__.py`**：移除对不存在的 `cli_main` 的引用
-- [ ] **将 `scheduler.py` 纳入版本控制**：`git add` 并与 `app.py` 一起提交
-- [ ] **补全 `pyproject.toml` 依赖**：添加 `fastapi`、`uvicorn`、`pydantic`
+- [x] **将 `scheduler.py` 纳入版本控制**：`git add` 并与 `app.py` 一起提交
+- [x] **补全 `pyproject.toml` 依赖**：添加 `fastapi`、`uvicorn`、`pydantic`
 - [ ] **统一版本约束**：`pyproject.toml` 与 `requirements.txt` 中 `f2` 版本对齐
 - [ ] **移除明文 Cookie**：`config/config.yaml` 中的敏感信息替换为占位符，确保 `.gitignore` 覆盖
 
 ### 7.2 P1 — 短期改进（1-2 周）
 
-- [ ] **统一数据库层**：所有表定义集中到 `db/core.py`，统一连接工厂，用 `with` 管理连接
-- [ ] **清理 orchestrator**：移除 V1（`orchestrator.py`），只保留 V2
-- [ ] **用 logger 替换 print**：所有 router 中的 `print()` 改用 `logging`
-- [ ] **修复 tasks.py 的 `INSERT OR REPLACE`**：改为 `UPDATE` + `INSERT ... ON CONFLICT`
-- [ ] **抽取 Toggle 组件**：从 `Creators.tsx`/`Settings.tsx` 提取到 `components/ui/toggle.tsx`
-- [ ] **修复双重 Toast**：移除 Axios 拦截器中的 `toast.error`，由各页面自行处理
-- [ ] **清理死代码**：移除 5 个未使用的 API 函数、`CardAction`、`"use client"` 指令
-- [ ] **Inbox 素材列表虚拟化**：对 assets grid 使用 `VirtuosoGrid`
+- [x] **统一数据库层**：所有表定义集中到 `db/core.py`，统一连接工厂，用 `with` 管理连接
+- [x] **清理 orchestrator**：移除 V1（`orchestrator.py`），只保留 V2
+- [x] **用 logger 替换 print**：所有 router 中的 `print()` 改用 `logging`
+- [x] **修复 tasks.py 的 `INSERT OR REPLACE`**：改为 `UPDATE` + `INSERT ... ON CONFLICT`
+- [x] **抽取 Toggle 组件**：从 `Creators.tsx`/`Settings.tsx` 提取到 `components/ui/toggle.tsx`
+- [x] **修复双重 Toast**：移除 Axios 拦截器中的 `toast.error`，由各页面自行处理
+- [x] **清理死代码**：移除 5 个未使用的 API 函数、`CardAction`、`"use client"` 指令
+- [x] **Inbox 素材列表虚拟化**：对 assets grid 使用 `VirtuosoGrid`
 - [ ] **提交当前改动**：19 个文件的未提交变更尽快入库
 - [ ] **清理遗留文件**：`douyin_users.db`、`.streamlit/`、根目录 `config.yaml`、`following.json`、根目录 `__pycache__/`
 
 ### 7.3 P2 — 中期优化（1-2 月）
 
-- [ ] **CORS 收紧**：`allow_origins` 限定为实际前端地址
-- [ ] **用 `lifespan` 替换 `on_event`**：scheduler 的 startup/shutdown 迁移到 FastAPI lifespan
-- [ ] **Discovery 底部栏去硬编码**：用 CSS 变量或相对定位替代 `calc(50%+8rem)` 硬编码偏移
+- [x] **CORS 收紧**：`allow_origins` 限定为实际前端地址
+- [x] **用 `lifespan` 替换 `on_event`**：scheduler 的 startup/shutdown 迁移到 FastAPI lifespan
+- [x] **Discovery 底部栏去硬编码**：用 CSS 变量或相对定位替代 `calc(50%+8rem)` 硬编码偏移
 - [ ] **Settings 并发数校验**：程序化 clamp 到 1-10 范围
 - [ ] **Store 类型安全**：消除 `(taskUpdate as any).msg` 类型逃逸
-- [ ] **异常处理改进**：`list_creators()` / `list_assets()` 不再静默吞异常
+- [x] **异常处理改进**：`list_creators()` / `list_assets()` 不再静默吞异常
 - [ ] **前端测试**：为核心页面补充 Vitest + React Testing Library 用例
 - [ ] **后端测试补全**：`tests/web/` 目录为空，API 集成测试覆盖度待提升
-- [ ] **Stale task 清理**：从 GET 请求中移出，改为后台定时清理
+- [x] **Stale task 清理**：从 GET 请求中移出，改为后台定时清理
 
-### 7.4 P3 — 长期愿景
+### 7.4 即将完成 — 近期开发中
+
+- [ ] **账号池备注**：为抖音账号池中的账号添加自定义备注字段
+- [ ] **Qwen 余额查询与自动领取**：查看通义千问转写余额，支持自动领取免费额度
+- [ ] **本地文件转写**：支持上传本地视频/音频文件直接转写（跳过下载步骤）
+- [ ] **任务中心优化**：任务监控面板 UI/UX 改进，更清晰的状态展示
+- [ ] **收件箱搜索/导出/标记**：Inbox 页面增加全文搜索、文稿导出、素材标记功能
+
+### 7.5 P3 — 长期愿景
 
 - [ ] **Docker 化**：编写 `Dockerfile` + `docker-compose.yml`，一键部署
 - [ ] **CI/CD 恢复**：在 `.github/workflows/` 添加 lint + test + build 流水线

@@ -1,39 +1,59 @@
 from fastapi import APIRouter, HTTPException
-import asyncio
-from f2.apps.douyin.handler import DouyinHandler
-from f2.apps.douyin.utils import SecUserIdFetcher
 
 router = APIRouter(prefix="/api/v1/douyin", tags=["douyin"])
 
 @router.get("/metadata")
 async def get_metadata(url: str, max_counts: int = 10):
     try:
+        from f2.apps.douyin.handler import DouyinHandler
+        from f2.apps.douyin.utils import SecUserIdFetcher
+        from media_tools.douyin.core.f2_helper import get_f2_kwargs
+
         sec_user_id = await SecUserIdFetcher.get_sec_user_id(url)
         if not sec_user_id:
             raise HTTPException(status_code=400, detail="Invalid URL or unable to parse sec_user_id")
 
-        handler = DouyinHandler({"cookie": ""}) # Basic init
+        kwargs = get_f2_kwargs()
+        kwargs["url"] = url
+        kwargs["timeout"] = min(int(kwargs.get("timeout") or 20), 10)
+
+        handler = DouyinHandler(kwargs)
         user_profile = await handler.fetch_user_profile(sec_user_id)
         if not user_profile:
             raise HTTPException(status_code=404, detail="User profile not found")
 
         videos = []
-        async for aweme in handler.fetch_user_post_videos(sec_user_id, max_counts=max_counts):
-            videos.append({
-                "aweme_id": aweme.aweme_id,
-                "desc": aweme.desc,
-                "create_time": aweme.create_time,
-                "video_url": f"https://www.douyin.com/video/{aweme.aweme_id}",
-                "cover_url": aweme.video_play_addr.get('cover', '') if hasattr(aweme, 'video_play_addr') else ''
-            })
+        async for page in handler.fetch_user_post_videos(sec_user_id, max_counts=max_counts):
+            page_data = page._to_list()
+            for video in page_data[:max_counts]:
+                aweme_id = str(video.get("aweme_id") or "")
+                cover_url = (
+                    video.get("video", {}).get("cover", {}).get("url_list", [None])[0]
+                    or video.get("cover")
+                    or ""
+                )
+                videos.append(
+                    {
+                        "aweme_id": aweme_id,
+                        "desc": video.get("desc", ""),
+                        "create_time": video.get("create_time", 0),
+                        "video_url": f"https://www.douyin.com/video/{aweme_id}",
+                        "cover_url": cover_url,
+                    }
+                )
+                if len(videos) >= max_counts:
+                    break
+            break
 
         return {
             "creator": {
-                "uid": sec_user_id,
-                "nickname": user_profile.nickname,
-                "avatar": user_profile.avatar_larger
+                "uid": getattr(user_profile, "uid", sec_user_id),
+                "nickname": getattr(user_profile, "nickname", sec_user_id),
+                "avatar": getattr(user_profile, "avatar_larger", ""),
             },
-            "videos": videos
+            "videos": videos[:max_counts]
         }
+    except HTTPException:
+        raise
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))

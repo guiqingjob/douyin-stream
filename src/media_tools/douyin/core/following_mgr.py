@@ -168,11 +168,15 @@ def add_user(url):
         with sqlite3.connect(str(db_path)) as conn:
             cursor = conn.cursor()
             now = datetime.now().isoformat()
+            
+            avatar = user_info.get("avatar_url", "")
+            bio = user_info.get("signature", "")
+            
             cursor.execute("""
                 INSERT OR REPLACE INTO creators 
-                (uid, sec_user_id, nickname, platform, sync_status, last_fetch_time)
-                VALUES (?, ?, ?, 'douyin', 'active', ?)
-            """, (uid, sec_user_id, nickname, now))
+                (uid, sec_user_id, nickname, avatar, bio, platform, sync_status, last_fetch_time)
+                VALUES (?, ?, ?, ?, ?, 'douyin', 'active', ?)
+            """, (uid, sec_user_id, nickname, avatar, bio, now))
             conn.commit()
     except Exception as e:
         logger.error(f"保存用户到数据库失败: {e}")

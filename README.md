@@ -1,83 +1,135 @@
-# 🎬 Media Tools Workspace
+# Media Tools
 
-> 一个围绕 **素材获取 → 文稿生成 → 结果管理** 组织的本地内容工作台。
+> 视频素材抓取 → 云端转写 → 本地阅读，一站式内容工作台。
 
-![React](https://img.shields.io/badge/Frontend-React%2018-61DAFB?logo=react&logoColor=white)
+![React](https://img.shields.io/badge/Frontend-React%2019-61DAFB?logo=react&logoColor=white)
 ![FastAPI](https://img.shields.io/badge/Backend-FastAPI-009688?logo=fastapi&logoColor=white)
-![Python Version](https://img.shields.io/badge/Python-3.11%2B-brightgreen.svg?logo=python&logoColor=white)
+![Python](https://img.shields.io/badge/Python-3.11%2B-brightgreen?logo=python&logoColor=white)
 [![License](https://img.shields.io/badge/license-MIT-blue.svg)](LICENSE)
 
-Media Tools 是一个帮助你将视频素材（如抖音）快速抓取、批量转写为文字稿，并在本地进行沉浸式阅读与管理的现代化 Web 工作台。
-
-项目现已全面重构为 **React + FastAPI** 的现代前后端分离架构，并采用了精致的 **macOS 视觉风格**。
+Media Tools 是一个本地化的 Web 工作台，帮助你从抖音批量抓取视频、通过通义千问云端转写为文字稿，并在浏览器中沉浸式阅读和管理。前后端分离架构，macOS 风格界面，支持深色/浅色主题。
 
 ---
 
-## ✨ 核心特性
+## 核心特性
 
-- 🎨 **macOS 风格界面**：采用毛玻璃半透明效果、细腻的阴影与圆角设计，提供原生应用般的丝滑体验。
-- 👀 **“先预览，后选择”工作流**：告别盲盒式全量下载。输入博主主页链接，系统极速抓取视频列表，你可以直观地勾选感兴趣的视频后再下发处理。
-- 📖 **沉浸式文稿阅读器**：内置抽屉式（Drawer）长文本阅读器，转写完成后无需离开网页即可流畅阅读、复制内容。
-- ⚙️ **强大的全局管理**：
-  - **多账号池**：在设置页可视化管理抖音 Cookie 池，支持动态添加/移除。
-  - **任务监控**：独立的全局任务监控大盘，实时展示下载与转写进度及后台日志。
-  - **无痕清理**：支持一键彻底删除创作者及关联的所有本地视频、文稿和数据库记录，并可配置转写后自动删除源视频以节省空间。
+### Creators — 创作者管理
+
+- 添加抖音博主，自动拉取头像、简介等信息
+- 支持增量同步和全量重拉两种模式
+- 定时自动同步（APScheduler cron 表达式，如每日凌晨 2 点）
+- 一键删除创作者及其所有关联视频、文稿和数据库记录
+
+### Discover — 发现与选取
+
+- 输入博主主页链接，极速预览视频列表（含封面、时长、标题）
+- 勾选感兴趣的视频后选择「仅下载」或「下载 + 转写」
+- 告别盲盒式全量下载，按需处理
+
+### Inbox — 收件箱与阅读
+
+- 左侧创作者列表 + 右侧视频/文稿网格，双栏布局
+- 抽屉式长文本阅读器，转写完成后无需离开页面即可阅读
+- 虚拟滚动渲染大量资产，性能无忧
+
+### Settings — 全局配置
+
+- 抖音 Cookie 池管理，动态添加/移除账号
+- 通义千问认证配置
+- 全局开关：并发数、转写后自动删除源视频、下载后自动触发转写
+
+### 任务系统
+
+- 后台异步执行，WebSocket 实时推送进度到前端
+- 失败自动重试（指数退避）+ 错误分类（网络/配额/认证/超时等）
+- 断点续传：状态持久化到本地 JSON，中断后可继续
+- 全局任务监控面板，查看运行中/失败/已完成的所有任务
 
 ---
 
-## 🛠 技术栈
+## 技术栈
 
-- **前端**：React 18 + Vite + TypeScript + Tailwind CSS + shadcn/ui
-- **后端**：Python 3.11+ + FastAPI + SQLite
-- **核心组件**：Playwright (抓取)、f2 (抖音API)、Qwen (大模型转写)
+| 层 | 技术 |
+|----|------|
+| 前端 | React 19 + Vite + TypeScript + Tailwind CSS + shadcn/ui + Zustand |
+| 后端 | Python 3.11+ + FastAPI + SQLite (WAL) + APScheduler |
+| 核心 | f2（抖音 API）、Playwright（云端转写交互）、FFmpeg（音视频处理） |
 
 ---
 
-## 🚀 快速启动
+## 快速启动
 
 ### 环境要求
-1. **Python 3.11+**
-2. **Node.js 18+** (含 npm)
-3. **FFmpeg** (用于音视频处理)
 
-### 1. 获取代码
+- **Python 3.11+**
+- **Node.js 18+**（含 npm）
+- **FFmpeg**（音视频处理）
+
+### 获取代码
+
 ```bash
 git clone https://github.com/guiqingjob/douyin-stream.git
 cd douyin-stream
 ```
 
-### 2. 一键启动
-项目内置了便捷的启动脚本，会自动检查并安装依赖，同时启动前后端服务：
-```bash
-# 赋予脚本执行权限（仅首次需要）
-chmod +x run.sh
+### 一键启动
 
-# 一键启动前端 (5173/5174) 和后端 (8000)
-./run.sh
+```bash
+chmod +x run.sh   # 仅首次
+./run.sh           # 同时启动后端 (8000) 和前端 (5173)
 ```
 
-启动成功后，在浏览器中打开前端地址（通常为 `http://localhost:5173` 或控制台提示的地址）即可开始使用。
+启动成功后访问 `http://localhost:5173`。
 
-### 3. 分步启动（可选）
-如果你希望在不同的终端窗口中分别运行前后端，也可以使用以下命令：
+### 分步启动
+
 ```bash
 ./run.sh backend    # 仅启动 FastAPI 后端
 ./run.sh frontend   # 仅启动 React 开发服务器
 ./run.sh build      # 编译前端生产环境产物到 frontend/dist/
 ```
 
----
-
-## 💡 使用指南
-
-1. **配置环境**：首次启动后，点击左侧导航栏进入 **Settings (设置)** 页面，填入你的通义千问（Qwen）API Key 以及抖音 Cookie。
-2. **发现内容**：进入 **Discover (发现)** 页面，粘贴抖音博主的主页链接，点击预览。
-3. **按需抓取**：在展示的视频网格中，勾选你感兴趣的视频，点击底部的“批量处理”。
-4. **监控进度**：点击左下角的 **Task Monitor** 可以随时查看后台下载与转写的进度。
-5. **阅读文稿**：任务完成后，进入 **Inbox (收件箱)**，点击对应的视频卡片即可呼出阅读器查看文字稿。
+脚本会自动检测并安装缺失的 Python / npm 依赖。
 
 ---
 
-## 📄 开源协议
+## 配置说明
 
-本项目采用 [MIT License](LICENSE) 开源协议。
+运行时配置位于 `config/config.yaml`，首次启动后通过 Settings 页面可视化管理，主要字段：
+
+| 字段 | 说明 | 默认值 |
+|------|------|--------|
+| `cookie` | 抖音登录 Cookie | 通过 Settings 页面配置 |
+| `download_path` | 视频下载存储路径 | `./downloads` |
+| `auto_transcribe` | 下载后自动触发转写 | `true` |
+| `auto_delete_video` | 转写成功后删除源视频 | `true` |
+| `naming` | 视频文件命名模板 | `{desc}_{aweme_id}` |
+
+通义千问认证状态存储在 `config/transcribe/` 目录下，通过 Settings 页面配置。
+
+---
+
+## 项目结构
+
+```
+media-tools/
+├── frontend/                  # React SPA（独立子仓库）
+├── src/media_tools/
+│   ├── api/                   # FastAPI 应用
+│   │   └── routers/           # 路由：creators, assets, tasks, settings, douyin, scheduler
+│   ├── douyin/                # 抖音集成：下载、关注管理、Cookie 认证、视频压缩
+│   ├── transcribe/            # 通义千问转写引擎：OSS 上传、轮询、导出、配额追踪
+│   ├── pipeline/              # 流水线编排：下载→转写→导出，含重试和断点续传
+│   └── db/                    # SQLite 数据库初始化与迁移
+├── config/                    # 运行时配置文件
+├── tests/                     # 测试套件
+├── transcripts/               # 转写文稿输出目录
+├── downloads/                 # 视频下载目录
+└── run.sh                     # 一键启动脚本
+```
+
+---
+
+## 开源协议
+
+[MIT License](LICENSE)

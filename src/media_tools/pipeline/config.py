@@ -5,13 +5,14 @@ from dataclasses import dataclass
 from pathlib import Path
 import os
 
+from media_tools.douyin.core.config_mgr import get_config
 
 @dataclass(frozen=True, slots=True)
 class PipelineConfig:
     """Pipeline 流程配置"""
     # 转写设置
     export_format: str = "md"  # md 或 docx
-    output_dir: str = "./transcripts/"
+    output_dir: str = str(get_config().project_root / "transcripts")
     delete_after_export: bool = True  # 默认为 True：导出后立即删除云端记录以节省额度
     account_id: str = ""
     
@@ -31,7 +32,7 @@ def load_pipeline_config() -> PipelineConfig:
     """从环境变量或默认值加载配置"""
     return PipelineConfig(
         export_format=os.environ.get("PIPELINE_EXPORT_FORMAT", "md").strip().lower(),
-        output_dir=os.environ.get("PIPELINE_OUTPUT_DIR", "./transcripts/").strip(),
+        output_dir=os.environ.get("PIPELINE_OUTPUT_DIR", str(get_config().project_root / "transcripts")).strip(),
         delete_after_export=os.environ.get("PIPELINE_DELETE_AFTER_EXPORT", "true").lower() == "true",
         account_id=os.environ.get("PIPELINE_ACCOUNT_ID", "").strip(),
         remove_video=os.environ.get("PIPELINE_REMOVE_VIDEO", "false").lower() == "true",

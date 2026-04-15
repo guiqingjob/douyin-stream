@@ -359,3 +359,59 @@ async def trigger_full_sync(req: FullSyncRequest, background_tasks: BackgroundTa
     await update_task_progress(task_id, 0.0, "Initializing full creator sync...", f"full_sync_{req.mode}")
     background_tasks.add_task(_background_full_sync_worker, task_id, req.mode)
     return {"task_id": task_id, "status": "started"}
+
+
+# --- Local transcribe ---
+
+class LocalTranscribeRequest(BaseModel):
+    file_paths: List[str]
+    delete_after: bool = False
+
+class ScanDirectoryRequest(BaseModel):
+    directory: str
+
+async def _background_local_transcribe_worker(task_id: str, req: LocalTranscribeRequest):
+    async def _progress_fn(p, m):
+        await update_task_progress(task_id, p, m, "local_transcribe")
+
+    try:
+        from media_tools.pipeline.worker import run_local_transcribe
+        result = await asyncio.to_thread(
+            run_local_transcribe,
+            req.file_paths,
+            None,
+            req.delete_after,
+        )
+        s_count = result.get("success_count", 0)
+        f_count = result.get("failed_count", 0)
+        total = result.get("total", 0)
+        msg = "没有找到有效的视频文件" if total == 0 else f"本地转写完成：成功 {s_count} 个，失败 {f_count} 个"
+        payload_str = json.dumps({"msg": msg}, ensure_ascii=False)
+        with get_db_connection() as conn:
+            conn.execute("UPDATE task_queue SET status='COMPLETED', progress=1.0, payload=? WHERE task_id=?", (payload_str, task_id))
+        await notify_task_update(task_id, 1.0, msg, "COMPLETED", "local_transcribe")
+    except Exception as e:
+        logger.error(f"Local transcribe worker failed: {e}")
+        with get_db_connection() as conn:
+            conn.execute("UPDATE task_queue SET status='FAILED', error_msg=? WHERE task_id=?", (str(e), task_id))
+        await notify_task_update(task_id, 0.0, str(e), "FAILED", "local_transcribe")
+
+@router.post("/transcribe/local")
+async def trigger_local_transcribe(req: LocalTranscribeRequest, background_tasks: BackgroundTasks):
+    task_id = str(uuid.uuid4())
+    await update_task_progress(task_id, 0.0, f"准备转写 {len(req.file_paths)} 个本地文件...", "local_transcribe")
+    background_tasks.add_task(_background_local_transcribe_worker, task_id, req)
+    return {"task_id": task_id, "status": "started"}
+
+@router.post("/transcribe/scan")
+def scan_directory(req: ScanDirectoryRequest):
+    from pathlib import Path
+    dir_path = Path(req.directory)
+    if not dir_path.is_dir():
+        raise HTTPException(status_code=400, detail="目录不存在")
+    extensions = {'.mp4', '.mov', '.avi', '.mkv', '.flv', '.webm'}
+    files = []
+    for f in sorted(dir_path.iterdir()):
+        if f.is_file() and f.suffix.lower() in extensions:
+            files.append({"path": str(f), "name": f.name, "size_mb": round(f.stat().st_size / 1024 / 1024, 1)})
+    return {"directory": str(dir_path), "files": files}

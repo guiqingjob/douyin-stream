@@ -15,6 +15,10 @@ GREEN='\033[0;32m'
 BLUE='\033[0;34m'
 NC='\033[0m'
 
+BACKEND_HOST="127.0.0.1"
+BACKEND_PORT="8000"
+BACKEND_HEALTH_URL="http://${BACKEND_HOST}:${BACKEND_PORT}/api/health"
+
 info() { echo -e "${BLUE}[INFO]${NC} $1"; }
 success() { echo -e "${GREEN}[SUCCESS]${NC} $1"; }
 error() { echo -e "${RED}[ERROR]${NC} $1"; }
@@ -22,9 +26,34 @@ error() { echo -e "${RED}[ERROR]${NC} $1"; }
 # 确保在项目根目录运行
 cd "$(dirname "$0")"
 
+port_in_use() {
+    lsof -iTCP:"$1" -sTCP:LISTEN -n -P >/dev/null 2>&1
+}
+
+backend_is_healthy() {
+    curl -fsS "${BACKEND_HEALTH_URL}" >/dev/null 2>&1
+}
+
+start_backend_background() {
+    info "启动后端 (端口 ${BACKEND_PORT})..."
+    PYTHONPATH=src python -m uvicorn media_tools.api.app:app --reload --host "${BACKEND_HOST}" --port "${BACKEND_PORT}" &
+    BACKEND_PID=$!
+
+    for _ in $(seq 1 20); do
+        if backend_is_healthy; then
+            success "后端已就绪: ${BACKEND_HEALTH_URL}"
+            return 0
+        fi
+        sleep 0.5
+    done
+
+    error "后端启动超时，请检查日志"
+    return 1
+}
+
 run_backend() {
-    info "启动 FastAPI 后端服务 (端口 8000)..."
-    python -m uvicorn media_tools.api.app:app --reload --host 127.0.0.1 --port 8000
+    info "启动 FastAPI 后端服务 (端口 ${BACKEND_PORT})..."
+    PYTHONPATH=src python -m uvicorn media_tools.api.app:app --reload --host "${BACKEND_HOST}" --port "${BACKEND_PORT}"
 }
 
 run_frontend() {
@@ -34,7 +63,7 @@ run_frontend() {
         info "安装前端依赖..."
         npm install
     fi
-    npm run dev
+    npm run dev -- --host 127.0.0.1
 }
 
 run_both() {
@@ -52,17 +81,23 @@ run_both() {
         cd frontend && npm install && cd ..
     fi
 
-    # 启动后端在后台
-    info "启动后端 (端口 8000)..."
-    python -m uvicorn media_tools.api.app:app --reload --host 127.0.0.1 --port 8000 &
-    BACKEND_PID=$!
+    BACKEND_STARTED_BY_SCRIPT=0
+
+    if backend_is_healthy; then
+        info "检测到后端已在运行，复用现有服务: ${BACKEND_HEALTH_URL}"
+    elif port_in_use "${BACKEND_PORT}"; then
+        error "端口 ${BACKEND_PORT} 已被占用，但健康检查未通过，请先释放端口后再启动。"
+        exit 1
+    else
+        start_backend_background
+        BACKEND_STARTED_BY_SCRIPT=1
+    fi
 
     # 启动前端在前台
     info "启动前端 (Vite)..."
-    cd frontend && npm run dev
+    trap 'if [ "${BACKEND_STARTED_BY_SCRIPT}" = "1" ] && [ -n "${BACKEND_PID:-}" ]; then kill "${BACKEND_PID}" 2>/dev/null || true; fi' EXIT
+    cd frontend && npm run dev -- --host 127.0.0.1
 
-    # 当脚本退出时关闭后台的 uvicorn
-    trap "kill $BACKEND_PID" EXIT
 }
 
 build_frontend() {

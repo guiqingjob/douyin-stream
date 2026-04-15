@@ -32,7 +32,8 @@ def get_db_connection(db_path=None):
 
     conn = None
     try:
-        conn = sqlite3.connect(str(path))
+        conn = sqlite3.connect(str(path), timeout=15.0)
+        conn.execute("PRAGMA journal_mode=WAL;")
         cursor = conn.cursor()
         yield conn, cursor
         conn.commit()

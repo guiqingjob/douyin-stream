@@ -74,6 +74,32 @@ def startup_scheduler():
         replace_existing=True,
     )
 
+    # Auto-claim Qwen daily quota at 08:05
+    def _auto_claim_qwen_quota():
+        try:
+            import asyncio
+            from media_tools.transcribe.quota import claim_equity_quota, has_claimed_equity_today
+            from media_tools.transcribe.account_status import resolve_status_targets
+
+            targets = resolve_status_targets()
+            for target in targets:
+                account_id = target.account_id or ""
+                if not has_claimed_equity_today(account_id):
+                    asyncio.run(claim_equity_quota(
+                        account_id=account_id,
+                        auth_state_path=target.auth_state_path,
+                    ))
+                    logger.info(f"Auto-claimed Qwen daily quota for account: {account_id or 'default'}")
+        except Exception as e:
+            logger.error(f"Auto-claim Qwen quota failed: {e}")
+
+    scheduler.add_job(
+        _auto_claim_qwen_quota,
+        trigger=CronTrigger(hour=8, minute=5),
+        id="__auto_claim_qwen_quota__",
+        replace_existing=True,
+    )
+
 def shutdown_scheduler():
     """Called from app lifespan to shut down APScheduler."""
     if scheduler.running:

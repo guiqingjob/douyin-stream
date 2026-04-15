@@ -17,18 +17,23 @@ Monorepo with two independent codebases:
 
 - `api/` — FastAPI app and routers (creators, assets, tasks, settings, douyin, scheduler)
 - `api/routers/tasks.py` — includes a WebSocket endpoint at `/api/v1/tasks/ws` for real-time task progress
+- `api/routers/scheduler.py` — APScheduler-backed cron scheduling for automated full-sync; CRUD for scheduled tasks, toggle enable/disable, and manual trigger
 - `douyin/` — video downloading via the F2 library, creator management, cookie/auth handling
 - `transcribe/` — Playwright-driven Qwen transcription: OSS upload → transcribe → export markdown
 - `pipeline/` — orchestration layer connecting download and transcription; `worker.py` is the entry point called by task routers
-- `db/core.py` — schema definitions and `init_db()`; some tables are also created inline in routers
+- `db/core.py` — centralised schema definitions for all 7 tables and `init_db()`; single source of truth for DDL
 
 ### Frontend structure
 
 - 4 pages: `Creators` (default), `Discovery`, `Inbox`, `Settings`
 - Global `Sidebar` (w-64) with nav + theme toggle + `TaskMonitorPanel`
+- Reusable `Toggle` component in `components/ui/toggle.tsx` (used in Creators and Settings for auto-save switches)
+- Skeleton loading states (`Skeleton` from shadcn/ui) used across pages for initial data fetch
+- Guided empty states with call-to-action when no data is present
 - State via Zustand store (`store/useStore.ts`): tasks from WebSocket, settings from REST
 - API client in `lib/api.ts`, task display helpers in `lib/task-utils.ts`
 - UI components use shadcn/ui built on `@base-ui/react` (not Radix)
+- WebSocket disconnect indicator in `TaskMonitorPanel`
 - Path alias: `@/*` maps to `src/*`
 
 ### Data flow
@@ -38,6 +43,7 @@ Monorepo with two independent codebases:
 3. Task progress pushed to frontend via WebSocket
 4. Pipeline: download video → upload to Qwen OSS → Playwright transcribe → save markdown
 5. Frontend polls creators/assets on `lastCompletedTaskTime` change
+6. (Planned) Local file transcription: user uploads a local video/audio file → backend skips download step → upload to Qwen OSS → Playwright transcribe → save markdown
 
 ## Commands
 
@@ -84,3 +90,4 @@ npx tsc --noEmit      # Type check only
 - **TypeScript**: Strict mode enabled. Exports and interfaces for API responses defined in `lib/api.ts`.
 - **Styling**: Tailwind CSS 4 with Apple-inspired design tokens defined in `index.css`. Dark mode via `next-themes` with `.dark` class variant.
 - **Toasts**: Use `sonner`'s `toast.success()` / `toast.error()`. Note: the Axios interceptor already toasts on errors, so page-level catch blocks should not duplicate the toast.
+- **Zustand caching**: Creators data is fetched via `useStore` and cached for 30 seconds (`lastFetchTime` guard). Components should call the store's fetch action rather than hitting the API directly; the store deduplicates requests within the cache window.

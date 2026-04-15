@@ -1,3 +1,4 @@
+import logging
 import sqlite3
 import uuid
 from fastapi import APIRouter, HTTPException
@@ -8,17 +9,22 @@ from media_tools.douyin.core.config_mgr import get_config
 from media_tools.db.core import get_db_connection
 
 router = APIRouter(prefix="/api/v1/settings", tags=["settings"])
+logger = logging.getLogger(__name__)
 
 class QwenConfigRequest(BaseModel):
     cookie_string: str
 
 class DouyinAccountRequest(BaseModel):
     cookie_string: str
+    remark: str = ""
 
 class GlobalSettingsRequest(BaseModel):
     concurrency: int
     auto_delete: bool
     auto_transcribe: bool
+
+class RemarkRequest(BaseModel):
+    remark: str
 
 @router.get("/")
 def get_settings():
@@ -27,8 +33,8 @@ def get_settings():
         cursor = conn.cursor()
 
         # Get douyin accounts
-        cursor.execute("SELECT account_id, status, last_used FROM Accounts_Pool WHERE platform='douyin'")
-        accounts = [{"id": row[0], "status": row[1], "last_used": row[2]} for row in cursor.fetchall()]
+        cursor.execute("SELECT account_id, status, last_used, remark FROM Accounts_Pool WHERE platform='douyin'")
+        accounts = [{"id": row[0], "status": row[1], "last_used": row[2], "remark": row[3] or ""} for row in cursor.fetchall()]
 
         # Get global settings
         cursor.execute("SELECT key, value FROM SystemSettings")
@@ -69,8 +75,8 @@ def add_douyin_account(req: DouyinAccountRequest):
         account_id = str(uuid.uuid4())
         with get_db_connection() as conn:
             conn.execute(
-                "INSERT INTO Accounts_Pool (account_id, platform, cookie_data) VALUES (?, ?, ?)",
-                (account_id, "douyin", req.cookie_string)
+                "INSERT INTO Accounts_Pool (account_id, platform, cookie_data, remark) VALUES (?, ?, ?, ?)",
+                (account_id, "douyin", req.cookie_string, req.remark)
             )
             conn.commit()
         return {"status": "success", "account_id": account_id}
@@ -86,6 +92,58 @@ def delete_douyin_account(account_id: str):
         return {"status": "success"}
     except Exception as e:
         raise HTTPException(status_code=400, detail=str(e))
+
+@router.put("/douyin/{account_id}/remark")
+def update_douyin_account_remark(account_id: str, req: RemarkRequest):
+    try:
+        with get_db_connection() as conn:
+            cursor = conn.cursor()
+            cursor.execute("UPDATE Accounts_Pool SET remark=? WHERE account_id=?", (req.remark, account_id))
+            if cursor.rowcount == 0:
+                raise HTTPException(status_code=404, detail="Account not found")
+            conn.commit()
+        return {"status": "success"}
+    except HTTPException:
+        raise
+    except Exception as e:
+        raise HTTPException(status_code=400, detail=str(e))
+
+@router.get("/qwen/status")
+async def get_qwen_status():
+    """获取 Qwen 转写余额和今日用量"""
+    try:
+        from media_tools.transcribe.account_status import collect_account_statuses
+        statuses = await collect_account_statuses()
+        return {"status": "success", "accounts": statuses}
+    except Exception as e:
+        return {"status": "unavailable", "message": str(e), "accounts": []}
+
+@router.post("/qwen/claim")
+async def claim_qwen_quota_endpoint():
+    """手动触发领取每日 Qwen 额度"""
+    try:
+        from media_tools.transcribe.quota import claim_equity_quota, has_claimed_equity_today
+        from media_tools.transcribe.account_status import resolve_status_targets
+
+        targets = resolve_status_targets()
+        results = []
+        for target in targets:
+            account_id = target.account_id or ""
+            if has_claimed_equity_today(account_id):
+                results.append({"accountId": account_id or "default", "status": "already_claimed", "message": "今日已领取"})
+                continue
+            result = await claim_equity_quota(
+                account_id=account_id,
+                auth_state_path=target.auth_state_path,
+            )
+            results.append({
+                "accountId": account_id or "default",
+                "status": "claimed" if result.claimed else "skipped",
+                "reason": result.reason,
+            })
+        return {"status": "success", "results": results}
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
 
 @router.post("/global")
 def update_global_settings(req: GlobalSettingsRequest):
@@ -107,7 +165,6 @@ def update_global_settings(req: GlobalSettingsRequest):
 @router.post("/qwen")
 def update_qwen_key(req: QwenConfigRequest):
     try:
-        # Parse and save the raw cookie string
         save_qwen_cookie_string(req.cookie_string, default_qwen_auth_state_path())
         return {"status": "success"}
     except Exception as e:

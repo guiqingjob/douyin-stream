@@ -10,9 +10,7 @@ logger = get_logger(__name__)
 import asyncio
 import sqlite3
 
-import f2
 from f2.apps.douyin.handler import DouyinHandler
-from f2.utils.conf_manager import ConfigManager
 
 from .ui import (
     bold,
@@ -27,48 +25,13 @@ from .ui import (
     warning,
 )
 from .config_mgr import get_config
+from .f2_helper import get_f2_kwargs as _build_f2_kwargs
 from .following_mgr import list_users
 
 
 def _get_f2_kwargs():
     """获取 F2 所需的配置参数"""
-    config = get_config()
-
-    try:
-        main_conf_manager = ConfigManager(f2.F2_CONFIG_FILE_PATH)
-        all_conf = main_conf_manager.config
-        main_conf = all_conf.get("douyin", {}) if all_conf else {}
-    except Exception:
-        main_conf = {}
-
-    custom_conf = {
-        "cookie": config.get_cookie(),
-        "path": str(config.get_download_path()),
-    }
-
-    kwargs = _merge_config(main_conf, custom_conf)
-    kwargs["app_name"] = "douyin"
-    kwargs["mode"] = "post"
-    kwargs["path"] = str(config.get_download_path())
-
-    if not kwargs.get("headers"):
-        kwargs["headers"] = {
-            "User-Agent": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36",
-            "Referer": "https://www.douyin.com/",
-        }
-
-    return kwargs
-
-
-def _merge_config(main_conf: dict, custom_conf: dict) -> dict:
-    """合并配置"""
-    result = (main_conf or {}).copy()
-    for key, value in (custom_conf or {}).items():
-        if isinstance(value, dict) and key in result and isinstance(result[key], dict):
-            result[key].update(value)
-        else:
-            result[key] = value
-    return result
+    return _build_f2_kwargs()
 
 
 def _get_local_video_count(uid, user_info):

@@ -7,12 +7,24 @@ import hashlib
 import hmac
 import os
 import re
+from pathlib import Path
 from typing import Any, Callable
 from urllib import request as urllib_request
 from xml.sax.saxutils import escape as xml_escape
 
 
 ProgressCallback = Callable[[dict[str, Any]], None]
+
+
+def normalize_oss_token(token: dict[str, Any]) -> dict[str, Any]:
+    """兼容新版 token 结构：把 data.sts 里的字段平铺到顶层。"""
+    normalized = dict(token or {})
+    sts = normalized.get("sts")
+    if isinstance(sts, dict):
+        for key in ["bucket", "endpoint", "fileKey", "accessKeyId", "accessKeySecret", "securityToken"]:
+            if key not in normalized and key in sts:
+                normalized[key] = sts[key]
+    return normalized
 
 
 def md5_base64(input_bytes: bytes) -> str:
@@ -329,6 +341,8 @@ async def upload_file_to_oss(
         on_progress: 进度回调
         upload_mode: 上传模式
     """
+    token = normalize_oss_token(token)
+
     # 验证token的必需键
     required_keys = ["getLink", "sts", "bucket", "endpoint", "fileKey", "accessKeyId", "accessKeySecret", "securityToken"]
     for key in required_keys:

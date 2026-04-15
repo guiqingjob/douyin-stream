@@ -4,6 +4,54 @@ from media_tools.logger import get_logger
 
 logger = get_logger('pipeline')
 
+VIDEO_EXTENSIONS = {'.mp4', '.mov', '.avi', '.mkv', '.flv', '.webm'}
+
+
+def run_local_transcribe(file_paths: list[str], update_progress_fn=None, delete_after: bool = False):
+    """转写本地视频文件（不经过下载步骤）"""
+    from media_tools.pipeline.config import load_pipeline_config
+    from media_tools.pipeline.orchestrator_v2 import create_orchestrator
+
+    valid_paths = []
+    for p in file_paths:
+        path = Path(p)
+        if path.exists() and path.suffix.lower() in VIDEO_EXTENSIONS:
+            valid_paths.append(path)
+
+    if not valid_paths:
+        return {"success_count": 0, "failed_count": 0, "total": 0}
+
+    config = load_pipeline_config()
+    orchestrator = create_orchestrator(config)
+
+    success_count = 0
+    failed_count = 0
+    total = len(valid_paths)
+
+    async def _run():
+        nonlocal success_count, failed_count
+        for i, video_path in enumerate(valid_paths):
+            if update_progress_fn:
+                update_progress_fn(i / total, f"正在转写 {video_path.name} ({i+1}/{total})")
+            try:
+                result = await orchestrator.transcribe_with_retry(video_path)
+                if result.success:
+                    success_count += 1
+                    if delete_after and video_path.exists():
+                        try:
+                            video_path.unlink()
+                        except Exception as e:
+                            logger.warning(f"无法删除视频 {video_path}: {e}")
+                else:
+                    failed_count += 1
+            except Exception as exc:
+                logger.error(f"转写失败 {video_path}: {exc}")
+                failed_count += 1
+
+    asyncio.run(_run())
+    return {"success_count": success_count, "failed_count": failed_count, "total": total}
+
+
 def run_pipeline_for_user(url: str, max_counts: int, update_progress_fn, delete_after: bool = True):
     from media_tools.douyin.core.downloader import download_by_url
     from media_tools.pipeline.config import load_pipeline_config
@@ -93,4 +141,27 @@ def run_batch_pipeline(video_urls: list[str], update_progress_fn, delete_after: 
                 failed_count += 1
     
     asyncio.run(_run_batch())
+    return {"success_count": success_count, "failed_count": failed_count}
+
+
+async def run_download_only(video_urls: list[str], update_progress_fn):
+    """仅下载视频，不转写"""
+    from media_tools.douyin.core.downloader import download_aweme_by_url
+
+    total = len(video_urls)
+    success_count = 0
+    failed_count = 0
+
+    for i, url in enumerate(video_urls):
+        await update_progress_fn(i / total, f"正在下载 ({i+1}/{total})")
+        try:
+            result = await asyncio.to_thread(download_aweme_by_url, url)
+            if isinstance(result, dict) and result.get("success"):
+                success_count += 1
+            else:
+                failed_count += 1
+        except Exception as exc:
+            logger.error(f"下载失败 {url}: {exc}")
+            failed_count += 1
+
     return {"success_count": success_count, "failed_count": failed_count}
