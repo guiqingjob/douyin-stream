@@ -12,6 +12,7 @@ from __future__ import annotations
 import asyncio
 import json
 import logging
+import os
 import re
 import sqlite3
 import time
@@ -96,12 +97,14 @@ def _lookup_creator_folder(video_path: Path) -> str | None:
             row = cursor.fetchone()
             if row and row[0]:
                 name = re.sub(r'[<>:"/\\|?*]', '', row[0]).strip()
+                name = re.sub(r'\.+', '_', name).strip()
                 return name if name else None
             # Fallback: video_metadata.nickname
             cursor.execute("SELECT nickname FROM video_metadata WHERE aweme_id = ?", (aweme_id,))
             row = cursor.fetchone()
             if row and row[0]:
                 name = re.sub(r'[<>:"/\\|?*]', '', row[0]).strip()
+                name = re.sub(r'\.+', '_', name).strip()
                 return name if name else None
     except Exception as e:
         logger.warning(f"查询创作者信息失败: {e}")
@@ -557,7 +560,12 @@ class OrchestratorV2:
 
             # 确定创作者子目录
             creator_folder = self._creator_folder_override or _lookup_creator_folder(video_path) or "未分类"
-            output_dir = str(Path(self.config.output_dir) / creator_folder)
+            output_dir_path = Path(self.config.output_dir).resolve()
+            target_dir = (output_dir_path / creator_folder).resolve()
+            if not str(target_dir).startswith(str(output_dir_path) + os.sep) and str(target_dir) != str(output_dir_path):
+                logger.warning(f"Creator folder traversal blocked: {creator_folder} -> {target_dir}")
+                target_dir = output_dir_path / "未分类"
+            output_dir = str(target_dir)
             Path(output_dir).mkdir(parents=True, exist_ok=True)
 
             # 执行转写流程

@@ -7,11 +7,27 @@ from typing import Optional
 import sqlite3
 import logging
 import io
+import os
 import zipfile
 from pathlib import Path
 
 router = APIRouter(prefix="/api/v1/assets", tags=["assets"])
 logger = logging.getLogger(__name__)
+
+
+def _resolve_safe_path(base_dir: Path, relative_path: str | None) -> Path | None:
+    """Resolve a path and ensure it stays within base_dir."""
+    if not relative_path:
+        return None
+    try:
+        base = base_dir.resolve()
+        target = (base / relative_path).resolve()
+        if not str(target).startswith(str(base) + os.sep) and str(target) != str(base):
+            logger.warning(f"Path traversal blocked: {relative_path} -> {target}")
+            return None
+        return target
+    except Exception:
+        return None
 
 @router.get("/")
 def list_assets(creator_uid: Optional[str] = Query(None)):
@@ -60,8 +76,8 @@ def search_assets(q: str = Query(..., min_length=1)):
                     continue
                 # 检查文稿内容
                 if asset.get('transcript_path'):
-                    transcript_file = transcripts_dir / asset['transcript_path']
-                    if transcript_file.exists():
+                    transcript_file = _resolve_safe_path(transcripts_dir, asset['transcript_path'])
+                    if transcript_file and transcript_file.exists():
                         try:
                             content = transcript_file.read_text(encoding='utf-8')
                             if q.lower() in content.lower():
@@ -91,8 +107,8 @@ def export_transcripts(asset_ids: list[str]):
                 asset_ids
             )
             for row in cursor.fetchall():
-                transcript_file = transcripts_dir / row['transcript_path']
-                if transcript_file.exists():
+                transcript_file = _resolve_safe_path(transcripts_dir, row['transcript_path'])
+                if transcript_file and transcript_file.exists():
                     filename = f"{row['title'] or row['asset_id']}.md"
                     # 清理文件名
                     filename = ''.join(c for c in filename if c not in '<>:"/\\|?*')
@@ -122,11 +138,11 @@ def get_transcript(asset_id: str):
             # Pipeline config defaults to "./transcripts/" relative to project root
             config = get_config()
             transcripts_dir = config.project_root / "transcripts"
-            transcript_file = transcripts_dir / transcript_name
-            
-            if not transcript_file.exists():
+            transcript_file = _resolve_safe_path(transcripts_dir, transcript_name)
+
+            if not transcript_file or not transcript_file.exists():
                 raise HTTPException(status_code=404, detail="Transcript file not found on disk")
-                
+
             content = transcript_file.read_text(encoding="utf-8")
             return {"content": content}
             
@@ -148,22 +164,22 @@ def delete_asset(asset_id: str):
                 
             video_path = row['video_path']
             transcript_name = row['transcript_path']
-            
+
             config = get_config()
-            
+
             # Delete video file
             if video_path:
-                full_video_path = config.get_download_path() / video_path
-                if full_video_path.exists():
+                full_video_path = _resolve_safe_path(config.get_download_path(), video_path)
+                if full_video_path and full_video_path.exists():
                     try:
                         full_video_path.unlink()
                     except Exception as e:
                         logger.warning(f"Failed to delete video file {full_video_path}: {e}")
-                        
+
             # Delete transcript file
             if transcript_name:
-                full_transcript_path = config.project_root / "transcripts" / transcript_name
-                if full_transcript_path.exists():
+                full_transcript_path = _resolve_safe_path(config.project_root / "transcripts", transcript_name)
+                if full_transcript_path and full_transcript_path.exists():
                     try:
                         full_transcript_path.unlink()
                     except Exception as e:

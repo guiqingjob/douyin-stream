@@ -1,13 +1,30 @@
 from fastapi import APIRouter, HTTPException
 from media_tools.douyin.core.config_mgr import get_config
 from media_tools.db.core import get_db_connection
+import os
 import sqlite3
 import shutil
 import logging
 from pydantic import BaseModel
+from pathlib import Path
 
 router = APIRouter(prefix="/api/v1/creators", tags=["creators"])
 logger = logging.getLogger(__name__)
+
+
+def _resolve_safe_path(base_dir: Path, relative_path: str | None) -> Path | None:
+    """Resolve a path and ensure it stays within base_dir."""
+    if not relative_path:
+        return None
+    try:
+        base = base_dir.resolve()
+        target = (base / relative_path).resolve()
+        if not str(target).startswith(str(base) + os.sep) and str(target) != str(base):
+            logger.warning(f"Path traversal blocked: {relative_path} -> {target}")
+            return None
+        return target
+    except Exception:
+        return None
 
 
 class CreatorCreateRequest(BaseModel):
@@ -84,31 +101,32 @@ def delete_creator(uid: str):
             for asset in assets:
                 video_path = asset['video_path']
                 transcript_name = asset['transcript_path']
-                
+
                 # Delete video file
                 if video_path:
-                    full_video_path = config.get_download_path() / video_path
-                    if full_video_path.exists():
+                    full_video_path = _resolve_safe_path(config.get_download_path(), video_path)
+                    if full_video_path and full_video_path.exists():
                         try:
                             full_video_path.unlink()
                         except Exception as e:
                             logger.warning(f"Failed to delete video file {full_video_path}: {e}")
-                            
+
                 # Delete transcript file
                 if transcript_name:
-                    full_transcript_path = config.project_root / "transcripts" / transcript_name
-                    if full_transcript_path.exists():
+                    full_transcript_path = _resolve_safe_path(config.project_root / "transcripts", transcript_name)
+                    if full_transcript_path and full_transcript_path.exists():
                         try:
                             full_transcript_path.unlink()
                         except Exception as e:
                             logger.warning(f"Failed to delete transcript file {full_transcript_path}: {e}")
-            
+
             # Also try to delete the creator's download folder if it exists
             # Usually it's named after the nickname or uid
+            download_base = config.get_download_path().resolve()
             for folder_name in [nickname, uid]:
                 if folder_name:
-                    creator_dir = config.get_download_path() / folder_name
-                    if creator_dir.exists() and creator_dir.is_dir():
+                    creator_dir = _resolve_safe_path(download_base, folder_name)
+                    if creator_dir and creator_dir.exists() and creator_dir.is_dir():
                         try:
                             shutil.rmtree(creator_dir)
                         except Exception as e:
