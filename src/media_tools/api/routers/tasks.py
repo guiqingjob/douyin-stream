@@ -301,24 +301,61 @@ async def _background_creator_download_worker(task_id: str, uid: str, mode: str 
         await update_task_progress(task_id, p, m, f"creator_sync_{mode}")
 
     try:
-        from media_tools.douyin.core.following_mgr import get_user
-        from media_tools.douyin.core.downloader import download_by_url
+        with get_db_connection() as conn:
+            cursor = conn.execute(
+                "SELECT uid, sec_user_id, nickname, platform FROM creators WHERE uid = ? LIMIT 1",
+                (uid,),
+            )
+            creator_row = cursor.fetchone()
 
-        user = get_user(uid)
-        if not user:
+        if not creator_row:
             raise RuntimeError(f"Creator not found: {uid}")
 
-        sec_user_id = user.get("sec_user_id") or ""
-        if sec_user_id.startswith("MS4w"):
-            url = f"https://www.douyin.com/user/{sec_user_id}"
-        else:
-            url = f"https://www.douyin.com/user/{uid}"
+        platform = (creator_row.get("platform") if isinstance(creator_row, dict) else creator_row["platform"]) or "douyin"
+        sec_user_id = (creator_row.get("sec_user_id") if isinstance(creator_row, dict) else creator_row["sec_user_id"]) or ""
+        display_name = (creator_row.get("nickname") if isinstance(creator_row, dict) else creator_row["nickname"]) or uid
 
-        display_name = user.get("nickname") or uid
         await _progress_fn(0.05, f"开始同步 {display_name} 的视频（{mode}）...")
 
         skip_existing = mode != "full"
-        result = await asyncio.to_thread(download_by_url, url, None, False, skip_existing)
+
+        if platform == "bilibili":
+            from media_tools.bilibili.core.downloader import download_up_by_url
+            from media_tools.douyin.core.config_mgr import get_config
+
+            mid = sec_user_id or uid.split(":", 1)[-1]
+            url = f"https://space.bilibili.com/{mid}"
+            result = await asyncio.to_thread(download_up_by_url, url, None, skip_existing)
+
+            new_files = (result.get("new_files") or []) if isinstance(result, dict) else []
+            config = get_config()
+            if config.is_auto_transcribe() and new_files:
+                from media_tools.pipeline.config import load_pipeline_config
+                from media_tools.pipeline.orchestrator_v2 import create_orchestrator
+
+                await _progress_fn(0.7, f"下载完成，准备转写 {len(new_files)} 个视频...")
+                pipeline_config = load_pipeline_config()
+                orchestrator = create_orchestrator(pipeline_config, creator_folder_override=display_name)
+                delete_after = config.is_auto_delete_video()
+                total = len(new_files)
+                for index, file_path in enumerate(new_files, 1):
+                    await _progress_fn(0.7 + 0.3 * ((index - 1) / total), f"正在转写 ({index}/{total})")
+                    await orchestrator.transcribe_with_retry(Path(file_path))
+                    if delete_after:
+                        try:
+                            Path(file_path).unlink(missing_ok=True)
+                        except Exception:
+                            pass
+        else:
+            from media_tools.douyin.core.downloader import download_by_url
+
+            if sec_user_id.startswith("MS4w"):
+                url = f"https://www.douyin.com/user/{sec_user_id}"
+            else:
+                url = f"https://www.douyin.com/user/{uid}"
+
+            result = await asyncio.to_thread(download_by_url, url, None, False, skip_existing)
+
         if not isinstance(result, dict) or not result.get("success"):
             raise RuntimeError(f"下载失败: {display_name}")
 
