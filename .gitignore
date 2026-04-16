@@ -189,7 +189,6 @@ docs/superpowers/specs/*
 docs/superpowers/plans/*
 !docs/superpowers/plans/*.md
 
-!tests/
-tests/*
-!tests/**/
-!tests/**/*.py
+tests/
+!tests/bilibili/
+!tests/bilibili/**/*

@@ -10,6 +10,17 @@
 
 ---
 
+## 本地执行约束（必须先满足）
+
+- 本项目代码使用了 Python 3.11+ 语法与标准库能力（如 `str | None`、`datetime.UTC`），因此测试与运行必须使用 Python 3.11+。
+- 下面所有命令默认在项目根目录执行，并使用本地 venv（`.venv/`）来保证 Python 版本与依赖一致。
+
+```bash
+python3.11 -m venv .venv
+.venv/bin/python -m pip install -U pip
+.venv/bin/python -m pip install -r requirements.txt
+```
+
 ## File Map（将创建/修改的文件）
 
 **Backend**
@@ -70,7 +81,7 @@ Add one entry inside `[project].dependencies`:
 Run:
 
 ```bash
-pytest -q
+.venv/bin/python -m pytest -q
 ```
 
 Expected: PASS（若失败，先修复再继续后续任务）
@@ -122,7 +133,7 @@ def test_normalize_short_url_is_detected() -> None:
 Run:
 
 ```bash
-pytest -q tests/bilibili/test_url_parser.py
+.venv/bin/python -m pytest -q tests/bilibili/test_url_parser.py
 ```
 
 Expected: FAIL（module/function not found）
@@ -200,7 +211,7 @@ def normalize_bilibili_url(url: str) -> NormalizedBilibiliUrl:
 Run:
 
 ```bash
-pytest -q tests/bilibili/test_url_parser.py
+.venv/bin/python -m pytest -q tests/bilibili/test_url_parser.py
 ```
 
 Expected: PASS
@@ -249,7 +260,7 @@ def test_sanitize_filename() -> None:
 Run:
 
 ```bash
-pytest -q tests/bilibili/test_naming.py
+.venv/bin/python -m pytest -q tests/bilibili/test_naming.py
 ```
 
 Expected: FAIL
@@ -286,7 +297,7 @@ def sanitize_filename(name: str) -> str:
 Run:
 
 ```bash
-pytest -q tests/bilibili/test_naming.py
+.venv/bin/python -m pytest -q tests/bilibili/test_naming.py
 ```
 
 Expected: PASS
@@ -335,7 +346,7 @@ def test_resolve_platform_douyin() -> None:
 Run:
 
 ```bash
-pytest -q tests/bilibili/test_download_router.py
+.venv/bin/python -m pytest -q tests/bilibili/test_download_router.py
 ```
 
 Expected: FAIL
@@ -389,7 +400,7 @@ Update `tests/test_pipeline_worker.py` to patch `media_tools.pipeline.download_r
 Run:
 
 ```bash
-pytest -q tests/bilibili/test_download_router.py tests/test_pipeline_worker.py
+.venv/bin/python -m pytest -q tests/bilibili/test_download_router.py tests/test_pipeline_worker.py
 ```
 
 Expected: PASS
@@ -523,7 +534,7 @@ def download_up_by_url(url: str, max_counts: int | None = None, skip_existing: b
 Run:
 
 ```bash
-pytest -q tests/bilibili/test_url_parser.py tests/bilibili/test_naming.py
+.venv/bin/python -m pytest -q tests/bilibili/test_url_parser.py tests/bilibili/test_naming.py
 ```
 
 Expected: PASS
@@ -587,7 +598,7 @@ def test_add_bilibili_creator_smoke():
 Run:
 
 ```bash
-pytest -q tests/api/test_creators.py
+.venv/bin/python -m pytest -q tests/api/test_creators.py
 ```
 
 Expected: PASS
@@ -645,7 +656,7 @@ Persist completion message exactly like existing douyin code path.
 Run:
 
 ```bash
-pytest -q tests/api/test_tasks.py
+.venv/bin/python -m pytest -q tests/api/test_tasks.py
 ```
 
 Expected: PASS
@@ -746,7 +757,7 @@ Follow existing douyin/qwen section UI patterns:
 Backend:
 
 ```bash
-pytest -q tests/api/test_settings.py
+.venv/bin/python -m pytest -q tests/api/test_settings.py
 ```
 
 Frontend typecheck:
@@ -810,28 +821,61 @@ git commit -m "feat: support bilibili creators in UI"
 
 ### Task 10: End-to-end smoke run (manual)
 
-- [ ] **Step 1: Start backend + frontend**
+- [ ] **Step 1: Real extractor smoke test（只抽取，不下载）**
+
+```bash
+.venv/bin/python -m pip install -U yt-dlp
+mkdir -p /tmp/bili_smoke
+yt-dlp -J "https://space.bilibili.com/596133959?spm_id_from=333.1007.tianma.1-1-1.click" > /tmp/bili_smoke/up.json
+.venv/bin/python -c "import json; d=json.load(open('/tmp/bili_smoke/up.json')); print('type=', d.get('_type')); print('entries=', len(d.get('entries') or [])); print('uploader=', d.get('uploader') or d.get('uploader_id'))"
+```
+
+Expected:
+- `type` 为 playlist 或等价类型
+- `entries` > 0
+- `uploader/uploader_id` 有值
+
+- [ ] **Step 2: Real download smoke test（只下载 1-3 条，验证 1080P 优先 + 自动降级）**
+
+```bash
+mkdir -p /tmp/bili_smoke/downloads
+yt-dlp \
+  -o "/tmp/bili_smoke/downloads/%(title)s__%(id)s.%(ext)s" \
+  --playlist-items 1-3 \
+  -f "bestvideo[height<=1080]+bestaudio/best[height<=1080]/best" \
+  --merge-output-format mp4 \
+  "https://space.bilibili.com/596133959?spm_id_from=333.1007.tianma.1-1-1.click"
+ls -la /tmp/bili_smoke/downloads | head -n 20
+rm -rf /tmp/bili_smoke/downloads
+```
+
+Expected:
+- 产出 mp4 文件（无 Cookie 情况下，允许自动降级到可用清晰度）
+- 结尾 `rm -rf /tmp/bili_smoke/downloads` 用于清理测试下载内容，避免占用磁盘
+
+- [ ] **Step 3: Start backend + frontend**
 
 ```bash
 ./run.sh
 ```
 
-- [ ] **Step 2: Add a bilibili UP 主（space 链接）**
+- [ ] **Step 4: Add a bilibili UP 主（space 链接）**
 
 Expected: Creators 列表出现该创作者（平台 bilibili）
 
-- [ ] **Step 3: Trigger 全量同步**
+- [ ] **Step 5: Trigger 全量同步**
 
 Expected:
 - 任务面板出现进度
 - 下载目录生成 `<UP>/<合集或全部投稿>/...`
 
-- [ ] **Step 4: Validate auto_transcribe**
+- [ ] **Step 6: Validate auto_transcribe**
 
 Turn on Settings 的自动转写并确保 Qwen 可用，重新同步一次：
 - Expected: 下载后触发转写，`transcripts/` 生成 markdown
+- 建议同时开启“自动删除源视频”（`auto_delete_video=true`），确保全流程结束后不保留下载视频文件
 
-- [ ] **Step 5: Commit any final fixes**
+- [ ] **Step 7: Commit any final fixes**
 
 ```bash
 git status -sb
@@ -850,4 +894,3 @@ git commit -m "fix: bilibili e2e polish"
 
 - URL 归一化、命名、平台路由、任务下载、Settings cookie、Creators UI、转写对接均有对应任务覆盖
 - 所有步骤都有明确文件路径、命令与示例代码
-
