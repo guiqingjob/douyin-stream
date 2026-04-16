@@ -191,4 +191,5 @@ docs/superpowers/plans/*
 
 !tests/
 tests/*
+!tests/**/
 !tests/**/*.py
