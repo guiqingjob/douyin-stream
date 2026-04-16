@@ -65,6 +65,39 @@ def list_creators():
 @router.post("/")
 def create_creator(req: CreatorCreateRequest):
     try:
+        if "bilibili.com" in req.url or "b23.tv" in req.url:
+            from media_tools.bilibili.core.url_parser import BilibiliUrlKind, normalize_bilibili_url
+            from media_tools.bilibili.utils.naming import build_bilibili_creator_uid
+
+            parsed = normalize_bilibili_url(req.url)
+            if parsed.kind is not BilibiliUrlKind.SPACE or not parsed.mid:
+                raise HTTPException(status_code=400, detail="暂只支持 B 站 UP 主空间链接（space.bilibili.com/<mid>）")
+
+            uid = build_bilibili_creator_uid(parsed.mid)
+            nickname = uid
+
+            with get_db_connection() as conn:
+                cursor = conn.execute(
+                    """
+                    INSERT OR IGNORE INTO creators (uid, sec_user_id, nickname, platform, sync_status)
+                    VALUES (?, ?, ?, 'bilibili', 'active')
+                    """,
+                    (uid, parsed.mid, nickname),
+                )
+                conn.commit()
+
+                created = cursor.rowcount > 0
+
+            return {
+                "status": "created" if created else "exists",
+                "creator": {
+                    "uid": uid,
+                    "nickname": nickname,
+                    "sec_user_id": parsed.mid,
+                    "sync_status": "active",
+                },
+            }
+
         from media_tools.douyin.core.following_mgr import add_user
 
         success, user_info = add_user(req.url)
