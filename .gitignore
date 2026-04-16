@@ -193,3 +193,4 @@ docs/superpowers/plans/*
 tests/*
 !tests/bilibili/
 !tests/bilibili/**
+tests/bilibili/**/__pycache__/
