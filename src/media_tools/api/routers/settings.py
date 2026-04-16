@@ -22,6 +22,10 @@ class DouyinAccountRequest(BaseModel):
     cookie_string: str
     remark: str = ""
 
+class BilibiliAccountRequest(BaseModel):
+    cookie_string: str
+    remark: str = ""
+
 class GlobalSettingsRequest(BaseModel):
     concurrency: int
     auto_delete: bool
@@ -44,6 +48,10 @@ def get_settings():
         cursor.execute("SELECT account_id, status, last_used, remark, create_time FROM Accounts_Pool WHERE platform='qwen'")
         qwen_accounts = [{"id": row[0], "status": row[1], "last_used": row[2], "remark": row[3] or "", "create_time": row[4] or ""} for row in cursor.fetchall()]
 
+        # Get bilibili accounts
+        cursor.execute("SELECT account_id, status, last_used, remark, create_time FROM Accounts_Pool WHERE platform='bilibili'")
+        bilibili_accounts = [{"id": row[0], "status": row[1], "last_used": row[2], "remark": row[3] or "", "create_time": row[4] or ""} for row in cursor.fetchall()]
+
         # Get global settings
         cursor.execute("SELECT key, value FROM SystemSettings")
         settings_rows = cursor.fetchall()
@@ -62,6 +70,7 @@ def get_settings():
         "qwen_configured": qwen_configured,
         "douyin_accounts": accounts,
         "qwen_accounts": qwen_accounts,
+        "bilibili_accounts": bilibili_accounts,
         "global_settings": {
             "concurrency": concurrency,
             "auto_delete": auto_delete,
@@ -74,6 +83,7 @@ def get_settings():
             "douyin_primary_configured": douyin_primary_configured,
             "douyin_cookie_source": douyin_cookie_source,
             "qwen_accounts_count": qwen_accounts_count,
+            "bilibili_accounts_count": len(bilibili_accounts),
             "can_download": douyin_primary_configured or douyin_accounts_count > 0,
             "can_transcribe": qwen_configured or qwen_accounts_count > 0,
             "can_run_pipeline": (douyin_primary_configured or douyin_accounts_count > 0) and (qwen_configured or qwen_accounts_count > 0),
@@ -110,6 +120,48 @@ def update_douyin_account_remark(account_id: str, req: RemarkRequest):
         with get_db_connection() as conn:
             cursor = conn.cursor()
             cursor.execute("UPDATE Accounts_Pool SET remark=? WHERE account_id=?", (req.remark, account_id))
+            if cursor.rowcount == 0:
+                raise HTTPException(status_code=404, detail="Account not found")
+            conn.commit()
+        return {"status": "success"}
+    except HTTPException:
+        raise
+    except Exception as e:
+        raise HTTPException(status_code=400, detail=str(e))
+
+@router.post("/bilibili/accounts")
+def add_bilibili_account(req: BilibiliAccountRequest):
+    try:
+        account_id = str(uuid.uuid4())
+        with get_db_connection() as conn:
+            conn.execute(
+                "INSERT INTO Accounts_Pool (account_id, platform, cookie_data, remark) VALUES (?, ?, ?, ?)",
+                (account_id, "bilibili", req.cookie_string, req.remark),
+            )
+            conn.commit()
+        return {"status": "success", "account_id": account_id}
+    except Exception as e:
+        raise HTTPException(status_code=400, detail=str(e))
+
+@router.delete("/bilibili/accounts/{account_id}")
+def delete_bilibili_account(account_id: str):
+    try:
+        with get_db_connection() as conn:
+            conn.execute("DELETE FROM Accounts_Pool WHERE account_id=? AND platform='bilibili'", (account_id,))
+            conn.commit()
+        return {"status": "success"}
+    except Exception as e:
+        raise HTTPException(status_code=400, detail=str(e))
+
+@router.put("/bilibili/accounts/{account_id}/remark")
+def update_bilibili_account_remark(account_id: str, req: RemarkRequest):
+    try:
+        with get_db_connection() as conn:
+            cursor = conn.cursor()
+            cursor.execute(
+                "UPDATE Accounts_Pool SET remark=? WHERE account_id=? AND platform='bilibili'",
+                (req.remark, account_id),
+            )
             if cursor.rowcount == 0:
                 raise HTTPException(status_code=404, detail="Account not found")
             conn.commit()

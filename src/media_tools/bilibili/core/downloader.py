@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import os
 from pathlib import Path
 from typing import Any, Callable
 
@@ -65,10 +66,22 @@ def download_up_by_url(
         "outtmpl": _build_output_template(downloads_path, "bilibili", "全部投稿"),
         "format": "bestvideo[height<=1080]+bestaudio/best[height<=1080]/best",
         "merge_output_format": "mp4",
+        "retries": 5,
+        "extractor_retries": 5,
+        "sleep_interval": 2,
+        "max_sleep_interval": 6,
     }
 
+    proxy = os.environ.get("BILIBILI_PROXY", "").strip()
+    ydl_opts["proxy"] = proxy if proxy else ""
+
+    headers: dict[str, str] = {
+        "User-Agent": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36",
+        "Referer": "https://www.bilibili.com/",
+    }
     if cookie:
-        ydl_opts["http_headers"] = {"Cookie": cookie}
+        headers["Cookie"] = cookie
+    ydl_opts["http_headers"] = headers
 
     if max_counts is not None:
         ydl_opts["playlistend"] = max_counts
@@ -88,4 +101,3 @@ def download_up_by_url(
         logger.warning("No files downloaded")
 
     return {"success": True, "new_files": new_files}
-
