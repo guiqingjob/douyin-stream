@@ -121,3 +121,44 @@ def test_qwen_claim_iterates_db_accounts(monkeypatch) -> None:
     result = asyncio.run(settings_router.claim_qwen_quota_endpoint())
     assert result["status"] == "success"
     assert called["count"] == 1
+
+
+def test_orchestrator_tries_multiple_qwen_accounts(monkeypatch, tmp_path) -> None:
+    import asyncio
+    from pathlib import Path
+    from media_tools.pipeline.orchestrator_v2 import OrchestratorV2
+    from media_tools.pipeline.config import PipelineConfig
+
+    class _AuthErr(Exception):
+        pass
+
+    calls: list[str] = []
+
+    async def _fake_run_real_flow(*, file_path, auth_state_path, **kwargs):  # noqa: ANN001
+        calls.append(str(auth_state_path))
+        if len(calls) == 1:
+            raise _AuthErr("401 unauthorized")
+
+        class _R:
+            export_path = tmp_path / "o.md"
+            record_id = "r"
+            gen_record_id = "g"
+            remote_deleted = True
+
+        return _R()
+
+    monkeypatch.setattr("media_tools.pipeline.orchestrator_v2.run_real_flow", _fake_run_real_flow)
+
+    cfg = PipelineConfig(account_id="")
+    orch = OrchestratorV2(config=cfg, auth_state_path=Path("dummy.json"))
+
+    orch._resolve_qwen_execution_accounts = lambda: [  # type: ignore[attr-defined]
+        {"account_id": "a1", "auth_state_path": Path("a1.json")},
+        {"account_id": "a2", "auth_state_path": Path("a2.json")},
+    ]
+
+    p = tmp_path / "a.mp3"
+    p.write_bytes(b"ok")
+    result = asyncio.run(orch._transcribe_single_video(p))
+    assert result.success is True
+    assert calls == ["a1.json", "a2.json"]

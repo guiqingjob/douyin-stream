@@ -528,6 +528,78 @@ class OrchestratorV2:
             except Exception as e:
                 logger.warning(f"进度回调执行失败: {e}")
 
+    def _resolve_qwen_execution_accounts(self) -> list[dict[str, Any]]:
+        try:
+            from media_tools.db.core import get_db_connection
+            from media_tools.transcribe.db_account_pool import (
+                build_qwen_auth_state_path_for_account,
+                load_qwen_accounts_from_db,
+            )
+            from media_tools.transcribe.quota import get_daily_quota_record, number_value
+
+            accounts = [a for a in load_qwen_accounts_from_db() if a.status == "active"]
+
+            def _score(account_id: str) -> int:
+                record = get_daily_quota_record(account_id)
+                candidates = (
+                    record.get("lastAfterRemaining"),
+                    record.get("lastEquityAfterRemaining"),
+                    record.get("lastBeforeRemaining"),
+                    record.get("lastEquityBeforeRemaining"),
+                )
+                return max((number_value(v) for v in candidates), default=0)
+
+            accounts.sort(key=lambda a: _score(a.account_id), reverse=True)
+
+            resolved: list[dict[str, Any]] = []
+            for account in accounts:
+                path = (
+                    Path(account.auth_state_path)
+                    if str(account.auth_state_path).strip()
+                    else build_qwen_auth_state_path_for_account(account.account_id)
+                )
+                resolved.append({"account_id": account.account_id, "auth_state_path": path})
+
+            if resolved:
+                return resolved
+        except Exception:
+            pass
+
+        if self.auth_state_path is None:
+            return []
+
+        return [{"account_id": self.config.account_id, "auth_state_path": Path(self.auth_state_path)}]
+
+    def _mark_qwen_account_status(self, account_id: str, status: str) -> None:
+        if not account_id:
+            return
+        try:
+            from media_tools.db.core import get_db_connection
+
+            with get_db_connection() as conn:
+                conn.execute(
+                    "UPDATE Accounts_Pool SET status=? WHERE platform='qwen' AND account_id=?",
+                    (status, account_id),
+                )
+                conn.commit()
+        except Exception:
+            return
+
+    def _mark_qwen_account_used(self, account_id: str) -> None:
+        if not account_id:
+            return
+        try:
+            from media_tools.db.core import get_db_connection
+
+            with get_db_connection() as conn:
+                conn.execute(
+                    "UPDATE Accounts_Pool SET last_used=CURRENT_TIMESTAMP WHERE platform='qwen' AND account_id=?",
+                    (account_id,),
+                )
+                conn.commit()
+        except Exception:
+            return
+
     async def _transcribe_single_video(
         self,
         video_path: Path,
@@ -568,27 +640,52 @@ class OrchestratorV2:
             output_dir = str(target_dir)
             Path(output_dir).mkdir(parents=True, exist_ok=True)
 
-            # 执行转写流程
-            result = await run_real_flow(
-                file_path=video_path,
-                auth_state_path=self.auth_state_path,
-                download_dir=output_dir,
-                export_config=export_config,
-                should_delete=self.config.delete_after_export,
-                account_id=self.config.account_id,
-                title=video_title,
-            )
+            last_error: Exception | None = None
+            last_error_type: ErrorType = ErrorType.UNKNOWN
 
-            # 可选：删除原视频
-            if self.config.remove_video and not self.config.keep_original:
-                video_path.unlink()
-                logger.info(f"已删除原视频: {video_path}")
+            for account in self._resolve_qwen_execution_accounts():
+                account_id = str(account.get("account_id", "") or "")
+                auth_state_path = account.get("auth_state_path")
+                if auth_state_path is None:
+                    continue
+
+                try:
+                    result = await run_real_flow(
+                        file_path=video_path,
+                        auth_state_path=auth_state_path,
+                        download_dir=output_dir,
+                        export_config=export_config,
+                        should_delete=self.config.delete_after_export,
+                        account_id=account_id,
+                        title=video_title,
+                    )
+                    self._mark_qwen_account_used(account_id)
+
+                    if self.config.remove_video and not self.config.keep_original:
+                        video_path.unlink()
+                        logger.info(f"已删除原视频: {video_path}")
+
+                    duration = time.time() - start_time
+                    return PipelineResultV2(
+                        success=True,
+                        video_path=video_path,
+                        transcript_path=result.export_path,
+                        duration=duration,
+                    )
+                except Exception as e:
+                    last_error = e
+                    last_error_type = classify_error(e)
+                    if last_error_type == ErrorType.AUTH and account_id:
+                        self._mark_qwen_account_status(account_id, "expired")
+                        continue
+                    raise
 
             duration = time.time() - start_time
             return PipelineResultV2(
-                success=True,
+                success=False,
                 video_path=video_path,
-                transcript_path=result.export_path,
+                error=str(last_error or "no available account"),
+                error_type=last_error_type,
                 duration=duration,
             )
 
