@@ -85,6 +85,35 @@ def test_qwen_status_returns_remaining_hours_from_db(monkeypatch) -> None:
     assert result["accounts"][0]["remaining_hours"] == 375
 
 
+def test_qwen_status_does_not_fail_when_single_account_snapshot_errors(monkeypatch) -> None:
+    import sqlite3
+    import asyncio
+    from media_tools.api.routers import settings as settings_router
+
+    conn = sqlite3.connect(":memory:")
+    conn.row_factory = sqlite3.Row
+    conn.execute(
+        "CREATE TABLE Accounts_Pool(account_id TEXT PRIMARY KEY, platform TEXT, cookie_data TEXT, remark TEXT, status TEXT DEFAULT 'active', auth_state_path TEXT DEFAULT '')"
+    )
+    conn.execute(
+        "INSERT INTO Accounts_Pool(account_id, platform, cookie_data, remark, status, auth_state_path) VALUES(?,?,?,?,?,?)",
+        ("a1", "qwen", "x=y", "r", "active", ".auth/qwen-storage-state-a1.json"),
+    )
+    conn.commit()
+    monkeypatch.setattr("media_tools.api.routers.settings.get_db_connection", lambda: conn)
+
+    async def _boom(*, auth_state_path, referer=""):  # noqa: ANN001
+        raise RuntimeError("auth state missing")
+
+    monkeypatch.setattr("media_tools.api.routers.settings.get_quota_snapshot", _boom)
+
+    result = asyncio.run(settings_router.get_qwen_status())
+    assert result["status"] == "success"
+    assert len(result["accounts"]) == 1
+    assert result["accounts"][0]["accountId"] == "a1"
+    assert result["accounts"][0]["remaining_hours"] == 0
+
+
 def test_qwen_claim_iterates_db_accounts(monkeypatch) -> None:
     import sqlite3
     import asyncio

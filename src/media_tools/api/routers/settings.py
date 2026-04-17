@@ -188,7 +188,7 @@ async def get_qwen_status():
         with get_db_connection() as conn:
             conn.row_factory = sqlite3.Row
             db_rows = conn.execute(
-                "SELECT account_id, remark, status, auth_state_path FROM Accounts_Pool WHERE platform='qwen'",
+                "SELECT account_id, remark, status, auth_state_path, cookie_data FROM Accounts_Pool WHERE platform='qwen'",
             ).fetchall()
 
         rows: list[dict[str, Any]] = []
@@ -198,11 +198,42 @@ async def get_qwen_status():
             remark = str(account["remark"] or "")
             status = str(account["status"] or "active")
             auth_state_path = str(account["auth_state_path"] or "")
+            cookie_data = str(account["cookie_data"] or "")
 
             remaining_hours = 0
-            if status == "active" and auth_state_path:
-                snapshot = await get_quota_snapshot(auth_state_path=Path(auth_state_path))
-                remaining_hours = remaining_hours_from_snapshot(snapshot)
+            resolved_auth_state_path = auth_state_path.strip()
+
+            if status == "active":
+                if not resolved_auth_state_path:
+                    if cookie_data.strip():
+                        resolved_path = build_qwen_auth_state_path_for_account(account_id)
+                        try:
+                            save_qwen_cookie_string(cookie_data, resolved_path, sync_db=False)
+                            with get_db_connection() as conn:
+                                conn.execute(
+                                    "UPDATE Accounts_Pool SET auth_state_path=? WHERE account_id=? AND platform='qwen'",
+                                    (str(resolved_path), account_id),
+                                )
+                                conn.commit()
+                            resolved_auth_state_path = str(resolved_path)
+                        except Exception:
+                            status = "invalid"
+                    else:
+                        status = "invalid"
+
+            if status == "active" and resolved_auth_state_path:
+                try:
+                    snapshot = await get_quota_snapshot(auth_state_path=Path(resolved_auth_state_path))
+                    remaining_hours = remaining_hours_from_snapshot(snapshot)
+                except Exception:
+                    remaining_hours = 0
+                    status = "invalid"
+                    with get_db_connection() as conn:
+                        conn.execute(
+                            "UPDATE Accounts_Pool SET status=? WHERE account_id=? AND platform='qwen'",
+                            (status, account_id),
+                        )
+                        conn.commit()
 
             rows.append(
                 {
