@@ -196,4 +196,5 @@ tests/*
 !tests/test_local_media_extensions.py
 !tests/test_task_payload_retry.py
 !tests/test_local_assets_visibility.py
+!tests/test_local_transcribe_concurrency.py
 tests/bilibili/**/__pycache__/
