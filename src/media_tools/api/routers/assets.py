@@ -34,13 +34,11 @@ def list_assets(creator_uid: Optional[str] = Query(None)):
     try:
         with get_db_connection() as conn:
             conn.row_factory = sqlite3.Row
+            base_sql = "SELECT asset_id, creator_uid, title, video_status, transcript_status, transcript_path, folder_path, is_read, is_starred FROM media_assets"
             if creator_uid:
-                cursor = conn.execute(
-                    "SELECT asset_id, creator_uid, title, video_status, transcript_status, transcript_path, is_read, is_starred FROM media_assets WHERE creator_uid = ?",
-                    (creator_uid,)
-                )
+                cursor = conn.execute(base_sql + " WHERE creator_uid = ?", (creator_uid,))
             else:
-                cursor = conn.execute("SELECT asset_id, creator_uid, title, video_status, transcript_status, transcript_path, is_read, is_starred FROM media_assets")
+                cursor = conn.execute(base_sql)
             return [dict(row) for row in cursor.fetchall()]
     except Exception:
         logger.exception("list_assets failed")
@@ -129,23 +127,24 @@ def get_transcript(asset_id: str):
             conn.row_factory = sqlite3.Row
             cursor = conn.execute("SELECT transcript_path FROM media_assets WHERE asset_id = ?", (asset_id,))
             row = cursor.fetchone()
-            
-            if not row or not row['transcript_path']:
-                raise HTTPException(status_code=404, detail="Transcript not found in database")
-                
-            transcript_name = row['transcript_path']
-            # Construct the full path
-            # Pipeline config defaults to "./transcripts/" relative to project root
-            config = get_config()
-            transcripts_dir = config.project_root / "transcripts"
-            transcript_file = _resolve_safe_path(transcripts_dir, transcript_name)
 
-            if not transcript_file or not transcript_file.exists():
-                raise HTTPException(status_code=404, detail="Transcript file not found on disk")
+        if not row or not row["transcript_path"]:
+            raise HTTPException(status_code=404, detail="Transcript not found in database")
 
-            content = transcript_file.read_text(encoding="utf-8")
-            return {"content": content}
-            
+        transcript_name = row["transcript_path"]
+        config = get_config()
+        transcripts_dir = config.project_root / "transcripts"
+        transcript_file = _resolve_safe_path(transcripts_dir, transcript_name)
+
+        if not transcript_file or not transcript_file.exists():
+            with get_db_connection() as conn:
+                conn.execute("DELETE FROM media_assets WHERE asset_id = ?", (asset_id,))
+                conn.commit()
+            raise HTTPException(status_code=404, detail="Transcript file not found on disk")
+
+        content = transcript_file.read_text(encoding="utf-8")
+        return {"content": content}
+
     except HTTPException:
         raise
     except Exception as e:
