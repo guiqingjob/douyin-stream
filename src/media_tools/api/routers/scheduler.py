@@ -78,22 +78,36 @@ def startup_scheduler():
     def _auto_claim_qwen_quota():
         try:
             import asyncio
+            from pathlib import Path
             from media_tools.transcribe.quota import claim_equity_quota, has_claimed_equity_today
-            from media_tools.transcribe.account_status import resolve_status_targets
+            from media_tools.transcribe.db_account_pool import (
+                build_qwen_auth_state_path_for_account,
+                load_qwen_accounts_from_db,
+            )
 
-            targets = resolve_status_targets()
+            targets = load_qwen_accounts_from_db()
 
             loop = asyncio.new_event_loop()
             asyncio.set_event_loop(loop)
             try:
                 for target in targets:
-                    account_id = target.account_id or ""
-                    if not has_claimed_equity_today(account_id):
-                        result = loop.run_until_complete(claim_equity_quota(
-                            account_id=account_id,
-                            auth_state_path=target.auth_state_path,
-                        ))
-                        logger.info(f"Auto-claimed Qwen daily quota for account: {account_id or 'default'} (claimed={getattr(result, 'claimed', False)})")
+                    account_id = target.account_id
+                    if target.status != "active":
+                        continue
+                    if has_claimed_equity_today(account_id):
+                        continue
+                    auth_state_path = (
+                        Path(target.auth_state_path)
+                        if str(target.auth_state_path).strip()
+                        else build_qwen_auth_state_path_for_account(account_id)
+                    )
+                    result = loop.run_until_complete(
+                        claim_equity_quota(account_id=account_id, auth_state_path=auth_state_path)
+                    )
+                    logger.info(
+                        f"Auto-claimed Qwen daily quota for account: {account_id} "
+                        f"(claimed={getattr(result, 'claimed', False)})"
+                    )
             finally:
                 loop.close()
         except Exception as e:
