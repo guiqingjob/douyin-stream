@@ -498,6 +498,7 @@ async def trigger_full_sync(req: FullSyncRequest, background_tasks: BackgroundTa
 class LocalTranscribeRequest(BaseModel):
     file_paths: List[str]
     delete_after: bool = False
+    directory_root: str | None = None
 
 class ScanDirectoryRequest(BaseModel):
     directory: str
