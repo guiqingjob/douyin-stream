@@ -96,12 +96,24 @@ manager = ConnectionManager()
 @router.websocket("/ws")
 async def websocket_endpoint(websocket: WebSocket):
     await manager.connect(websocket)
+
+    async def _heartbeat():
+        try:
+            while True:
+                await asyncio.sleep(20)
+                await websocket.send_json({"type": "ping"})
+        except Exception:
+            pass
+
+    heartbeat_task = asyncio.create_task(_heartbeat())
     try:
         while True:
             # Just keep connection alive, we broadcast updates from the worker
             data = await websocket.receive_text()
     except WebSocketDisconnect:
         manager.disconnect(websocket)
+    finally:
+        heartbeat_task.cancel()
 
 async def notify_task_update(task_id: str, progress: float, msg: str, status: str = "RUNNING", task_type: str = "pipeline"):
     await manager.broadcast({
