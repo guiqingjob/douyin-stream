@@ -68,7 +68,7 @@ def get_settings():
         settings_rows = cursor.fetchall()
         settings_dict = {row[0]: row[1] for row in settings_rows}
 
-    concurrency = int(settings_dict.get("concurrency", 3))
+    concurrency = int(settings_dict.get("concurrency", 5))
     auto_delete = config.is_auto_delete_video()
     auto_transcribe = config.is_auto_transcribe()
     douyin_accounts_count = len(accounts)

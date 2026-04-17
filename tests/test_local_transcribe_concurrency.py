@@ -37,11 +37,11 @@ class _FakeOrchestrator:
         return _Result(success=True)
 
 
-def test_pipeline_config_default_concurrency_is_3() -> None:
+def test_pipeline_config_default_concurrency_is_5() -> None:
     from media_tools.pipeline.config import load_pipeline_config
 
     config = load_pipeline_config()
-    assert config.concurrency == 3
+    assert config.concurrency == 5
 
 
 def test_local_transcribe_uses_batch_transcribe(monkeypatch) -> None:
@@ -61,4 +61,3 @@ def test_local_transcribe_uses_batch_transcribe(monkeypatch) -> None:
     assert result["total"] == 1
     assert len(fake.transcribe_batch_calls) == 1
     assert fake.transcribe_with_retry_calls == []
-
