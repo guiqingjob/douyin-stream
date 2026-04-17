@@ -48,42 +48,29 @@ def list_assets(creator_uid: Optional[str] = Query(None)):
 def search_assets(q: str = Query(..., min_length=1)):
     """搜索素材标题和转写文稿内容"""
     try:
+        like = f"%{q}%"
         with get_db_connection() as conn:
             conn.row_factory = sqlite3.Row
-            # 搜索标题
             cursor = conn.execute(
-                """SELECT asset_id, creator_uid, title, video_status, transcript_status, transcript_path
-                   FROM media_assets
-                   WHERE title LIKE ? OR asset_id IN (
-                       SELECT asset_id FROM media_assets WHERE transcript_path IS NOT NULL
-                   )
-                   LIMIT 50""",
-                (f"%{q}%",)
+                """
+                SELECT asset_id, creator_uid, title, video_status, transcript_status,
+                       transcript_path, transcript_preview, folder_path, is_read, is_starred,
+                       create_time, update_time,
+                       CASE
+                         WHEN LOWER(title) LIKE LOWER(?) THEN 'title'
+                         ELSE 'content'
+                       END AS match_type
+                FROM media_assets
+                WHERE LOWER(title) LIKE LOWER(?)
+                   OR LOWER(COALESCE(transcript_text, '')) LIKE LOWER(?)
+                ORDER BY
+                  CASE WHEN LOWER(title) LIKE LOWER(?) THEN 0 ELSE 1 END,
+                  update_time DESC
+                LIMIT 50
+                """,
+                (like, like, like, like),
             )
-            results = [dict(row) for row in cursor.fetchall()]
-
-            # 对有转写文件的结果，检查文稿内容是否匹配
-            config = get_config()
-            transcripts_dir = config.project_root / "transcripts"
-            matched = []
-            for asset in results:
-                # 标题匹配直接加入
-                if q.lower() in (asset.get('title') or '').lower():
-                    asset['match_type'] = 'title'
-                    matched.append(asset)
-                    continue
-                # 检查文稿内容
-                if asset.get('transcript_path'):
-                    transcript_file = _resolve_safe_path(transcripts_dir, asset['transcript_path'])
-                    if transcript_file and transcript_file.exists():
-                        try:
-                            content = transcript_file.read_text(encoding='utf-8')
-                            if q.lower() in content.lower():
-                                asset['match_type'] = 'content'
-                                matched.append(asset)
-                        except Exception:
-                            pass
-            return matched
+            return [dict(row) for row in cursor.fetchall()]
     except Exception as e:
         logger.exception("search_assets failed")
         raise HTTPException(status_code=500, detail=str(e))

@@ -772,7 +772,7 @@ class OrchestratorV2:
                 # 同步更新数据库
                 try:
                     from media_tools.douyin.core.config_mgr import get_config
-                    from media_tools.pipeline.preview import extract_transcript_preview
+                    from media_tools.pipeline.preview import extract_transcript_preview, extract_transcript_text
                     import sqlite3
                     import re
                     db_path = get_config().get_db_path()
@@ -787,28 +787,35 @@ class OrchestratorV2:
                                 transcript_name = str(result.transcript_path.name)
                         else:
                             transcript_name = ""
-                        preview = extract_transcript_preview(result.transcript_path) if result.transcript_path else ""
+                        if result.transcript_path:
+                            preview = extract_transcript_preview(result.transcript_path)
+                            full_text = extract_transcript_text(result.transcript_path)
+                        else:
+                            preview = ""
+                            full_text = ""
                         aweme_matches = re.findall(r'\d{15,}', video_path.name)
 
                         if aweme_matches:
                             asset_id = aweme_matches[0]
                             cursor.execute("""
                                 UPDATE media_assets
-                                SET transcript_path = ?, transcript_status = 'completed', transcript_preview = ?, update_time = CURRENT_TIMESTAMP
+                                SET transcript_path = ?, transcript_status = 'completed', transcript_preview = ?, transcript_text = ?, update_time = CURRENT_TIMESTAMP
                                 WHERE asset_id = ?
                             """, (
                                 transcript_name,
                                 preview,
+                                full_text,
                                 asset_id
                             ))
                         else:
                             cursor.execute("""
                                 UPDATE media_assets
-                                SET transcript_path = ?, transcript_status = 'completed', transcript_preview = ?, update_time = CURRENT_TIMESTAMP
+                                SET transcript_path = ?, transcript_status = 'completed', transcript_preview = ?, transcript_text = ?, update_time = CURRENT_TIMESTAMP
                                 WHERE video_path LIKE ? OR title LIKE ?
                             """, (
                                 transcript_name,
                                 preview,
+                                full_text,
                                 f"%{video_path.name}%",
                                 f"%{video_path.stem}%"
                             ))
