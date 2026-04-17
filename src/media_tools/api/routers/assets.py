@@ -256,3 +256,57 @@ def bulk_mark_assets(req: BulkAssetMarkRequest):
             updated += cursor.rowcount
         conn.commit()
     return {"status": "success", "updated": updated}
+
+
+class BulkAssetDeleteRequest(BaseModel):
+    ids: list[str]
+
+
+@router.post("/bulk_delete")
+def bulk_delete_assets(req: BulkAssetDeleteRequest):
+    """批量删除素材（含视频与转写文件）"""
+    if not req.ids:
+        raise HTTPException(status_code=400, detail="ids 不能为空")
+
+    config = get_config()
+    download_dir = config.get_download_path()
+    transcripts_dir = config.project_root / "transcripts"
+
+    deleted = 0
+    with get_db_connection() as conn:
+        conn.row_factory = sqlite3.Row
+        # Look up file paths in one go
+        for start in range(0, len(req.ids), 500):
+            chunk = req.ids[start:start + 500]
+            placeholders = ",".join("?" * len(chunk))
+            cursor = conn.execute(
+                f"SELECT asset_id, video_path, transcript_path FROM media_assets WHERE asset_id IN ({placeholders})",
+                chunk,
+            )
+            rows = cursor.fetchall()
+
+            for row in rows:
+                video_path = row["video_path"]
+                transcript_name = row["transcript_path"]
+                if video_path:
+                    full_video_path = _resolve_safe_path(download_dir, video_path)
+                    if full_video_path and full_video_path.exists():
+                        try:
+                            full_video_path.unlink()
+                        except Exception as e:
+                            logger.warning(f"Failed to delete video file {full_video_path}: {e}")
+                if transcript_name:
+                    full_transcript_path = _resolve_safe_path(transcripts_dir, transcript_name)
+                    if full_transcript_path and full_transcript_path.exists():
+                        try:
+                            full_transcript_path.unlink()
+                        except Exception as e:
+                            logger.warning(f"Failed to delete transcript file {full_transcript_path}: {e}")
+
+            cursor = conn.execute(
+                f"DELETE FROM media_assets WHERE asset_id IN ({placeholders})",
+                chunk,
+            )
+            deleted += cursor.rowcount
+        conn.commit()
+    return {"status": "success", "deleted": deleted}
