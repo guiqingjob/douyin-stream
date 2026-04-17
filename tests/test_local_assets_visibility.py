@@ -42,6 +42,7 @@ class LocalAssetsVisibilityTests(unittest.TestCase):
               video_status TEXT,
               transcript_path TEXT,
               transcript_status TEXT,
+              folder_path TEXT DEFAULT '',
               is_read BOOLEAN DEFAULT 0,
               is_starred BOOLEAN DEFAULT 0,
               create_time DATETIME,
@@ -74,4 +75,3 @@ class LocalAssetsVisibilityTests(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
-
