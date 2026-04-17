@@ -43,6 +43,10 @@ def number_value(value: Any) -> int:
     return parsed
 
 
+def remaining_hours_from_snapshot(snapshot: QuotaSnapshot) -> int:
+    return max(0, number_value(snapshot.remaining_upload) // 60)
+
+
 def today_key() -> str:
     return datetime.now(UTC).date().isoformat()
 

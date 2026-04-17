@@ -7,6 +7,7 @@ from pydantic import BaseModel
 from typing import Any, Dict
 from media_tools.transcribe.auth_state import has_qwen_auth_state, save_qwen_cookie_string, default_qwen_auth_state_path
 from media_tools.transcribe.db_account_pool import build_qwen_auth_state_path_for_account
+from media_tools.transcribe.quota import get_quota_snapshot, remaining_hours_from_snapshot
 from media_tools.douyin.core.config_mgr import get_config
 from media_tools.db.core import get_db_connection
 
@@ -178,11 +179,36 @@ def update_bilibili_account_remark(account_id: str, req: RemarkRequest):
 
 @router.get("/qwen/status")
 async def get_qwen_status():
-    """获取 Qwen 转写余额和今日用量"""
     try:
-        from media_tools.transcribe.account_status import collect_account_statuses
-        statuses = await collect_account_statuses()
-        return {"status": "success", "accounts": statuses}
+        with get_db_connection() as conn:
+            conn.row_factory = sqlite3.Row
+            db_rows = conn.execute(
+                "SELECT account_id, remark, status, auth_state_path FROM Accounts_Pool WHERE platform='qwen'",
+            ).fetchall()
+
+        rows: list[dict[str, Any]] = []
+
+        for account in db_rows:
+            account_id = str(account["account_id"])
+            remark = str(account["remark"] or "")
+            status = str(account["status"] or "active")
+            auth_state_path = str(account["auth_state_path"] or "")
+
+            remaining_hours = 0
+            if status == "active" and auth_state_path:
+                snapshot = await get_quota_snapshot(auth_state_path=Path(auth_state_path))
+                remaining_hours = remaining_hours_from_snapshot(snapshot)
+
+            rows.append(
+                {
+                    "accountId": account_id,
+                    "accountLabel": remark or account_id,
+                    "remaining_hours": remaining_hours,
+                    "status": status,
+                }
+            )
+
+        return {"status": "success", "accounts": rows}
     except Exception as e:
         return {"status": "unavailable", "message": str(e), "accounts": []}
 
