@@ -98,7 +98,9 @@ def test_list_assets_returns_folder_path(monkeypatch) -> None:
           transcript_path TEXT,
           folder_path TEXT DEFAULT '',
           is_read BOOLEAN DEFAULT 0,
-          is_starred BOOLEAN DEFAULT 0
+          is_starred BOOLEAN DEFAULT 0,
+          create_time DATETIME,
+          update_time DATETIME
         )
         """
     )

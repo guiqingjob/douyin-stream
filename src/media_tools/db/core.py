@@ -180,6 +180,8 @@ def init_db(db_path: str | Path):
         _ensure_column(conn, "media_assets", "is_read", "BOOLEAN DEFAULT 0")
         _ensure_column(conn, "media_assets", "is_starred", "BOOLEAN DEFAULT 0")
         _ensure_column(conn, "media_assets", "folder_path", "TEXT DEFAULT ''")
+        _ensure_column(conn, "media_assets", "create_time", "DATETIME")
+        _ensure_column(conn, "media_assets", "update_time", "DATETIME")
 
         conn.commit()
         logger.info("数据库初始化完成（含全部 7 张表）")

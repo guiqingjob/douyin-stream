@@ -34,7 +34,7 @@ def list_assets(creator_uid: Optional[str] = Query(None)):
     try:
         with get_db_connection() as conn:
             conn.row_factory = sqlite3.Row
-            base_sql = "SELECT asset_id, creator_uid, title, video_status, transcript_status, transcript_path, folder_path, is_read, is_starred FROM media_assets"
+            base_sql = "SELECT asset_id, creator_uid, title, video_status, transcript_status, transcript_path, folder_path, is_read, is_starred, create_time, update_time FROM media_assets"
             if creator_uid:
                 cursor = conn.execute(base_sql + " WHERE creator_uid = ?", (creator_uid,))
             else:
@@ -220,3 +220,39 @@ def mark_asset(asset_id: str, req: AssetMarkRequest):
         conn.execute(f"UPDATE media_assets SET {', '.join(updates)} WHERE asset_id = ?", params)
         conn.commit()
     return {"status": "success"}
+
+
+class BulkAssetMarkRequest(BaseModel):
+    ids: list[str]
+    is_read: Optional[bool] = None
+    is_starred: Optional[bool] = None
+
+
+@router.post("/bulk_mark")
+def bulk_mark_assets(req: BulkAssetMarkRequest):
+    """批量标记素材为已读/收藏"""
+    if not req.ids:
+        raise HTTPException(status_code=400, detail="ids 不能为空")
+    if req.is_read is None and req.is_starred is None:
+        raise HTTPException(status_code=400, detail="至少指定 is_read 或 is_starred")
+
+    set_clauses = []
+    set_params: list = []
+    if req.is_read is not None:
+        set_clauses.append("is_read = ?")
+        set_params.append(req.is_read)
+    if req.is_starred is not None:
+        set_clauses.append("is_starred = ?")
+        set_params.append(req.is_starred)
+    set_clauses.append("update_time = CURRENT_TIMESTAMP")
+
+    updated = 0
+    with get_db_connection() as conn:
+        for start in range(0, len(req.ids), 500):
+            chunk = req.ids[start:start + 500]
+            placeholders = ",".join("?" * len(chunk))
+            sql = f"UPDATE media_assets SET {', '.join(set_clauses)} WHERE asset_id IN ({placeholders})"
+            cursor = conn.execute(sql, (*set_params, *chunk))
+            updated += cursor.rowcount
+        conn.commit()
+    return {"status": "success", "updated": updated}
