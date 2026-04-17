@@ -224,6 +224,10 @@ Format: `YYYY-MM-DD HH:MM [A|B|user] <message>`.
 ```
 2026-04-18 00:45 [setup] doc created; starting state = d07fe53 on main,
                  webui-apple-design on frontend
+2026-04-18 01:20 [A] Claiming Track A (task cancellation). Will commit in
+                 small chunks: DB migration → asyncio registry refactor →
+                 CancelledError handlers → /cancel endpoint → frontend.
+                 Session B: Track B files are untouched, go ahead.
 ```
 
 <!--
