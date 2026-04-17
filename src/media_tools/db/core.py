@@ -176,6 +176,7 @@ def init_db(db_path: str | Path):
         _ensure_column(conn, "creators", "avatar", "TEXT")
         _ensure_column(conn, "creators", "bio", "TEXT")
         _ensure_column(conn, "Accounts_Pool", "remark", "TEXT DEFAULT ''")
+        _ensure_column(conn, "Accounts_Pool", "auth_state_path", "TEXT DEFAULT ''")
         _ensure_column(conn, "media_assets", "is_read", "BOOLEAN DEFAULT 0")
         _ensure_column(conn, "media_assets", "is_starred", "BOOLEAN DEFAULT 0")
         _ensure_column(conn, "media_assets", "folder_path", "TEXT DEFAULT ''")

@@ -198,4 +198,5 @@ tests/*
 !tests/test_local_assets_visibility.py
 !tests/test_local_transcribe_concurrency.py
 !tests/test_local_folder_grouping.py
+!tests/test_qwen_account_pool_db.py
 tests/bilibili/**/__pycache__/
