@@ -138,7 +138,19 @@ def _local_asset_id(file_path: str) -> str:
     digest = hashlib.sha1(resolved.encode("utf-8")).hexdigest()[:24]
     return f"local:{digest}"
 
-def _register_local_assets(file_paths: list[str], delete_after: bool) -> None:
+def _compute_folder_path(file_path: Path, directory_root: str | None) -> str:
+    if not directory_root:
+        return ""
+    try:
+        root = Path(directory_root).resolve()
+        p = file_path.resolve()
+        rel = p.parent.relative_to(root)
+        rel_str = rel.as_posix()
+        return "" if rel_str == "." else rel_str
+    except Exception:
+        return "(其他)"
+
+def _register_local_assets(file_paths: list[str], delete_after: bool, directory_root: str | None = None) -> None:
     now = datetime.now().isoformat()
     with get_db_connection() as conn:
         conn.row_factory = sqlite3.Row
@@ -154,13 +166,14 @@ def _register_local_assets(file_paths: list[str], delete_after: bool) -> None:
             if not path.exists():
                 continue
             asset_id = _local_asset_id(str(path))
+            folder_path = _compute_folder_path(path, directory_root)
             conn.execute(
                 """
                 INSERT OR IGNORE INTO media_assets
-                (asset_id, creator_uid, source_url, title, video_status, transcript_status, create_time, update_time)
-                VALUES (?, ?, ?, ?, 'downloaded', 'pending', ?, ?)
+                (asset_id, creator_uid, source_url, title, video_status, transcript_status, folder_path, create_time, update_time)
+                VALUES (?, ?, ?, ?, 'downloaded', 'pending', ?, ?, ?)
                 """,
-                (asset_id, LOCAL_CREATOR_UID, str(path.resolve()), path.stem, now, now),
+                (asset_id, LOCAL_CREATOR_UID, str(path.resolve()), path.stem, folder_path, now, now),
             )
         conn.commit()
 
@@ -532,7 +545,7 @@ async def _background_local_transcribe_worker(task_id: str, req: LocalTranscribe
 @router.post("/transcribe/local")
 async def trigger_local_transcribe(req: LocalTranscribeRequest, background_tasks: BackgroundTasks):
     task_id = str(uuid.uuid4())
-    _register_local_assets(req.file_paths, req.delete_after)
+    _register_local_assets(req.file_paths, req.delete_after, req.directory_root)
     await _create_task(task_id, "local_transcribe", {"file_paths": req.file_paths, "delete_after": req.delete_after})
     background_tasks.add_task(_background_local_transcribe_worker, task_id, req)
     return {"task_id": task_id, "status": "started"}
