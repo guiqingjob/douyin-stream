@@ -1,11 +1,11 @@
 import asyncio
 import inspect
+import hashlib
 from pathlib import Path
 from media_tools.logger import get_logger
+from media_tools.pipeline.media_extensions import MEDIA_EXTENSIONS
 
 logger = get_logger('pipeline')
-
-VIDEO_EXTENSIONS = {'.mp4', '.mov', '.avi', '.mkv', '.flv', '.webm'}
 
 
 async def _call_progress(update_progress_fn, progress: float, msg: str) -> None:
@@ -16,22 +16,34 @@ async def _call_progress(update_progress_fn, progress: float, msg: str) -> None:
         await result
 
 
+def filter_supported_media_paths(file_paths: list[str]) -> list[Path]:
+    valid_paths: list[Path] = []
+    for file_path in file_paths:
+        path = Path(file_path)
+        if path.exists() and path.suffix.lower() in MEDIA_EXTENSIONS:
+            valid_paths.append(path)
+    return valid_paths
+
+
+def _local_asset_id(file_path: Path) -> str:
+    resolved = str(file_path.resolve())
+    digest = hashlib.sha1(resolved.encode("utf-8")).hexdigest()[:24]
+    return f"local:{digest}"
+
+
 def run_local_transcribe(file_paths: list[str], update_progress_fn=None, delete_after: bool = False):
     """转写本地视频文件（不经过下载步骤）"""
     from media_tools.pipeline.config import load_pipeline_config
     from media_tools.pipeline.orchestrator_v2 import create_orchestrator
 
-    valid_paths = []
-    for p in file_paths:
-        path = Path(p)
-        if path.exists() and path.suffix.lower() in VIDEO_EXTENSIONS:
-            valid_paths.append(path)
+    valid_paths = filter_supported_media_paths(file_paths)
 
     if not valid_paths:
         return {"success_count": 0, "failed_count": 0, "total": 0}
 
     config = load_pipeline_config()
     orchestrator = create_orchestrator(config, creator_folder_override="本地上传")
+    output_root = Path(config.output_dir).resolve()
 
     success_count = 0
     failed_count = 0
@@ -40,12 +52,32 @@ def run_local_transcribe(file_paths: list[str], update_progress_fn=None, delete_
     async def _run():
         nonlocal success_count, failed_count
         for i, video_path in enumerate(valid_paths):
-            if update_progress_fn:
-                update_progress_fn(i / total, f"正在转写 {video_path.name} ({i+1}/{total})")
+            await _call_progress(update_progress_fn, i / total, f"正在转写 {video_path.name} ({i+1}/{total})")
             try:
                 result = await orchestrator.transcribe_with_retry(video_path)
                 if result.success:
                     success_count += 1
+                    try:
+                        from media_tools.db.core import get_db_connection
+
+                        transcript_name = ""
+                        if result.transcript_path:
+                            try:
+                                transcript_name = str(Path(result.transcript_path).resolve().relative_to(output_root))
+                            except Exception:
+                                transcript_name = str(Path(result.transcript_path).name)
+                        with get_db_connection() as conn:
+                            conn.execute(
+                                """
+                                UPDATE media_assets
+                                SET transcript_path = ?, transcript_status = 'completed', update_time = CURRENT_TIMESTAMP
+                                WHERE asset_id = ?
+                                """,
+                                (transcript_name, _local_asset_id(video_path)),
+                            )
+                            conn.commit()
+                    except Exception:
+                        pass
                     if delete_after and video_path.exists():
                         try:
                             video_path.unlink()
@@ -62,14 +94,19 @@ def run_local_transcribe(file_paths: list[str], update_progress_fn=None, delete_
 
 
 async def run_pipeline_for_user(url: str, max_counts: int, update_progress_fn, delete_after: bool = True):
-    from media_tools.pipeline.download_router import download_by_url
+    from media_tools.pipeline.download_router import download_by_url as download_by_url_router
+    from media_tools.pipeline.download_router import resolve_platform
     from media_tools.pipeline.config import load_pipeline_config
     from media_tools.pipeline.orchestrator_v2 import create_orchestrator
     
     await _call_progress(update_progress_fn, 0.1, "正在下载视频...")
     
     # 1. Download
-    dl_result = await asyncio.to_thread(download_by_url, url, max_counts, True, True)
+    if resolve_platform(url) == "bilibili":
+        download_fn = download_by_url_router
+    else:
+        from media_tools.douyin.core.downloader import download_by_url as download_fn
+    dl_result = await asyncio.to_thread(download_fn, url, max_counts, True, True)
     new_files = dl_result.get('new_files', []) if isinstance(dl_result, dict) else []
     
     if not new_files:

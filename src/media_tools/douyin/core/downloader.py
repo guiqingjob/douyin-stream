@@ -14,7 +14,7 @@ from datetime import datetime
 from pathlib import Path
 
 from .f2_helper import get_f2_kwargs as _build_f2_kwargs
-from ..logger import get_logger
+from media_tools.logger import get_logger
 
 logger = get_logger('downloader')
 

@@ -259,7 +259,7 @@ def _clean_nickname(name):
     return name.strip()
 
 
-def remove_user(uid, delete_local=False):
+def remove_user(uid=None, delete_local=False):
     """
     移除关注的博主 (从 SQLite V2 架构)
 
@@ -270,6 +270,10 @@ def remove_user(uid, delete_local=False):
     Returns:
         是否成功
     """
+    if uid is None or str(uid).strip() == "":
+        logger.info(error("未指定要删除的用户"))
+        return False
+
     config = get_config()
     db_path = config.get_db_path()
     

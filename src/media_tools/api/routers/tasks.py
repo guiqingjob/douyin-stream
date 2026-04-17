@@ -2,6 +2,7 @@ import asyncio
 import sqlite3
 import json
 import logging
+import hashlib
 from datetime import datetime, timedelta
 from fastapi import APIRouter, BackgroundTasks, WebSocket, WebSocketDisconnect
 from pydantic import BaseModel
@@ -11,12 +12,15 @@ from pathlib import Path
 import sys
 import os
 from media_tools.pipeline.worker import run_pipeline_for_user, run_batch_pipeline, run_download_only
+from media_tools.pipeline.media_extensions import MEDIA_EXTENSIONS
 from media_tools.douyin.core.config_mgr import get_config
 from media_tools.db.core import get_db_connection
 
 router = APIRouter(prefix="/api/v1/tasks", tags=["tasks"])
 logger = logging.getLogger(__name__)
 STALE_TASK_HOURS = 2
+LOCAL_CREATOR_UID = "local:upload"
+LOCAL_CREATOR_NAME = "本地上传"
 
 
 def _is_allowed_scan_path(dir_path: Path) -> bool:
@@ -108,17 +112,71 @@ async def notify_task_update(task_id: str, progress: float, msg: str, status: st
         "task_type": task_type
     })
 
+def _merge_task_payload(existing_payload: str | None, msg: str) -> str:
+    base_payload: dict = {}
+    if existing_payload:
+        try:
+            parsed = json.loads(existing_payload)
+            if isinstance(parsed, dict):
+                base_payload = parsed
+        except Exception:
+            base_payload = {}
+    base_payload["msg"] = msg
+    return json.dumps(base_payload, ensure_ascii=False)
+
+def _merge_payload_from_db(conn: sqlite3.Connection, task_id: str, msg: str) -> str:
+    try:
+        cursor = conn.execute("SELECT payload FROM task_queue WHERE task_id = ?", (task_id,))
+        row = cursor.fetchone()
+        existing = row["payload"] if row else None
+    except Exception:
+        existing = None
+    return _merge_task_payload(existing, msg)
+
+def _local_asset_id(file_path: str) -> str:
+    resolved = str(Path(file_path).resolve())
+    digest = hashlib.sha1(resolved.encode("utf-8")).hexdigest()[:24]
+    return f"local:{digest}"
+
+def _register_local_assets(file_paths: list[str], delete_after: bool) -> None:
+    now = datetime.now().isoformat()
+    with get_db_connection() as conn:
+        conn.row_factory = sqlite3.Row
+        conn.execute(
+            """
+            INSERT OR IGNORE INTO creators (uid, sec_user_id, nickname, platform, sync_status, last_fetch_time)
+            VALUES (?, ?, ?, ?, 'active', ?)
+            """,
+            (LOCAL_CREATOR_UID, "", LOCAL_CREATOR_NAME, "local", now),
+        )
+        for raw_path in file_paths:
+            path = Path(raw_path)
+            if not path.exists():
+                continue
+            asset_id = _local_asset_id(str(path))
+            conn.execute(
+                """
+                INSERT OR IGNORE INTO media_assets
+                (asset_id, creator_uid, source_url, title, video_status, transcript_status, create_time, update_time)
+                VALUES (?, ?, ?, ?, 'downloaded', 'pending', ?, ?)
+                """,
+                (asset_id, LOCAL_CREATOR_UID, str(path.resolve()), path.stem, now, now),
+            )
+        conn.commit()
+
 async def update_task_progress(task_id: str, progress: float, msg: str, task_type: str = "pipeline"):
     try:
-        payload_str = json.dumps({"msg": msg}, ensure_ascii=False)
         now = datetime.now().isoformat()
         with get_db_connection() as conn:
+            conn.row_factory = sqlite3.Row
+            payload_str = _merge_payload_from_db(conn, task_id, msg)
             conn.execute(
                 """INSERT INTO task_queue (task_id, task_type, status, progress, payload, create_time, update_time)
                    VALUES (?, ?, 'RUNNING', ?, ?, ?, ?)
                    ON CONFLICT(task_id) DO UPDATE SET
                        status = 'RUNNING',
                        progress = excluded.progress,
+                       payload = excluded.payload,
                        update_time = excluded.update_time""",
                 (task_id, task_type, progress, payload_str, now, now)
             )
@@ -154,8 +212,8 @@ async def _background_pipeline_worker(task_id: str, req: PipelineRequest):
             else:
                 msg = f"成功转写 {s_count} 个视频，失败 {f_count} 个"
 
-        payload_str = json.dumps({"msg": msg}, ensure_ascii=False)
         with get_db_connection() as conn:
+            payload_str = _merge_payload_from_db(conn, task_id, msg)
             conn.execute(
                 "UPDATE task_queue SET status=?, progress=1.0, payload=?, error_msg=? WHERE task_id=?",
                 (status, payload_str, error_msg, task_id)
@@ -251,8 +309,8 @@ async def _background_batch_worker(task_id: str, req: BatchPipelineRequest):
             status = "FAILED"
             error_msg = failed_items[0]["error"] if failed_items else "全部视频处理失败"
         msg = f"批量处理完成：成功 {success_count} 个，失败 {failed_count} 个"
-        payload_str = json.dumps({"msg": msg}, ensure_ascii=False)
         with get_db_connection() as conn:
+            payload_str = _merge_payload_from_db(conn, task_id, msg)
             conn.execute(
                 "UPDATE task_queue SET status=?, progress=1.0, payload=?, error_msg=? WHERE task_id=?",
                 (status, payload_str, error_msg, task_id)
@@ -280,8 +338,8 @@ async def _background_download_worker(task_id: str, req: DownloadBatchRequest):
             update_progress_fn=_progress_fn,
         )
         msg = f"下载完成：成功 {result.get('success_count', 0)} 个，失败 {result.get('failed_count', 0)} 个"
-        payload_str = json.dumps({"msg": msg}, ensure_ascii=False)
         with get_db_connection() as conn:
+            payload_str = _merge_payload_from_db(conn, task_id, msg)
             conn.execute("UPDATE task_queue SET status='COMPLETED', progress=1.0, payload=? WHERE task_id=?", (payload_str, task_id))
         await notify_task_update(task_id, 1.0, msg, "COMPLETED", "download")
     except Exception as e:
@@ -361,8 +419,8 @@ async def _background_creator_download_worker(task_id: str, uid: str, mode: str 
 
         new_count = len(result.get("new_files", []) or [])
         msg = f"{display_name} 同步完成：{new_count} 个新视频（{mode}）"
-        payload_str = json.dumps({"msg": msg}, ensure_ascii=False)
         with get_db_connection() as conn:
+            payload_str = _merge_payload_from_db(conn, task_id, msg)
             conn.execute("UPDATE task_queue SET status='COMPLETED', progress=1.0, payload=? WHERE task_id=?", (payload_str, task_id))
         await notify_task_update(task_id, 1.0, msg, "COMPLETED", f"creator_sync_{mode}")
     except Exception as e:
@@ -388,8 +446,8 @@ async def _background_full_sync_worker(task_id: str, mode: str = "incremental"):
         users = list_users()
         if not users:
             msg = "关注列表为空"
-            payload_str = json.dumps({"msg": msg}, ensure_ascii=False)
             with get_db_connection() as conn:
+                payload_str = _merge_payload_from_db(conn, task_id, msg)
                 conn.execute("UPDATE task_queue SET status='COMPLETED', progress=1.0, payload=? WHERE task_id=?", (payload_str, task_id))
             await notify_task_update(task_id, 1.0, msg, "COMPLETED", f"full_sync_{mode}")
             return
@@ -418,8 +476,8 @@ async def _background_full_sync_worker(task_id: str, mode: str = "incremental"):
                 await update_task_progress(task_id, index / total, f"已完成 {name} ({index}/{total})", f"full_sync_{mode}")
 
         msg = f"全量同步完成：成功 {creator_success} 位，失败 {creator_failed} 位，新增 {new_video_count} 个视频（{mode}）"
-        payload_str = json.dumps({"msg": msg}, ensure_ascii=False)
         with get_db_connection() as conn:
+            payload_str = _merge_payload_from_db(conn, task_id, msg)
             conn.execute("UPDATE task_queue SET status='COMPLETED', progress=1.0, payload=? WHERE task_id=?", (payload_str, task_id))
         await notify_task_update(task_id, 1.0, msg, "COMPLETED", f"full_sync_{mode}")
     except Exception as e:
@@ -453,15 +511,15 @@ async def _background_local_transcribe_worker(task_id: str, req: LocalTranscribe
         result = await asyncio.to_thread(
             run_local_transcribe,
             req.file_paths,
-            None,
+            _progress_fn,
             req.delete_after,
         )
         s_count = result.get("success_count", 0)
         f_count = result.get("failed_count", 0)
         total = result.get("total", 0)
-        msg = "没有找到有效的视频文件" if total == 0 else f"本地转写完成：成功 {s_count} 个，失败 {f_count} 个"
-        payload_str = json.dumps({"msg": msg}, ensure_ascii=False)
+        msg = "没有找到有效的音视频文件" if total == 0 else f"本地转写完成：成功 {s_count} 个，失败 {f_count} 个"
         with get_db_connection() as conn:
+            payload_str = _merge_payload_from_db(conn, task_id, msg)
             conn.execute("UPDATE task_queue SET status='COMPLETED', progress=1.0, payload=? WHERE task_id=?", (payload_str, task_id))
         await notify_task_update(task_id, 1.0, msg, "COMPLETED", "local_transcribe")
     except Exception as e:
@@ -473,6 +531,7 @@ async def _background_local_transcribe_worker(task_id: str, req: LocalTranscribe
 @router.post("/transcribe/local")
 async def trigger_local_transcribe(req: LocalTranscribeRequest, background_tasks: BackgroundTasks):
     task_id = str(uuid.uuid4())
+    _register_local_assets(req.file_paths, req.delete_after)
     await _create_task(task_id, "local_transcribe", {"file_paths": req.file_paths, "delete_after": req.delete_after})
     background_tasks.add_task(_background_local_transcribe_worker, task_id, req)
     return {"task_id": task_id, "status": "started"}
@@ -485,7 +544,7 @@ def scan_directory(req: ScanDirectoryRequest):
         raise HTTPException(status_code=400, detail="Invalid directory path")
     if not dir_path.is_dir():
         raise HTTPException(status_code=400, detail="目录不存在")
-    extensions = {'.mp4', '.mov', '.avi', '.mkv', '.flv', '.webm'}
+    extensions = MEDIA_EXTENSIONS
     files = []
     for f in sorted(dir_path.iterdir()):
         if f.is_file() and f.suffix.lower() in extensions:

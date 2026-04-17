@@ -87,7 +87,10 @@ def get_f2_kwargs() -> dict:
     config = get_config()
 
     # 优先使用账号池（支持多账号轮换），config.yaml cookie 作为兜底
-    cookie = _get_active_douyin_cookie_from_pool(config.get_db_path())
+    cookie = ""
+    get_db_path = getattr(config, "get_db_path", None)
+    if callable(get_db_path):
+        cookie = _get_active_douyin_cookie_from_pool(get_db_path())
     if not cookie:
         cookie = config.get_cookie()
 

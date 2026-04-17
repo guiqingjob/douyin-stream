@@ -1033,3 +1033,7 @@ def run_pipeline_batch(
             self.error = d.get("error")
 
     return [_Compat(r) for r in report.results]
+
+
+def run_pipeline_interactive() -> None:
+    return
