@@ -12,9 +12,8 @@ from media_tools.db.core import get_db_connection
 router = APIRouter(prefix="/api/v1/scheduler", tags=["scheduler"])
 logger = logging.getLogger(__name__)
 
-# Initialize scheduler
+# Initialize scheduler (started by startup_scheduler() on app lifespan)
 scheduler = BackgroundScheduler()
-scheduler.start()
 
 class ScheduleRequest(BaseModel):
     cron_expr: str  # e.g., "0 2 * * *" for 02:00 daily
@@ -57,6 +56,8 @@ def _sync_scheduler():
 
 def startup_scheduler():
     """Called from app lifespan to sync scheduled tasks on startup."""
+    if not scheduler.running:
+        scheduler.start()
     _sync_scheduler()
     # Register periodic stale task cleanup (every 10 minutes)
     from media_tools.api.routers.tasks import cleanup_stale_tasks

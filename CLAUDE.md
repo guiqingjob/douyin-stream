@@ -4,7 +4,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## Project Overview
 
-Media Tools is a local web workstation for batch-downloading Douyin (TikTok China) videos and transcribing them via Tongyi Qwen cloud service. The entire UI is in Simplified Chinese.
+Media Tools is a local web workstation for batch-downloading Douyin (TikTok China) and Bilibili videos, plus transcribing local media files, via the Tongyi Qwen cloud service. The entire UI is in Simplified Chinese.
 
 ## Architecture
 
@@ -15,13 +15,15 @@ Monorepo with two independent codebases:
 
 ### Backend modules
 
-- `api/` — FastAPI app and routers (creators, assets, tasks, settings, douyin, scheduler)
-- `api/routers/tasks.py` — includes a WebSocket endpoint at `/api/v1/tasks/ws` for real-time task progress
+- `api/` — FastAPI app and routers (creators, assets, tasks, settings, douyin, scheduler). App lifespan in `api/app.py` calls `init_db()` and `scheduler.startup_scheduler()`; `scheduler.start()` runs there, **not** at module import — keep it that way.
+- `api/routers/tasks.py` — includes a WebSocket endpoint at `/api/v1/tasks/ws` for real-time task progress, and `/transcribe/local` + `/transcribe/scan` for transcribing user-supplied local media files
 - `api/routers/scheduler.py` — APScheduler-backed cron scheduling for automated full-sync; CRUD for scheduled tasks, toggle enable/disable, and manual trigger
-- `douyin/` — video downloading via the F2 library, creator management, cookie/auth handling
-- `transcribe/` — Playwright-driven Qwen transcription: OSS upload → transcribe → export markdown
-- `pipeline/` — orchestration layer connecting download and transcription; `worker.py` is the entry point called by task routers
-- `db/core.py` — centralised schema definitions for all 7 tables and `init_db()`; single source of truth for DDL
+- `douyin/` — Douyin video downloading via the F2 library, creator management, cookie/auth handling
+- `bilibili/` — Bilibili downloading and creator management (peer of `douyin/`)
+- `pipeline/download_router.py` — `resolve_platform(url)` dispatches a URL to the Douyin or Bilibili downloader; router for any cross-platform call
+- `transcribe/` — Playwright-driven Qwen transcription: OSS upload → transcribe → export markdown. Multi-account support via `transcribe/db_account_pool.py`
+- `pipeline/` — orchestration layer connecting download and transcription; `worker.py` is the entry point called by task routers (`run_pipeline_for_user`, `run_batch_pipeline`, `run_download_only`, `run_local_transcribe`)
+- `db/core.py` — centralised schema definitions for all tables and `init_db()`; single source of truth for DDL
 
 ### Frontend structure
 
@@ -38,12 +40,12 @@ Monorepo with two independent codebases:
 
 ### Data flow
 
-1. User submits a Douyin URL → backend fetches metadata via F2
-2. User selects videos → backend creates a task (pipeline/download)
+1. User submits a Douyin or Bilibili URL → backend fetches metadata via the platform-specific handler
+2. User selects videos → backend creates a task (pipeline/download); `pipeline/download_router.py::resolve_platform` routes to the right downloader
 3. Task progress pushed to frontend via WebSocket
 4. Pipeline: download video → upload to Qwen OSS → Playwright transcribe → save markdown
 5. Frontend polls creators/assets on `lastCompletedTaskTime` change
-6. (Planned) Local file transcription: user uploads a local video/audio file → backend skips download step → upload to Qwen OSS → Playwright transcribe → save markdown
+6. Local file transcription: user selects a local video/audio file → backend skips download step → upload to Qwen OSS → Playwright transcribe → save markdown (endpoint: `POST /api/v1/tasks/transcribe/local`)
 
 ## Commands
 
@@ -56,6 +58,11 @@ Monorepo with two independent codebases:
 
 ### Backend
 ```bash
+# Activate the project virtualenv first — the repo requires Python 3.11+
+# (uses `str | None`, `from datetime import UTC`, `@dataclass(slots=True)`).
+# System `python` is often 3.9 and will fail with confusing import errors.
+source .venv/bin/activate
+
 # Run the API server directly
 PYTHONPATH=src python -m uvicorn media_tools.api.app:app --reload --host 127.0.0.1 --port 8000
 

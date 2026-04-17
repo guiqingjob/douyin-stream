@@ -203,7 +203,7 @@ async def run_download_only(video_urls: list[str], update_progress_fn):
     for i, url in enumerate(video_urls):
         await update_progress_fn(i / total, f"正在下载 ({i+1}/{total})")
         try:
-            result = await asyncio.to_thread(download_aweme_by_url, url)
+            result = await download_aweme_by_url(url)
             if isinstance(result, dict) and result.get("success"):
                 success_count += 1
             else:

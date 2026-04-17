@@ -786,7 +786,7 @@ class OrchestratorV2:
                                 transcript_name = str(result.transcript_path.name)
                         else:
                             transcript_name = ""
-                        aweme_matches = re.findall(r'\d{19}', video_path.name)
+                        aweme_matches = re.findall(r'\d{15,}', video_path.name)
                         
                         if aweme_matches:
                             asset_id = aweme_matches[0]
