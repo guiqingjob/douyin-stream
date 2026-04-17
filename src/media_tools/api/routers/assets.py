@@ -34,7 +34,7 @@ def list_assets(creator_uid: Optional[str] = Query(None)):
     try:
         with get_db_connection() as conn:
             conn.row_factory = sqlite3.Row
-            base_sql = "SELECT asset_id, creator_uid, title, video_status, transcript_status, transcript_path, folder_path, is_read, is_starred, create_time, update_time FROM media_assets"
+            base_sql = "SELECT asset_id, creator_uid, title, video_status, transcript_status, transcript_path, transcript_preview, folder_path, is_read, is_starred, create_time, update_time FROM media_assets"
             if creator_uid:
                 cursor = conn.execute(base_sql + " WHERE creator_uid = ?", (creator_uid,))
             else:

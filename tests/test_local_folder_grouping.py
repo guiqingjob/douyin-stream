@@ -96,6 +96,7 @@ def test_list_assets_returns_folder_path(monkeypatch) -> None:
           video_status TEXT,
           transcript_status TEXT,
           transcript_path TEXT,
+          transcript_preview TEXT,
           folder_path TEXT DEFAULT '',
           is_read BOOLEAN DEFAULT 0,
           is_starred BOOLEAN DEFAULT 0,

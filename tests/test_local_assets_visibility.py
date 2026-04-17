@@ -42,6 +42,7 @@ class LocalAssetsVisibilityTests(unittest.TestCase):
               video_status TEXT,
               transcript_path TEXT,
               transcript_status TEXT,
+              transcript_preview TEXT,
               folder_path TEXT DEFAULT '',
               is_read BOOLEAN DEFAULT 0,
               is_starred BOOLEAN DEFAULT 0,

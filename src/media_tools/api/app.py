@@ -13,6 +13,11 @@ async def lifespan(app: FastAPI):
     init_db(get_config().get_db_path())
 
     scheduler.startup_scheduler()
+
+    # Kick off the transcript preview backfill in the background
+    from media_tools.pipeline.preview_backfill import start_backfill_once
+    start_backfill_once()
+
     yield
     # Shutdown
     scheduler.shutdown_scheduler()

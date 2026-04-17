@@ -60,6 +60,7 @@ def run_local_transcribe(file_paths: list[str], update_progress_fn=None, delete_
             return
 
         from media_tools.db.core import get_db_connection
+        from media_tools.pipeline.preview import extract_transcript_preview
 
         for item in report.results:
             video_path = Path(item["video_path"])
@@ -68,19 +69,21 @@ def run_local_transcribe(file_paths: list[str], update_progress_fn=None, delete_
                 try:
                     transcript_path = item.get("transcript_path")
                     transcript_name = ""
+                    preview = ""
                     if transcript_path:
                         try:
                             transcript_name = str(Path(transcript_path).resolve().relative_to(output_root))
                         except Exception:
                             transcript_name = str(Path(transcript_path).name)
+                        preview = extract_transcript_preview(transcript_path)
                     with get_db_connection() as conn:
                         conn.execute(
                             """
                             UPDATE media_assets
-                            SET transcript_path = ?, transcript_status = 'completed', update_time = CURRENT_TIMESTAMP
+                            SET transcript_path = ?, transcript_status = 'completed', transcript_preview = ?, update_time = CURRENT_TIMESTAMP
                             WHERE asset_id = ?
                             """,
-                            (transcript_name, _local_asset_id(video_path)),
+                            (transcript_name, preview, _local_asset_id(video_path)),
                         )
                         conn.commit()
                 except Exception:
