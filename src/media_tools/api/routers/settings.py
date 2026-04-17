@@ -7,7 +7,12 @@ from pydantic import BaseModel
 from typing import Any, Dict
 from media_tools.transcribe.auth_state import has_qwen_auth_state, save_qwen_cookie_string, default_qwen_auth_state_path
 from media_tools.transcribe.db_account_pool import build_qwen_auth_state_path_for_account
-from media_tools.transcribe.quota import get_quota_snapshot, remaining_hours_from_snapshot
+from media_tools.transcribe.quota import (
+    claim_equity_quota,
+    get_quota_snapshot,
+    has_claimed_equity_today,
+    remaining_hours_from_snapshot,
+)
 from media_tools.douyin.core.config_mgr import get_config
 from media_tools.db.core import get_db_connection
 
@@ -216,22 +221,30 @@ async def get_qwen_status():
 async def claim_qwen_quota_endpoint():
     """手动触发领取每日 Qwen 额度"""
     try:
-        from media_tools.transcribe.quota import claim_equity_quota, has_claimed_equity_today
-        from media_tools.transcribe.account_status import resolve_status_targets
-
-        targets = resolve_status_targets()
         results = []
-        for target in targets:
-            account_id = target.account_id or ""
-            if has_claimed_equity_today(account_id):
-                results.append({"accountId": account_id or "default", "status": "already_claimed", "message": "今日已领取"})
+        with get_db_connection() as conn:
+            conn.row_factory = sqlite3.Row
+            accounts = conn.execute(
+                "SELECT account_id, status, auth_state_path FROM Accounts_Pool WHERE platform='qwen'",
+            ).fetchall()
+
+        for account in accounts:
+            account_id = str(account["account_id"])
+            status = str(account["status"] or "active")
+            auth_state_path = str(account["auth_state_path"] or "")
+
+            if status != "active":
+                results.append({"accountId": account_id, "status": "skipped", "reason": f"account-{status}"})
                 continue
-            result = await claim_equity_quota(
-                account_id=account_id,
-                auth_state_path=target.auth_state_path,
-            )
+
+            if has_claimed_equity_today(account_id):
+                results.append({"accountId": account_id, "status": "already_claimed", "message": "今日已领取"})
+                continue
+
+            resolved_path = Path(auth_state_path) if auth_state_path.strip() else build_qwen_auth_state_path_for_account(account_id)
+            result = await claim_equity_quota(account_id=account_id, auth_state_path=resolved_path)
             results.append({
-                "accountId": account_id or "default",
+                "accountId": account_id,
                 "status": "claimed" if result.claimed else "skipped",
                 "reason": result.reason,
             })

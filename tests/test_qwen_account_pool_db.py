@@ -83,3 +83,41 @@ def test_qwen_status_returns_remaining_hours_from_db(monkeypatch) -> None:
     result = asyncio.run(settings_router.get_qwen_status())
     assert result["status"] == "success"
     assert result["accounts"][0]["remaining_hours"] == 375
+
+
+def test_qwen_claim_iterates_db_accounts(monkeypatch) -> None:
+    import sqlite3
+    import asyncio
+    from media_tools.api.routers import settings as settings_router
+
+    conn = sqlite3.connect(":memory:")
+    conn.row_factory = sqlite3.Row
+    conn.execute(
+        "CREATE TABLE Accounts_Pool(account_id TEXT PRIMARY KEY, platform TEXT, cookie_data TEXT, remark TEXT, status TEXT DEFAULT 'active', auth_state_path TEXT DEFAULT '')"
+    )
+    conn.execute(
+        "INSERT INTO Accounts_Pool(account_id, platform, cookie_data, remark, status, auth_state_path) VALUES(?,?,?,?,?,?)",
+        ("a1", "qwen", "x=y", "r", "active", ".auth/qwen-storage-state-a1.json"),
+    )
+    conn.commit()
+    monkeypatch.setattr("media_tools.api.routers.settings.get_db_connection", lambda: conn)
+
+    monkeypatch.setattr("media_tools.api.routers.settings.has_claimed_equity_today", lambda account_id: False)
+
+    called = {"count": 0}
+
+    async def _fake_claim(*, account_id, auth_state_path):  # noqa: ANN001
+        called["count"] += 1
+
+        class _R:
+            claimed = True
+            skipped = False
+            reason = ""
+
+        return _R()
+
+    monkeypatch.setattr("media_tools.api.routers.settings.claim_equity_quota", _fake_claim)
+
+    result = asyncio.run(settings_router.claim_qwen_quota_endpoint())
+    assert result["status"] == "success"
+    assert called["count"] == 1
