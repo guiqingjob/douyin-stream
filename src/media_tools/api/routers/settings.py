@@ -1,10 +1,12 @@
 import logging
 import sqlite3
 import uuid
+from pathlib import Path
 from fastapi import APIRouter, HTTPException
 from pydantic import BaseModel
 from typing import Any, Dict
 from media_tools.transcribe.auth_state import has_qwen_auth_state, save_qwen_cookie_string, default_qwen_auth_state_path
+from media_tools.transcribe.db_account_pool import build_qwen_auth_state_path_for_account
 from media_tools.douyin.core.config_mgr import get_config
 from media_tools.db.core import get_db_connection
 
@@ -17,6 +19,9 @@ class QwenConfigRequest(BaseModel):
 class QwenAccountRequest(BaseModel):
     cookie_string: str
     remark: str = ""
+
+class QwenCookieUpdateRequest(BaseModel):
+    cookie_string: str
 
 class DouyinAccountRequest(BaseModel):
     cookie_string: str
@@ -236,17 +241,45 @@ def update_qwen_key(req: QwenConfigRequest):
 @router.post("/qwen/accounts")
 def add_qwen_account(req: QwenAccountRequest):
     try:
-        # Validate and save to auth state file (keeps transcription system working)
-        save_qwen_cookie_string(req.cookie_string, default_qwen_auth_state_path())
-        # Also save to Accounts_Pool for pool management
         account_id = str(uuid.uuid4())
+        auth_state_path = build_qwen_auth_state_path_for_account(account_id)
+        save_qwen_cookie_string(req.cookie_string, auth_state_path, sync_db=False)
         with get_db_connection() as conn:
             conn.execute(
-                "INSERT INTO Accounts_Pool (account_id, platform, cookie_data, remark) VALUES (?, ?, ?, ?)",
-                (account_id, "qwen", req.cookie_string, req.remark)
+                "INSERT INTO Accounts_Pool (account_id, platform, cookie_data, remark, auth_state_path) VALUES (?, ?, ?, ?, ?)",
+                (account_id, "qwen", req.cookie_string, req.remark, str(auth_state_path)),
             )
             conn.commit()
         return {"status": "success", "account_id": account_id}
+    except Exception as e:
+        raise HTTPException(status_code=400, detail=str(e))
+
+@router.put("/qwen/accounts/{account_id}/cookie")
+def update_qwen_account_cookie(account_id: str, req: QwenCookieUpdateRequest):
+    try:
+        with get_db_connection() as conn:
+            cursor = conn.cursor()
+            row = cursor.execute(
+                "SELECT auth_state_path FROM Accounts_Pool WHERE account_id=? AND platform='qwen'",
+                (account_id,),
+            ).fetchone()
+            if not row:
+                raise HTTPException(status_code=404, detail="Account not found")
+
+            existing_path = str(row[0] or "")
+            auth_state_path = Path(existing_path) if existing_path.strip() else build_qwen_auth_state_path_for_account(account_id)
+
+            save_qwen_cookie_string(req.cookie_string, auth_state_path, sync_db=False)
+
+            cursor.execute(
+                "UPDATE Accounts_Pool SET cookie_data=?, status='active', auth_state_path=? WHERE account_id=? AND platform='qwen'",
+                (req.cookie_string, str(auth_state_path), account_id),
+            )
+            conn.commit()
+
+        return {"status": "success", "account_id": account_id}
+    except HTTPException:
+        raise
     except Exception as e:
         raise HTTPException(status_code=400, detail=str(e))
 
