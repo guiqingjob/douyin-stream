@@ -98,3 +98,25 @@ npx tsc --noEmit      # Type check only
 - **Styling**: Tailwind CSS 4 with Apple-inspired design tokens defined in `index.css`. Dark mode via `next-themes` with `.dark` class variant.
 - **Toasts**: Use `sonner`'s `toast.success()` / `toast.error()`. Note: the Axios interceptor already toasts on errors, so page-level catch blocks should not duplicate the toast.
 - **Zustand caching**: Creators data is fetched via `useStore` and cached for 30 seconds (`lastFetchTime` guard). Components should call the store's fetch action rather than hitting the API directly; the store deduplicates requests within the cache window.
+
+## AI 协作规范
+
+### 生成后强制自检（每条必须做）
+- [ ] 检查所有异步函数是否有 await（Python）/async-await（JS）
+- [ ] 检查边界条件：空列表、None、空字符串
+- [ ] 检查变量命名：Python 用 snake_case，JS/TS 用 camelCase
+- [ ] 检查异常处理：禁止裸 except Exception，必须指定类型
+- [ ] 检查类型：新增代码 mypy/pyright 必须 0 错误
+
+### 敏感信息处理（红色警戒线）
+- 看到 cookie/api_key/token，立刻停止，询问加密方案
+- 禁止在日志/错误信息中打印敏感字段
+
+### 代码债务红线（禁止新增）
+- 禁止新增裸 except Exception
+- 禁止新增重复代码（先查现有 utils/helpers）
+- 禁止新增硬编码（配置必须走 config 文件）
+
+### 交付标准
+- 代码 + 自检报告 + 潜在风险说明 = 完成
+- 只有代码 = 未完成
