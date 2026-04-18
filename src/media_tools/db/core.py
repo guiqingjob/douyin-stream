@@ -93,11 +93,18 @@ def init_db(db_path: str | Path):
             nickname TEXT,
             avatar TEXT,
             bio TEXT,
+            homepage_url TEXT,
             platform TEXT DEFAULT 'douyin',
             sync_status TEXT DEFAULT 'active',
             last_fetch_time DATETIME
         )
         """)
+
+        # 迁移：为已存在的表添加 homepage_url 字段
+        try:
+            cursor.execute("ALTER TABLE creators ADD COLUMN homepage_url TEXT DEFAULT ''")
+        except sqlite3.OperationalError:
+            pass  # 字段已存在
 
         # 2. 资产域 (Asset Domain)
         cursor.execute("""

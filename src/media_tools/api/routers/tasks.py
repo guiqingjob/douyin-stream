@@ -631,6 +631,18 @@ async def _background_creator_download_worker(task_id: str, uid: str, mode: str 
             raise RuntimeError(f"下载失败: {display_name}")
 
         new_count = len(result.get("new_files", []) or [])
+
+        # 更新 B站创作者昵称
+        if platform == "bilibili":
+            uploader = result.get("uploader")
+            if uploader and uploader.get("nickname"):
+                with get_db_connection() as conn:
+                    conn.execute(
+                        "UPDATE creators SET nickname = ?, homepage_url = ? WHERE uid = ?",
+                        (uploader["nickname"], uploader.get("homepage_url", ""), uid),
+                    )
+                    conn.commit()
+
         msg = f"{display_name} 同步完成：{new_count} 个新视频（{mode}）"
         with get_db_connection() as conn:
             payload_str = _merge_payload_from_db(conn, task_id, msg)

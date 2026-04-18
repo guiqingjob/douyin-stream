@@ -56,6 +56,7 @@ def list_creators(
                     c.sync_status,
                     c.avatar,
                     c.bio,
+                    c.homepage_url,
                     c.last_fetch_time,
                     COUNT(ma.asset_id) AS asset_count,
                     COALESCE(SUM(CASE WHEN ma.video_status = 'downloaded' THEN 1 ELSE 0 END), 0) AS downloaded_videos_count,
@@ -64,7 +65,7 @@ def list_creators(
                     COALESCE(SUM(CASE WHEN ma.transcript_status NOT IN ('completed', 'none') THEN 1 ELSE 0 END), 0) AS transcript_pending_count
                 FROM creators c
                 LEFT JOIN media_assets ma ON ma.creator_uid = c.uid
-                GROUP BY c.uid, c.nickname, c.sec_user_id, c.sync_status, c.avatar, c.bio, c.last_fetch_time
+                GROUP BY c.uid, c.nickname, c.sec_user_id, c.sync_status, c.avatar, c.bio, c.homepage_url, c.last_fetch_time
                 ORDER BY
                     CASE WHEN c.last_fetch_time IS NULL THEN 1 ELSE 0 END,
                     c.last_fetch_time DESC,
@@ -89,19 +90,43 @@ def create_creator(req: CreatorCreateRequest):
                 raise HTTPException(status_code=400, detail="暂只支持 B 站 UP 主空间链接（space.bilibili.com/<mid>）")
 
             uid = build_bilibili_creator_uid(parsed.mid)
-            nickname = uid
+
+            # 尝试获取B站用户真实昵称
+            nickname = parsed.mid
+            homepage_url = f"https://space.bilibili.com/{parsed.mid}"
+            try:
+                import requests
+                resp = requests.get(
+                    f"https://api.bilibili.com/x/web-interface/card?mid={parsed.mid}",
+                    timeout=5,
+                )
+                if resp.status_code == 200:
+                    data = resp.json().get("data", {})
+                    if data.get("card"):
+                        nickname = data["card"].get("name") or nickname
+            except Exception:
+                pass  # 使用 mid 作为后备
 
             with get_db_connection() as conn:
-                cursor = conn.execute(
-                    """
-                    INSERT OR IGNORE INTO creators (uid, sec_user_id, nickname, platform, sync_status)
-                    VALUES (?, ?, ?, 'bilibili', 'active')
-                    """,
-                    (uid, parsed.mid, nickname),
-                )
+                # 先检查是否存在
+                cursor = conn.execute("SELECT uid FROM creators WHERE uid = ?", (uid,))
+                exists = cursor.fetchone() is not None
+
+                if exists:
+                    # 已存在则更新
+                    conn.execute(
+                        "UPDATE creators SET sec_user_id = ?, nickname = ?, homepage_url = ? WHERE uid = ?",
+                        (parsed.mid, nickname, homepage_url, uid),
+                    )
+                else:
+                    # 不存在则插入
+                    conn.execute(
+                        "INSERT INTO creators (uid, sec_user_id, nickname, homepage_url, platform, sync_status) VALUES (?, ?, ?, ?, 'bilibili', 'active')",
+                        (uid, parsed.mid, nickname, homepage_url),
+                    )
                 conn.commit()
 
-                created = cursor.rowcount > 0
+                created = not exists
 
             return {
                 "status": "created" if created else "exists",
@@ -109,6 +134,7 @@ def create_creator(req: CreatorCreateRequest):
                     "uid": uid,
                     "nickname": nickname,
                     "sec_user_id": parsed.mid,
+                    "homepage_url": homepage_url,
                     "sync_status": "active",
                 },
             }
