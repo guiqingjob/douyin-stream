@@ -42,7 +42,8 @@ def run_local_transcribe(file_paths: list[str], update_progress_fn=None, delete_
         return {"success_count": 0, "failed_count": 0, "total": 0}
 
     config = load_pipeline_config()
-    orchestrator = create_orchestrator(config, creator_folder_override="本地上传")
+    # 不设置 creator_folder_override，让它自动从视频路径提取创作者名称
+    orchestrator = create_orchestrator(config)
     output_root = Path(config.output_dir).resolve()
 
     success_count = 0
