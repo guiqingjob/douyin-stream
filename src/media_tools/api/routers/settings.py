@@ -75,11 +75,6 @@ def get_settings():
     douyin_cookie_source = "pool" if douyin_accounts_count > 0 else ("config" if douyin_primary_configured else "none")
     qwen_configured = has_qwen_auth_state()
     qwen_accounts_count = len(qwen_accounts)
-    douyin_accounts_count = len(accounts)
-    douyin_primary_configured = config.has_cookie()
-    douyin_cookie_source = "pool" if douyin_accounts_count > 0 else ("config" if douyin_primary_configured else "none")
-    qwen_configured = has_qwen_auth_state()
-    qwen_accounts_count = len(qwen_accounts)
 
     return {
         "qwen_configured": qwen_configured,
