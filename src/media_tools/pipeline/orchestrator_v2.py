@@ -169,6 +169,36 @@ def classify_error(error: Exception) -> ErrorType:
     return ErrorType.UNKNOWN
 
 
+class AccountPool:
+    """账号轮换池 - 并发转写时均衡分配账号"""
+
+    def __init__(self, accounts: list[dict[str, Any]]):
+        """
+        Args:
+            accounts: 账号列表，每个账号包含 account_id, auth_state_path, balance
+        """
+        self._accounts = accounts
+        self._current = 0
+        self._lock = asyncio.Lock()
+        logger.info(f"初始化账号池，共 {len(accounts)} 个账号")
+
+    def get_account(self) -> dict[str, Any] | None:
+        """同步获取一个账号（轮询）"""
+        if not self._accounts:
+            return None
+        account = self._accounts[self._current]
+        self._current = (self._current + 1) % len(self._accounts)
+        return account
+
+    async def acquire(self) -> dict[str, Any] | None:
+        """异步获取一个账号（线程安全轮换）"""
+        async with self._lock:
+            return self.get_account()
+
+    def remaining(self) -> int:
+        return len(self._accounts)
+
+
 @dataclass
 class RetryConfig:
     """重试配置
@@ -498,6 +528,7 @@ class OrchestratorV2:
         self.state_manager = PipelineStateManager(state_file)
         self.on_progress = on_progress
         self._creator_folder_override = creator_folder_override
+        self._account_pool: AccountPool | None = None  # 账号轮换池
 
         # 确定认证路径
         if self.auth_state_path is None:
@@ -561,14 +592,18 @@ class OrchestratorV2:
                 resolved.append({"account_id": account.account_id, "auth_state_path": path})
 
             if resolved:
+                # 初始化账号轮换池
+                self._account_pool = AccountPool(resolved)
                 return resolved
-        except Exception:
-            pass
+        except Exception as e:
+            logger.warning(f"加载账号池失败: {e}")
 
         if self.auth_state_path is None:
             return []
 
-        return [{"account_id": self.config.account_id, "auth_state_path": Path(self.auth_state_path)}]
+        single_account = [{"account_id": self.config.account_id, "auth_state_path": Path(self.auth_state_path)}]
+        self._account_pool = AccountPool(single_account)
+        return single_account
 
     def _mark_qwen_account_status(self, account_id: str, status: str) -> None:
         if not account_id:
@@ -643,8 +678,27 @@ class OrchestratorV2:
             last_error: Exception | None = None
             last_error_type: ErrorType = ErrorType.UNKNOWN
 
-            for account in self._resolve_qwen_execution_accounts():
+            # 初始化账号池（如果尚未初始化）
+            if self._account_pool is None:
+                self._resolve_qwen_execution_accounts()
+
+            # 从账号池轮换获取账号
+            accounts_tried = set()
+            max_attempts = (self._account_pool.remaining() if self._account_pool else 1) * 2
+
+            for _ in range(max_attempts):
+                if self._account_pool is None:
+                    break
+
+                account = self._account_pool.get_account()
+                if account is None:
+                    break
+
                 account_id = str(account.get("account_id", "") or "")
+                if account_id in accounts_tried:
+                    continue
+                accounts_tried.add(account_id)
+
                 auth_state_path = account.get("auth_state_path")
                 if auth_state_path is None:
                     continue
@@ -677,8 +731,11 @@ class OrchestratorV2:
                     last_error_type = classify_error(e)
                     if last_error_type == ErrorType.AUTH and account_id:
                         self._mark_qwen_account_status(account_id, "expired")
+                        logger.warning(f"账号 {account_id} 认证过期，尝试下一个账号")
                         continue
-                    raise
+                    # 其他错误，记录并继续尝试下一个账号
+                    logger.warning(f"转写失败 [{last_error_type.value}]，尝试下一个账号: {e}")
+                    continue
 
             duration = time.time() - start_time
             return PipelineResultV2(

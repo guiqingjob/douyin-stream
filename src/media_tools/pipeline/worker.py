@@ -114,9 +114,9 @@ async def run_pipeline_for_user(url: str, max_counts: int, update_progress_fn, d
     from media_tools.pipeline.download_router import resolve_platform
     from media_tools.pipeline.config import load_pipeline_config
     from media_tools.pipeline.orchestrator_v2 import create_orchestrator
-    
+
     await _call_progress(update_progress_fn, 0.1, "正在下载视频...")
-    
+
     # 1. Download
     if resolve_platform(url) == "bilibili":
         download_fn = download_by_url_router
@@ -124,38 +124,46 @@ async def run_pipeline_for_user(url: str, max_counts: int, update_progress_fn, d
         from media_tools.douyin.core.downloader import download_by_url as download_fn
     dl_result = await asyncio.to_thread(download_fn, url, max_counts, True, True)
     new_files = dl_result.get('new_files', []) if isinstance(dl_result, dict) else []
-    
+
     if not new_files:
         await _call_progress(update_progress_fn, 1.0, "没有下载到新视频")
         return {"success_count": 0, "failed_count": 0}
-        
+
     await _call_progress(update_progress_fn, 0.4, f"下载完成，准备转写 {len(new_files)} 个视频...")
-    
-    # 2. Transcribe
+
+    # 2. Transcribe (并发批量转写)
     config = load_pipeline_config()
     orchestrator = create_orchestrator(config)
-    
-    success_count = 0
-    failed_count = 0
-    
-    total = len(new_files)
-    for i, file_path in enumerate(new_files):
-        progress = 0.4 + 0.6 * (i / total)
-        await _call_progress(update_progress_fn, progress, f"正在转写 ({i+1}/{total})")
-        try:
-            await orchestrator.transcribe_with_retry(file_path)
-            success_count += 1
-            if delete_after:
-                try:
-                    Path(file_path).unlink(missing_ok=True)
-                except Exception as e:
-                    logger.warning(f"无法删除视频 {file_path}: {e}")
-        except Exception as exc:
-            logger.error(f"转写失败 {file_path}: {exc}")
-            failed_count += 1
 
-    await _call_progress(update_progress_fn, 1.0, "全自动流水线完成")
-    
+    total = len(new_files)
+
+    # 使用批量并发转写
+    async def _progress_callback(current: int, total: int, video_path: Path, status: str):
+        progress = 0.4 + 0.6 * (current / total) if total > 0 else 0.4
+        await _call_progress(update_progress_fn, progress, status)
+
+    orchestrator.on_progress = _progress_callback
+
+    # 转换为 Path 对象
+    video_paths = [Path(f) for f in new_files]
+
+    # 并发执行批量转写
+    report = await orchestrator.transcribe_batch(video_paths, resume=False)
+
+    success_count = report.success
+    failed_count = report.failed
+
+    # 删除已转写的视频（如果配置了 delete_after）
+    if delete_after:
+        for path in video_paths:
+            if path.exists():
+                try:
+                    path.unlink(missing_ok=True)
+                except Exception as e:
+                    logger.warning(f"无法删除视频 {path}: {e}")
+
+    await _call_progress(update_progress_fn, 1.0, f"流水线完成: 成功 {success_count}, 失败 {failed_count}")
+
     return {
         "success_count": success_count,
         "failed_count": failed_count
@@ -165,35 +173,46 @@ async def run_batch_pipeline(video_urls: list[str], update_progress_fn, delete_a
     from media_tools.pipeline.download_router import download_by_url
     from media_tools.pipeline.config import load_pipeline_config
     from media_tools.pipeline.orchestrator_v2 import create_orchestrator
-    
+
     total = len(video_urls)
     new_files = []
-    
+
     # Download phase
     for i, url in enumerate(video_urls):
-        await _call_progress(update_progress_fn, 0.4 * (i/total), f"正在下载 ({i+1}/{total})")
+        await _call_progress(update_progress_fn, 0.4 * (i / total), f"正在下载 ({i+1}/{total})")
         dl_result = await asyncio.to_thread(download_by_url, url, 1, True, True)
         if isinstance(dl_result, dict) and dl_result.get('new_files'):
             new_files.extend(dl_result['new_files'])
-            
+
     if not new_files:
         return {"success_count": 0, "failed_count": total}
 
-    # Transcribe phase
+    # Transcribe phase (并发批量转写)
     config = load_pipeline_config()
     orchestrator = create_orchestrator(config)
-    success_count = 0
-    failed_count = 0
-    
-    for i, file_path in enumerate(new_files):
-        await _call_progress(update_progress_fn, 0.4 + 0.6 * (i/len(new_files)), f"正在转写 ({i+1}/{len(new_files)})")
-        try:
-            await orchestrator.transcribe_with_retry(file_path)
-            success_count += 1
-            if delete_after:
-                Path(file_path).unlink(missing_ok=True)
-        except Exception:
-            failed_count += 1
+
+    # 使用批量并发转写
+    async def _progress_callback(current: int, total: int, video_path: Path, status: str):
+        progress = 0.4 + 0.6 * (current / total) if total > 0 else 0.4
+        await _call_progress(update_progress_fn, progress, status)
+
+    orchestrator.on_progress = _progress_callback
+
+    video_paths = [Path(f) for f in new_files]
+    report = await orchestrator.transcribe_batch(video_paths, resume=False)
+
+    success_count = report.success
+    failed_count = report.failed
+
+    # 删除已转写的视频
+    if delete_after:
+        for path in video_paths:
+            if path.exists():
+                try:
+                    path.unlink(missing_ok=True)
+                except Exception as e:
+                    logger.warning(f"无法删除视频 {path}: {e}")
+
     return {"success_count": success_count, "failed_count": failed_count}
 
 
