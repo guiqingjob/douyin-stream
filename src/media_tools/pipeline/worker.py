@@ -31,7 +31,7 @@ def _local_asset_id(file_path: Path) -> str:
     return f"local:{digest}"
 
 
-def run_local_transcribe(file_paths: list[str], update_progress_fn=None, delete_after: bool = False):
+async def run_local_transcribe(file_paths: list[str], update_progress_fn=None, delete_after: bool = False):
     """转写本地视频文件（不经过下载步骤）"""
     from media_tools.pipeline.config import load_pipeline_config
     from media_tools.pipeline.orchestrator_v2 import create_orchestrator
@@ -50,63 +50,60 @@ def run_local_transcribe(file_paths: list[str], update_progress_fn=None, delete_
     failed_count = 0
     total = len(valid_paths)
 
-    async def _run():
-        nonlocal success_count, failed_count
-        await _call_progress(update_progress_fn, 0.0, f"准备转写 {total} 个文件（并发 {config.concurrency}）")
-        try:
-            report = await orchestrator.transcribe_batch(valid_paths, resume=True)
-        except Exception as exc:  # noqa: BLE001
-            logger.error(f"批量本地转写失败: {exc}")
-            failed_count = total
-            return
+    await _call_progress(update_progress_fn, 0.0, f"准备转写 {total} 个文件（并发 {config.concurrency}）")
+    try:
+        report = await orchestrator.transcribe_batch(valid_paths, resume=True)
+    except Exception as exc:  # noqa: BLE001
+        logger.error(f"批量本地转写失败: {exc}")
+        failed_count = total
+        return {"success_count": success_count, "failed_count": failed_count, "total": total}
 
-        from media_tools.db.core import get_db_connection
-        from media_tools.pipeline.preview import extract_transcript_preview, extract_transcript_text
+    from media_tools.db.core import get_db_connection
+    from media_tools.pipeline.preview import extract_transcript_preview, extract_transcript_text
 
-        for item in report.results:
-            video_path = Path(item["video_path"])
-            if item.get("success"):
-                success_count += 1
-                try:
-                    transcript_path = item.get("transcript_path")
-                    transcript_name = ""
-                    preview = ""
-                    full_text = ""
-                    if transcript_path:
-                        try:
-                            transcript_name = str(Path(transcript_path).resolve().relative_to(output_root))
-                        except Exception:
-                            transcript_name = str(Path(transcript_path).name)
-                        preview = extract_transcript_preview(transcript_path)
-                        full_text = extract_transcript_text(transcript_path)
-                    with get_db_connection() as conn:
-                        conn.execute(
-                            """
-                            UPDATE media_assets
-                            SET transcript_path = ?, transcript_status = 'completed', transcript_preview = ?, transcript_text = ?, update_time = CURRENT_TIMESTAMP
-                            WHERE asset_id = ?
-                            """,
-                            (transcript_name, preview, full_text, _local_asset_id(video_path)),
-                        )
-                        conn.commit()
-                except Exception:
-                    pass
-                if delete_after and video_path.exists():
+    for item in report.results:
+        video_path = Path(item["video_path"])
+        if item.get("success"):
+            success_count += 1
+            try:
+                transcript_path = item.get("transcript_path")
+                transcript_name = ""
+                preview = ""
+                full_text = ""
+                if transcript_path:
                     try:
-                        video_path.unlink()
-                    except Exception as e:  # noqa: BLE001
-                        logger.warning(f"无法删除视频 {video_path}: {e}")
-            else:
-                failed_count += 1
+                        transcript_name = str(Path(transcript_path).resolve().relative_to(output_root))
+                    except Exception:
+                        transcript_name = str(Path(transcript_path).name)
+                    preview = extract_transcript_preview(transcript_path)
+                    full_text = extract_transcript_text(transcript_path)
+                with get_db_connection() as conn:
+                    conn.execute(
+                        """
+                        UPDATE media_assets
+                        SET transcript_path = ?, transcript_status = 'completed', transcript_preview = ?, transcript_text = ?, update_time = CURRENT_TIMESTAMP
+                        WHERE asset_id = ?
+                        """,
+                        (transcript_name, preview, full_text, _local_asset_id(video_path)),
+                    )
+                    conn.commit()
+            except Exception:
+                pass
+            if delete_after and video_path.exists():
+                try:
+                    video_path.unlink()
+                except Exception as e:  # noqa: BLE001
+                    logger.warning(f"无法删除视频 {video_path}: {e}")
+        else:
+            failed_count += 1
 
-            completed = success_count + failed_count
-            await _call_progress(
-                update_progress_fn,
-                completed / total,
-                f"已处理 {completed}/{total}",
-            )
+        completed = success_count + failed_count
+        await _call_progress(
+            update_progress_fn,
+            completed / total,
+            f"已处理 {completed}/{total}",
+        )
 
-    asyncio.run(_run())
     return {"success_count": success_count, "failed_count": failed_count, "total": total}
 
 

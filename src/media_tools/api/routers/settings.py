@@ -47,7 +47,6 @@ class RemarkRequest(BaseModel):
 
 @router.get("/")
 def get_settings():
-    config = get_config()
     with get_db_connection() as conn:
         cursor = conn.cursor()
 
@@ -69,8 +68,13 @@ def get_settings():
         settings_dict = {row[0]: row[1] for row in settings_rows}
 
     concurrency = int(settings_dict.get("concurrency", 5))
-    auto_delete = config.is_auto_delete_video()
-    auto_transcribe = config.is_auto_transcribe()
+    auto_delete = settings_dict.get("auto_delete", "true") == "true"
+    auto_transcribe = settings_dict.get("auto_transcribe", "false") == "true"
+    douyin_accounts_count = len(accounts)
+    douyin_primary_configured = get_config().has_cookie()
+    douyin_cookie_source = "pool" if douyin_accounts_count > 0 else ("config" if douyin_primary_configured else "none")
+    qwen_configured = has_qwen_auth_state()
+    qwen_accounts_count = len(qwen_accounts)
     douyin_accounts_count = len(accounts)
     douyin_primary_configured = config.has_cookie()
     douyin_cookie_source = "pool" if douyin_accounts_count > 0 else ("config" if douyin_primary_configured else "none")
@@ -286,11 +290,7 @@ async def claim_qwen_quota_endpoint():
 @router.post("/global")
 def update_global_settings(req: GlobalSettingsRequest):
     try:
-        config = get_config()
-        config.set("auto_delete_video", req.auto_delete)
-        config.set("auto_transcribe", req.auto_transcribe)
-        config.save()
-
+        # DB is the source of truth for these settings
         with get_db_connection() as conn:
             conn.execute("INSERT OR REPLACE INTO SystemSettings (key, value) VALUES (?, ?)", ("concurrency", str(req.concurrency)))
             conn.execute("INSERT OR REPLACE INTO SystemSettings (key, value) VALUES (?, ?)", ("auto_delete", "true" if req.auto_delete else "false"))
