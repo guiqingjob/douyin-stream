@@ -22,7 +22,7 @@ Monorepo with two independent codebases:
 - `bilibili/` — Bilibili downloading and creator management (peer of `douyin/`)
 - `pipeline/download_router.py` — `resolve_platform(url)` dispatches a URL to the Douyin or Bilibili downloader; router for any cross-platform call
 - `transcribe/` — Playwright-driven Qwen transcription: OSS upload → transcribe → export markdown. Multi-account support via `transcribe/db_account_pool.py`
-- `pipeline/` — orchestration layer connecting download and transcription; `worker.py` is the entry point called by task routers (`run_pipeline_for_user`, `run_batch_pipeline`, `run_download_only`, `run_local_transcribe`)
+- `pipeline/` — orchestration layer connecting download and transcription; `worker.py` is the entry point called by task routers (`run_pipeline_for_user`, `run_batch_pipeline`, `run_download_only`, `run_local_transcribe`). Uses `orchestrator_v2.py` which supports concurrent transcription (configurable via `PIPELINE_CONCURRENCY`, default 5) and automatic account rotation via `AccountPool` class.
 - `db/core.py` — centralised schema definitions for all tables and `init_db()`; single source of truth for DDL
 
 ### Frontend structure
@@ -43,7 +43,7 @@ Monorepo with two independent codebases:
 1. User submits a Douyin or Bilibili URL → backend fetches metadata via the platform-specific handler
 2. User selects videos → backend creates a task (pipeline/download); `pipeline/download_router.py::resolve_platform` routes to the right downloader
 3. Task progress pushed to frontend via WebSocket
-4. Pipeline: download video → upload to Qwen OSS → Playwright transcribe → save markdown
+4. Pipeline: download video → upload to Qwen OSS → Playwright transcribe → save markdown (concurrent by default, uses AccountPool for multi-account rotation)
 5. Frontend polls creators/assets on `lastCompletedTaskTime` change
 6. Local file transcription: user selects a local video/audio file → backend skips download step → upload to Qwen OSS → Playwright transcribe → save markdown (endpoint: `POST /api/v1/tasks/transcribe/local`)
 
