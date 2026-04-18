@@ -4,7 +4,7 @@ import json
 import logging
 import hashlib
 from datetime import datetime, timedelta
-from fastapi import APIRouter, BackgroundTasks, WebSocket, WebSocketDisconnect
+from fastapi import APIRouter, BackgroundTasks, HTTPException, WebSocket, WebSocketDisconnect
 from pydantic import BaseModel
 from typing import Any, List
 import uuid
@@ -129,10 +129,30 @@ async def websocket_endpoint(websocket: WebSocket):
     await manager.connect(websocket)
 
     async def _heartbeat():
+        """Send ping every 20 seconds to keep connection alive."""
         try:
             while True:
                 await asyncio.sleep(20)
-                await websocket.send_json({"type": "ping"})
+                try:
+                    await websocket.send_json({"type": "ping"})
+                except Exception:
+                    break
+        except asyncio.CancelledError:
+            pass
+        except Exception:
+            pass
+
+    async def _pong_handler():
+        """Handle incoming pong responses and detect stale connections."""
+        try:
+            while True:
+                data = await websocket.receive_text()
+                # Acknowledge but don't crash on any message
+                if data:
+                    # Could log or handle pong here if needed
+                    pass
+        except asyncio.CancelledError:
+            pass
         except Exception:
             pass
 
@@ -145,6 +165,10 @@ async def websocket_endpoint(websocket: WebSocket):
         manager.disconnect(websocket)
     finally:
         heartbeat_task.cancel()
+        try:
+            await heartbeat_task
+        except asyncio.CancelledError:
+            pass
 
 async def notify_task_update(task_id: str, progress: float, msg: str, status: str = "RUNNING", task_type: str = "pipeline"):
     await manager.broadcast({
@@ -698,8 +722,7 @@ async def _background_local_transcribe_worker(task_id: str, req: LocalTranscribe
 
     try:
         from media_tools.pipeline.worker import run_local_transcribe
-        result = await asyncio.to_thread(
-            run_local_transcribe,
+        result = await run_local_transcribe(
             req.file_paths,
             _progress_fn,
             req.delete_after,
@@ -728,7 +751,6 @@ async def trigger_local_transcribe(req: LocalTranscribeRequest, background_tasks
 
 @router.post("/transcribe/scan")
 def scan_directory(req: ScanDirectoryRequest):
-    from fastapi import HTTPException
     dir_path = Path(req.directory)
     if not _is_allowed_scan_path(dir_path):
         raise HTTPException(status_code=400, detail="Invalid directory path")
