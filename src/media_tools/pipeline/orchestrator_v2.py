@@ -1041,6 +1041,7 @@ class OrchestratorV2:
 
         # 汇总结果
         for result in results:
+            pipeline_result: PipelineResultV2
             if isinstance(result, Exception):
                 # 异常情况 - 需要从tasks中找到对应的video_path
                 error_type = classify_error(result)
@@ -1053,7 +1054,7 @@ class OrchestratorV2:
                 )
                 logger.error(f"任务执行异常: {result}")
             else:
-                pipeline_result = result
+                pipeline_result = result  # type: ignore[assignment]
 
             # 确保video_path不为空
             if not pipeline_result.video_path or not pipeline_result.video_path.exists():

@@ -43,8 +43,8 @@ class BatchReport:
         self.skipped = 0
 
         # 详细信息
-        self.items = []  # [{name, status, duration, error, details}]
-        self.error_types = {}  # {error_type: count}
+        self.items: list[dict] = []  # [{name, status, duration, error, details}]
+        self.error_types: dict[str, int] = {}  # {error_type: count}
 
     def add_item(
         self,

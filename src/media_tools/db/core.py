@@ -192,6 +192,7 @@ def init_db(db_path: str | Path):
 
         _ensure_column(conn, "task_queue", "update_time", "DATETIME")
         _ensure_column(conn, "task_queue", "cancel_requested", "INTEGER DEFAULT 0")
+        _ensure_column(conn, "task_queue", "auto_retry", "INTEGER DEFAULT 0")
         _ensure_column(conn, "creators", "avatar", "TEXT")
         _ensure_column(conn, "creators", "bio", "TEXT")
         _ensure_column(conn, "Accounts_Pool", "remark", "TEXT DEFAULT ''")

@@ -19,7 +19,7 @@ from rich.panel import Panel
 console = Console()
 
 
-PRESETS = {
+PRESETS: dict = {
     "beginner": {
         "name": "🌱 新手模式",
         "description": "最简配置，只需填账号信息，适合首次使用",

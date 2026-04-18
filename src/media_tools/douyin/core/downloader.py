@@ -45,9 +45,6 @@ from .ui import (
 from .config_mgr import get_config
 from .following_mgr import list_users
 
-# 导入日志记录器
-from ..utils.logger import logger
-
 
 def _get_skill_dir():
     """获取项目根目录"""
@@ -262,7 +259,7 @@ def _clean_video_title(raw_title: str) -> str:
     return clean
 
 
-def _rename_videos_in_downloads(nickname: str, uid: str, downloads_path: Path) -> str:
+def _rename_videos_in_downloads(nickname: str, uid: str, downloads_path: Path) -> str | None:
     """重命名下载目录下的视频文件（包括已在目标子目录的情况）"""
     import re
     import sqlite3
@@ -398,7 +395,7 @@ def _rename_videos_in_downloads(nickname: str, uid: str, downloads_path: Path) -
     return folder_name
 
 
-def _reorganize_files(nickname: str, uid: str) -> str:
+def _reorganize_files(nickname: str, uid: str) -> str | None:
     """整理文件到下载目录/{博主昵称}/"""
     config = get_config()
     downloads_path = config.get_download_path()
@@ -552,7 +549,7 @@ def _generate_data():
     generate_data()
 
 
-async def _download_with_stats(url: str, max_counts: int = None, skip_existing: bool = True):
+async def _download_with_stats(url: str, max_counts: int | None = None, skip_existing: bool = True):
     """
     使用 F2 API 下载视频并保存统计数据
 
@@ -824,7 +821,7 @@ def download_by_url_sync(url, max_counts=None, skip_existing: bool = True):
         return False
 
 
-def download_by_url(url, max_counts=None, disable_auto_transcribe=False, skip_existing: bool = True):
+def download_by_url(url, max_counts: int | None = None, disable_auto_transcribe=False, skip_existing: bool = True):
     """
     通过 URL 下载单个博主的视频
 

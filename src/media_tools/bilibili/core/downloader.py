@@ -2,6 +2,9 @@ from __future__ import annotations
 
 import inspect
 import os
+import signal
+import subprocess
+import threading
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, Callable
@@ -24,6 +27,100 @@ try:
     from yt_dlp import YoutubeDL
 except Exception:
     YoutubeDL = None
+
+
+# 全局暂停控制字典
+_pause_controllers: dict[str, "PauseController"] = {}
+_pause_lock = threading.Lock()
+
+
+class PauseController:
+    """暂停控制器，支持暂停/恢复下载"""
+
+    def __init__(self, task_id: str):
+        self.task_id = task_id
+        self._paused = threading.Event()
+        self._paused.set()  # 初始不暂停
+        self._cancelled = threading.Event()
+        self._process: subprocess.Popen | None = None
+
+    def pause(self):
+        """暂停下载"""
+        self._paused.clear()
+        if self._process and self._process.poll() is None:
+            try:
+                if hasattr(signal, 'SIGSTOP'):
+                    self._process.send_signal(signal.SIGSTOP)
+                logger.info(f"Task {self.task_id} paused")
+            except Exception as e:
+                logger.warning(f"Failed to pause task {self.task_id}: {e}")
+
+    def resume(self):
+        """恢复下载"""
+        self._paused.set()
+        if self._process and self._process.poll() is None:
+            try:
+                if hasattr(signal, 'SIGCONT'):
+                    self._process.send_signal(signal.SIGCONT)
+                logger.info(f"Task {self.task_id} resumed")
+            except Exception as e:
+                logger.warning(f"Failed to resume task {self.task_id}: {e}")
+
+    def cancel(self):
+        """取消下载"""
+        self._cancelled.set()
+        self._paused.set()
+        if self._process and self._process.poll() is None:
+            try:
+                self._process.terminate()
+                logger.info(f"Task {self.task_id} cancelled")
+            except Exception as e:
+                logger.warning(f"Failed to cancel task {self.task_id}: {e}")
+
+    def is_cancelled(self) -> bool:
+        return self._cancelled.is_set()
+
+    def check_pause(self):
+        """检查是否需要暂停（阻塞直到恢复）"""
+        self._paused.wait()
+
+    def set_process(self, proc: subprocess.Popen):
+        self._process = proc
+
+
+def register_pause_controller(task_id: str) -> PauseController:
+    with _pause_lock:
+        controller = PauseController(task_id)
+        _pause_controllers[task_id] = controller
+        return controller
+
+
+def get_pause_controller(task_id: str) -> PauseController | None:
+    with _pause_lock:
+        return _pause_controllers.get(task_id)
+
+
+def unregister_pause_controller(task_id: str):
+    with _pause_lock:
+        _pause_controllers.pop(task_id, None)
+
+
+def pause_task(task_id: str):
+    controller = get_pause_controller(task_id)
+    if controller:
+        controller.pause()
+
+
+def resume_task(task_id: str):
+    controller = get_pause_controller(task_id)
+    if controller:
+        controller.resume()
+
+
+def cancel_task_download(task_id: str):
+    controller = get_pause_controller(task_id)
+    if controller:
+        controller.cancel()
 
 
 @dataclass
@@ -118,14 +215,14 @@ def download_up_by_url(
 
             # 根据回调签名调用
             if param_count >= 3:
-                progress_cb(min(max(p, 0.0), 1.0), progress_msg, extra_info)
+                progress_cb(min(max(p, 0.0), 1.0), progress_msg, extra_info)  # type: ignore[call-arg]
             else:
-                progress_cb(min(max(p, 0.0), 1.0), progress_msg)
+                progress_cb(min(max(p, 0.0), 1.0), progress_msg)  # type: ignore[call-arg]
         elif status == "finished":
             if param_count >= 3:
-                progress_cb(1.0, "下载完成", {})
+                progress_cb(1.0, "下载完成", {})  # type: ignore[call-arg]
             else:
-                progress_cb(1.0, "下载完成")
+                progress_cb(1.0, "下载完成")  # type: ignore[call-arg]
 
         # 提取 uploader 信息（从第一个视频条目）
         if uploader_info is None:
@@ -161,12 +258,26 @@ def download_up_by_url(
     proxy = os.environ.get("BILIBILI_PROXY", "").strip()
     ydl_opts["proxy"] = proxy if proxy else ""
 
+    # Cookie 配置 - 转换为 Netscape 格式文件
+    cookie_file = None
+    if cookie:
+        import tempfile
+        cookie_lines = ["# Netscape HTTP Cookie File"]
+        for part in cookie.split(";"):
+            part = part.strip()
+            if "=" in part:
+                key, value = part.split("=", 1)
+                cookie_lines.append(f".bilibili.com\tTRUE\t/\tFALSE\t0\t{key}\t{value}")
+        cookie_content = "\n".join(cookie_lines)
+        cookie_file = tempfile.NamedTemporaryFile(mode='w', suffix='.txt', delete=False)
+        cookie_file.write(cookie_content)
+        cookie_file.close()
+        ydl_opts["cookiefile"] = cookie_file.name
+
     headers: dict[str, str] = {
         "User-Agent": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36",
         "Referer": "https://www.bilibili.com/",
     }
-    if cookie:
-        headers["Cookie"] = cookie
     ydl_opts["http_headers"] = headers
 
     if max_counts is not None:
@@ -196,6 +307,14 @@ def download_up_by_url(
 
     if not new_files:
         logger.warning("No files downloaded")
+
+    # 清理临时 cookie 文件
+    if cookie_file:
+        try:
+            import os as os_module
+            os_module.unlink(cookie_file.name)
+        except Exception:
+            pass
 
     result = {"success": True, "new_files": new_files}
     if uploader_info:

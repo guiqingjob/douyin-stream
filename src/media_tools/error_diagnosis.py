@@ -34,7 +34,7 @@ class ErrorCategory(Enum):
     UNKNOWN = "未知错误"
 
 
-SOLUTIONS = {
+SOLUTIONS: dict = {
     ErrorCategory.NETWORK: {
         "title": "🌐 网络错误诊断",
         "diagnosis": [
@@ -157,7 +157,7 @@ SOLUTIONS = {
 }
 
 
-def classify_error(error_message: str, exception: Exception = None) -> ErrorCategory:
+def classify_error(error_message: str, exception: Exception | None = None) -> ErrorCategory:
     """根据错误消息分类错误类型"""
     error_lower = error_message.lower()
 
@@ -215,8 +215,8 @@ def classify_error(error_message: str, exception: Exception = None) -> ErrorCate
 
 def diagnose_and_suggest(
     error_message: str,
-    exception: Exception = None,
-    category: ErrorCategory = None,
+    exception: Exception | None = None,
+    category: ErrorCategory | None = None,
 ) -> Panel:
     """诊断错误并提供解决建议
 

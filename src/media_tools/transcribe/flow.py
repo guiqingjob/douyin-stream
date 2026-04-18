@@ -270,7 +270,7 @@ async def run_real_flow(
     resolved_auth = resolve_qwen_auth_state_for_playwright(auth_state_path)
 
     async with async_playwright() as playwright:
-        api = await playwright.request.new_context(storage_state=resolved_auth.storage_state)
+        api = await playwright.request.new_context(storage_state=resolved_auth.storage_state)  # type: ignore[arg-type]
         try:
             log(f"Using file: {input_path}")
             log(f"File size: {stats.st_size}")

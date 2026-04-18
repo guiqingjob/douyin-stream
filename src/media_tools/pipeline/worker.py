@@ -107,20 +107,25 @@ async def run_local_transcribe(file_paths: list[str], update_progress_fn=None, d
     return {"success_count": success_count, "failed_count": failed_count, "total": total}
 
 
-async def run_pipeline_for_user(url: str, max_counts: int, update_progress_fn, delete_after: bool = True):
-    from media_tools.pipeline.download_router import download_by_url as download_by_url_router
+async def run_pipeline_for_user(url: str, max_counts: int, update_progress_fn, delete_after: bool = True, task_id: str | None = None):
+    from media_tools.pipeline.download_router import download_by_url as download_router
     from media_tools.pipeline.download_router import resolve_platform
     from media_tools.pipeline.config import load_pipeline_config
     from media_tools.pipeline.orchestrator_v2 import create_orchestrator
 
     await _call_progress(update_progress_fn, 0.1, "正在下载视频...")
 
-    # 1. Download
-    if resolve_platform(url) == "bilibili":
-        download_fn = download_by_url_router
+    # 1. Download - 使用 router（会自动选择 yt-dlp 或回退到 F2）
+    platform = resolve_platform(url)
+
+    if platform == "bilibili":
+        # B站使用 yt-dlp
+        from media_tools.bilibili.core.downloader import download_up_by_url as bilibili_download
+        dl_result = await asyncio.to_thread(bilibili_download, url, max_counts, True, None)
     else:
-        from media_tools.douyin.core.downloader import download_by_url as download_fn
-    dl_result = await asyncio.to_thread(download_fn, url, max_counts, True, True)
+        # 抖音使用 download_router（会自动选择 yt-dlp 视频或回退到 F2 用户主页）
+        dl_result = await asyncio.to_thread(download_router, url, max_counts, False, True)
+
     new_files = dl_result.get('new_files', []) if isinstance(dl_result, dict) else []
 
     if not new_files:
@@ -136,9 +141,12 @@ async def run_pipeline_for_user(url: str, max_counts: int, update_progress_fn, d
     total = len(new_files)
 
     # 使用批量并发转写
-    async def _progress_callback(current: int, total: int, video_path: Path, status: str):
+    def _progress_callback(current: int, total: int, video_path: Path, status: str) -> None:
         progress = 0.4 + 0.6 * (current / total) if total > 0 else 0.4
-        await _call_progress(update_progress_fn, progress, status)
+        result = update_progress_fn(progress, status)
+        if result is not None:
+            import asyncio
+            asyncio.create_task(result)
 
     orchestrator.on_progress = _progress_callback
 
@@ -167,8 +175,8 @@ async def run_pipeline_for_user(url: str, max_counts: int, update_progress_fn, d
         "failed_count": failed_count
     }
 
-async def run_batch_pipeline(video_urls: list[str], update_progress_fn, delete_after: bool = True):
-    from media_tools.pipeline.download_router import download_by_url
+async def run_batch_pipeline(video_urls: list[str], update_progress_fn, delete_after: bool = True, task_id: str | None = None):
+    from media_tools.pipeline.download_router import download_by_url as download_router
     from media_tools.pipeline.config import load_pipeline_config
     from media_tools.pipeline.orchestrator_v2 import create_orchestrator
 
@@ -178,7 +186,7 @@ async def run_batch_pipeline(video_urls: list[str], update_progress_fn, delete_a
     # Download phase
     for i, url in enumerate(video_urls):
         await _call_progress(update_progress_fn, 0.4 * (i / total), f"正在下载 ({i+1}/{total})")
-        dl_result = await asyncio.to_thread(download_by_url, url, 1, True, True)
+        dl_result = await asyncio.to_thread(download_router, url, 1, False, True)
         if isinstance(dl_result, dict) and dl_result.get('new_files'):
             new_files.extend(dl_result['new_files'])
 
@@ -190,9 +198,12 @@ async def run_batch_pipeline(video_urls: list[str], update_progress_fn, delete_a
     orchestrator = create_orchestrator(config)
 
     # 使用批量并发转写
-    async def _progress_callback(current: int, total: int, video_path: Path, status: str):
+    def _progress_callback(current: int, total: int, video_path: Path, status: str) -> None:
         progress = 0.4 + 0.6 * (current / total) if total > 0 else 0.4
-        await _call_progress(update_progress_fn, progress, status)
+        result = update_progress_fn(progress, status)
+        if result is not None:
+            import asyncio
+            asyncio.create_task(result)
 
     orchestrator.on_progress = _progress_callback
 
@@ -214,9 +225,9 @@ async def run_batch_pipeline(video_urls: list[str], update_progress_fn, delete_a
     return {"success_count": success_count, "failed_count": failed_count}
 
 
-async def run_download_only(video_urls: list[str], update_progress_fn):
+async def run_download_only(video_urls: list[str], update_progress_fn, task_id: str | None = None):
     """仅下载视频，不转写"""
-    from media_tools.douyin.core.downloader import download_aweme_by_url
+    from media_tools.pipeline.download_router import download_by_url as download_router
 
     total = len(video_urls)
     success_count = 0
@@ -225,7 +236,7 @@ async def run_download_only(video_urls: list[str], update_progress_fn):
     for i, url in enumerate(video_urls):
         await update_progress_fn(i / total, f"正在下载 ({i+1}/{total})")
         try:
-            result = await download_aweme_by_url(url)
+            result = await asyncio.to_thread(download_router, url, 1, False, True)
             if isinstance(result, dict) and result.get("success"):
                 success_count += 1
             else:

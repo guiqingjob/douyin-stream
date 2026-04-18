@@ -185,7 +185,6 @@ class Paths:
 
 
     @classmethod
-    @property
     def DOWNLOADS(cls) -> Path:
         """下载目录"""
         if cls._download_path is None:
@@ -193,7 +192,6 @@ class Paths:
         return cls._download_path
 
     @classmethod
-    @property
     def DATA_OUTPUT(cls) -> Path:
         """数据输出目录"""
         if cls._data_output_path is None:
@@ -201,7 +199,6 @@ class Paths:
         return cls._data_output_path
 
     @classmethod
-    @property
     def DB(cls) -> Path:
         """数据库路径"""
         if cls._db_path is None:

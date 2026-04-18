@@ -357,11 +357,13 @@ async def upload_file_to_oss(
     # 确定使用文件路径还是字节缓冲
     use_file_path = file_path is not None and file_buffer is None
     if use_file_path:
-        file_path = Path(file_path)
-        if not file_path.exists():
+        assert file_path is not None
+        file_path_obj = Path(file_path)
+        if not file_path_obj.exists():
             raise FileNotFoundError(f"File not found: {file_path}")
-        file_size = file_path.stat().st_size
+        file_size = file_path_obj.stat().st_size
     elif file_buffer is not None:
+        assert file_buffer is not None
         file_size = len(file_buffer)
     else:
         raise ValueError("Either file_buffer or file_path must be provided")
@@ -370,8 +372,9 @@ async def upload_file_to_oss(
         try:
             if use_file_path:
                 # 使用文件路径上传
-                await asyncio.to_thread(_direct_upload_with_presigned_url_from_path, token["getLink"], file_path, mime_type)
+                await asyncio.to_thread(_direct_upload_with_presigned_url_from_path, token["getLink"], file_path_obj, mime_type)
             else:
+                assert file_buffer is not None
                 await asyncio.to_thread(direct_upload_with_presigned_url, token["getLink"], file_buffer, mime_type)
             callback({"type": "direct-upload-complete"})
             return
@@ -385,12 +388,12 @@ async def upload_file_to_oss(
 
     parts: list[dict[str, Any]] = []
     part_number = 0
-    
+
     try:
         if use_file_path:
             # 使用文件路径进行分片上传（避免OOM）
             total_parts = (file_size + part_size - 1) // part_size
-            with open(file_path, 'rb') as f:
+            with open(file_path_obj, 'rb') as f:
                 for part_number in range(1, total_parts + 1):
                     chunk = f.read(part_size)
                     if not chunk:
@@ -400,9 +403,11 @@ async def upload_file_to_oss(
                     callback({"type": "part-uploaded", "partNumber": part_number, "totalParts": total_parts})
         else:
             # 使用字节缓冲进行分片上传
+            assert file_buffer is not None
             total_parts = (file_size + part_size - 1) // part_size
-            for offset, part_number in zip(range(0, len(file_buffer), part_size), range(1, total_parts + 1), strict=True):
-                chunk = file_buffer[offset : offset + part_size]
+            buffer = file_buffer
+            for offset, part_number in zip(range(0, len(buffer), part_size), range(1, total_parts + 1), strict=True):
+                chunk = buffer[offset : offset + part_size]
                 etag = await asyncio.to_thread(upload_part, token["sts"], upload_id, part_number, chunk, mime_type)
                 parts.append({"partNumber": part_number, "etag": etag})
                 callback({"type": "part-uploaded", "partNumber": part_number, "totalParts": total_parts})

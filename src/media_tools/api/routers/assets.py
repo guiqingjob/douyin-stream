@@ -202,8 +202,8 @@ class AssetMarkRequest(BaseModel):
 @router.patch("/{asset_id}/mark")
 def mark_asset(asset_id: str, req: AssetMarkRequest):
     """标记素材为已读/收藏"""
-    updates = []
-    params = []
+    updates: list[str] = []
+    params: list = []
     if req.is_read is not None:
         updates.append("is_read = ?")
         params.append(req.is_read)
@@ -308,5 +308,48 @@ def bulk_delete_assets(req: BulkAssetDeleteRequest):
                 chunk,
             )
             deleted += cursor.rowcount
+        conn.commit()
+    return {"status": "success", "deleted": deleted}
+
+
+@router.post("/cleanup")
+def cleanup_missing_assets():
+    """清理不存在的素材（视频文件已被删除的记录）"""
+    config = get_config()
+    download_dir = config.get_download_path()
+    transcripts_dir = config.project_root / "transcripts"
+
+    deleted = 0
+    with get_db_connection() as conn:
+        conn.row_factory = sqlite3.Row
+        # 获取所有素材
+        cursor = conn.execute("SELECT asset_id, video_path, transcript_path FROM media_assets")
+        rows = cursor.fetchall()
+
+        for row in rows:
+            asset_id = row["asset_id"]
+            video_path = row["video_path"]
+            transcript_name = row["transcript_path"]
+
+            video_exists = False
+            transcript_exists = False
+
+            # 检查视频文件是否存在
+            if video_path:
+                full_video_path = _resolve_safe_path(download_dir, video_path)
+                if full_video_path and full_video_path.exists():
+                    video_exists = True
+
+            # 检查转写文件是否存在
+            if transcript_name:
+                full_transcript_path = _resolve_safe_path(transcripts_dir, transcript_name)
+                if full_transcript_path and full_transcript_path.exists():
+                    transcript_exists = True
+
+            # 如果视频和转写都不存在，删除记录
+            if not video_exists and not transcript_exists:
+                conn.execute("DELETE FROM media_assets WHERE asset_id = ?", (asset_id,))
+                deleted += 1
+
         conn.commit()
     return {"status": "success", "deleted": deleted}

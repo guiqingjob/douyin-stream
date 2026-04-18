@@ -254,7 +254,7 @@ def create_progress_callback(
     return callback
 
 
-def display_final_report(report_data: dict) -> Panel:
+def display_final_report(report_data: dict) -> None:
     """显示最终报告"""
     console.print()
 

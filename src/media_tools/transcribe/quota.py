@@ -131,7 +131,7 @@ async def get_quota_snapshot(
     resolved = resolve_qwen_auth_state_for_playwright(auth_state_path)
 
     async with async_playwright() as playwright:
-        api = await playwright.request.new_context(storage_state=resolved.storage_state)
+        api = await playwright.request.new_context(storage_state=resolved.storage_state)  # type: ignore[arg-type]
         try:
             quota_json = await api_json(
                 api,
@@ -227,7 +227,7 @@ async def visit_equity_page(auth_state_path: str | Path) -> None:
             # Chrome不可用时回退到默认浏览器
             browser = await playwright.chromium.launch(headless=True)
         try:
-            context = await browser.new_context(storage_state=resolved.storage_state)
+            context = await browser.new_context(storage_state=resolved.storage_state)  # type: ignore[arg-type]
             page = await context.new_page()
             await page.goto("https://www.qianwen.com/equity", wait_until="domcontentloaded")
             try:
