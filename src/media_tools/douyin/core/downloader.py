@@ -469,8 +469,8 @@ def _sync_media_assets(uid: str, nickname: str, folder_name: str):
             
             # 构建aweme_id查找表
             for f in all_files:
-                # 尝试从文件名提取aweme_id（通常是19位数字）
-                aweme_matches = re.findall(r'\d{19}', f.stem)
+                # 尝试从文件名提取aweme_id（15位及以上数字）
+                aweme_matches = re.findall(r'\d{15,}', f.stem)
                 for aweme_id in aweme_matches:
                     file_lookup[aweme_id] = f"{folder_name}/{f.name}"
                 

@@ -1,5 +1,5 @@
 from contextlib import asynccontextmanager
-from fastapi import FastAPI
+from fastapi import FastAPI, Request, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
 from media_tools.api.routers import creators, assets, tasks, settings, douyin, scheduler
 import uvicorn
@@ -24,6 +24,34 @@ async def lifespan(app: FastAPI):
 
 
 app = FastAPI(title="Media Tools API", version="1.0.0", lifespan=lifespan)
+
+
+@app.middleware("http")
+async def api_key_auth(request: Request, call_next):
+    """Optional API key authentication middleware."""
+    from media_tools.douyin.core.config_mgr import get_config
+
+    config = get_config()
+    api_key = config.get_api_key()
+
+    # Skip auth if no API key is configured
+    if not api_key:
+        return await call_next(request)
+
+    # Skip auth for health check and WebSocket
+    if request.url.path in ("/api/health", "/api/v1/tasks/ws") or request.url.path.startswith("/docs"):
+        return await call_next(request)
+
+    auth_header = request.headers.get("Authorization", "")
+    if not auth_header.startswith("Bearer "):
+        raise HTTPException(status_code=401, detail="Missing or invalid Authorization header")
+
+    token = auth_header[7:]  # Remove "Bearer " prefix
+    if token != api_key:
+        raise HTTPException(status_code=403, detail="Invalid API key")
+
+    return await call_next(request)
+
 
 app.add_middleware(
     CORSMiddleware,

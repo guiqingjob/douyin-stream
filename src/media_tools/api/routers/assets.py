@@ -29,16 +29,29 @@ def _resolve_safe_path(base_dir: Path, relative_path: str | None) -> Path | None
     except Exception:
         return None
 
+def _resolve_query_value(val, default):
+    """Convert Query object to actual value."""
+    if hasattr(val, 'default'):
+        return val.default if val.default is not None else default
+    return val if val is not None else default
+
+
 @router.get("/")
-def list_assets(creator_uid: Optional[str] = Query(None)):
+def list_assets(
+    creator_uid: Optional[str] = Query(None),
+    limit: Optional[int] = Query(default=None, ge=1, le=500),
+    offset: Optional[int] = Query(default=None, ge=0),
+):
+    limit = _resolve_query_value(limit, 100)
+    offset = _resolve_query_value(offset, 0)
     try:
         with get_db_connection() as conn:
             conn.row_factory = sqlite3.Row
             base_sql = "SELECT asset_id, creator_uid, title, video_status, transcript_status, transcript_path, transcript_preview, folder_path, is_read, is_starred, create_time, update_time FROM media_assets"
             if creator_uid:
-                cursor = conn.execute(base_sql + " WHERE creator_uid = ?", (creator_uid,))
+                cursor = conn.execute(base_sql + " WHERE creator_uid = ? ORDER BY update_time DESC LIMIT ? OFFSET ?", (creator_uid, limit, offset))
             else:
-                cursor = conn.execute(base_sql)
+                cursor = conn.execute(base_sql + " ORDER BY update_time DESC LIMIT ? OFFSET ?", (limit, offset))
             return [dict(row) for row in cursor.fetchall()]
     except Exception:
         logger.exception("list_assets failed")

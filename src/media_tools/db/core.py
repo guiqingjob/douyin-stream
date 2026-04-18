@@ -19,10 +19,21 @@ def get_db_path() -> str:
     return _db_path
 
 
+def _set_wal_mode(conn: sqlite3.Connection) -> None:
+    """Set WAL mode if not already enabled (optimization to avoid repeated PRAGMA)."""
+    try:
+        cursor = conn.execute("PRAGMA journal_mode;")
+        mode = cursor.fetchone()[0]
+        if mode.upper() != "WAL":
+            conn.execute("PRAGMA journal_mode=WAL;")
+    except Exception:
+        conn.execute("PRAGMA journal_mode=WAL;")
+
+
 def get_db() -> Generator[sqlite3.Connection, None, None]:
     """FastAPI dependency – yields a connection, always closes on exit."""
     conn = sqlite3.connect(get_db_path(), timeout=15.0)
-    conn.execute("PRAGMA journal_mode=WAL;")
+    _set_wal_mode(conn)
     conn.row_factory = sqlite3.Row
     try:
         yield conn
@@ -33,7 +44,7 @@ def get_db() -> Generator[sqlite3.Connection, None, None]:
 def get_db_connection() -> sqlite3.Connection:
     """Non-generator helper for background tasks / non-FastAPI contexts."""
     conn = sqlite3.connect(get_db_path(), timeout=15.0)
-    conn.execute("PRAGMA journal_mode=WAL;")
+    _set_wal_mode(conn)
     conn.row_factory = sqlite3.Row
     return conn
 
@@ -173,6 +184,7 @@ def init_db(db_path: str | Path):
         cursor.execute("CREATE INDEX IF NOT EXISTS idx_task_queue_status ON task_queue(status)")
 
         _ensure_column(conn, "task_queue", "update_time", "DATETIME")
+        _ensure_column(conn, "task_queue", "cancel_requested", "INTEGER DEFAULT 0")
         _ensure_column(conn, "creators", "avatar", "TEXT")
         _ensure_column(conn, "creators", "bio", "TEXT")
         _ensure_column(conn, "Accounts_Pool", "remark", "TEXT DEFAULT ''")

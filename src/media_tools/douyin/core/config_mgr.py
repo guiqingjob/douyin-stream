@@ -155,6 +155,10 @@ class ConfigManager:
             return val.lower() in ('true', '1', 'yes')
         return bool(val)
 
+    def get_api_key(self):
+        """获取 API 认证密钥（可选）"""
+        return self.get("api_key", "")
+
 
 
     def validate(self):

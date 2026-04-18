@@ -6,7 +6,7 @@ import hashlib
 from datetime import datetime, timedelta
 from fastapi import APIRouter, BackgroundTasks, WebSocket, WebSocketDisconnect
 from pydantic import BaseModel
-from typing import List
+from typing import Any, List
 import uuid
 from pathlib import Path
 import sys
@@ -51,6 +51,7 @@ class PipelineRequest(BaseModel):
 
 
 def cleanup_stale_tasks(conn: sqlite3.Connection):
+    # Mark stale PENDING/RUNNING tasks as FAILED
     cutoff = (datetime.now() - timedelta(hours=STALE_TASK_HOURS)).isoformat()
     conn.execute(
         """
@@ -68,6 +69,13 @@ def cleanup_stale_tasks(conn: sqlite3.Connection):
           AND update_time < ?
         """,
         (datetime.now().isoformat(), cutoff),
+    )
+
+    # Delete old completed tasks (older than 7 days)
+    delete_cutoff = (datetime.now() - timedelta(days=7)).isoformat()
+    conn.execute(
+        "DELETE FROM task_queue WHERE status IN ('COMPLETED', 'FAILED', 'CANCELLED') AND update_time < ?",
+        (delete_cutoff,),
     )
     conn.commit()
 
@@ -92,6 +100,29 @@ class ConnectionManager:
                 pass
 
 manager = ConnectionManager()
+
+# --- Active-task registry -----------------------------------------------------
+# Tracks the asyncio.Task handle for every background worker currently running,
+# keyed by task_id. Populated by _register_background_task, auto-evicted by
+# add_done_callback. Enables POST /tasks/{id}/cancel to actually interrupt work.
+_active_tasks: dict[str, "asyncio.Task[Any]"] = {}  # type: ignore[type-arg]
+
+
+def _register_background_task(task_id: str, coro) -> "asyncio.Task[Any]":  # type: ignore[type-arg]
+    task = asyncio.create_task(coro)
+    _active_tasks[task_id] = task
+
+    def _on_done(t: "asyncio.Task[Any]") -> None:  # type: ignore[type-arg]
+        _active_tasks.pop(task_id, None)
+        # Surface unexpected crashes in the log; CancelledError is normal.
+        if not t.cancelled():
+            exc = t.exception()
+            if exc is not None:
+                logger.error(f"Background task {task_id} crashed: {exc!r}")
+
+    task.add_done_callback(_on_done)
+    return task
+
 
 @router.websocket("/ws")
 async def websocket_endpoint(websocket: WebSocket):
@@ -209,6 +240,27 @@ async def update_task_progress(task_id: str, progress: float, msg: str, task_typ
     except Exception as e:
         logger.error(f"Error updating task: {e}")
 
+
+async def _mark_task_cancelled(task_id: str, task_type: str) -> None:
+    """Called from a worker's asyncio.CancelledError handler.
+
+    Writes CANCELLED status + message, broadcasts WS. Idempotent: if the row
+    is already terminal (COMPLETED/FAILED/CANCELLED) we don't overwrite.
+    """
+    msg = "任务已取消"
+    try:
+        with get_db_connection() as conn:
+            payload_str = _merge_payload_from_db(conn, task_id, msg)
+            conn.execute(
+                """UPDATE task_queue
+                   SET status='CANCELLED', payload=?, update_time=CURRENT_TIMESTAMP
+                   WHERE task_id=? AND status IN ('PENDING', 'RUNNING')""",
+                (payload_str, task_id),
+            )
+        await notify_task_update(task_id, 0.0, msg, "CANCELLED", task_type)
+    except Exception as e:
+        logger.error(f"Failed to mark task {task_id} as cancelled: {e}")
+
 async def _background_pipeline_worker(task_id: str, req: PipelineRequest):
     async def _progress_fn(p, m):
         await update_task_progress(task_id, p, m, "pipeline")
@@ -265,7 +317,7 @@ async def _create_task(task_id: str, task_type: str, request_params: dict):
 async def trigger_pipeline(req: PipelineRequest, background_tasks: BackgroundTasks):
     task_id = str(uuid.uuid4())
     await _create_task(task_id, "pipeline", {"url": req.url, "max_counts": req.max_counts})
-    background_tasks.add_task(_background_pipeline_worker, task_id, req)
+    _register_background_task(task_id, _background_pipeline_worker(task_id, req))
     return {"task_id": task_id, "status": "started"}
 
 @router.get("/active")
@@ -300,6 +352,118 @@ def get_task_status(task_id: str):
     except Exception:
         logger.exception("get_task_status failed")
         return {"status": "ERROR"}
+
+@router.post("/{task_id}/cancel")
+async def cancel_task(task_id: str):
+    """Cancel a running or pending task."""
+    try:
+        # Check task exists and is cancellable
+        with get_db_connection() as conn:
+            cursor = conn.execute("SELECT status, task_type FROM task_queue WHERE task_id = ?", (task_id,))
+            row = cursor.fetchone()
+            if not row:
+                return {"status": "error", "message": "Task not found"}
+            if row["status"] in ("COMPLETED", "FAILED", "CANCELLED"):
+                return {"status": "error", "message": f"Task already {row['status']}"}
+            task_type = row["task_type"]
+
+        # Cancel the asyncio task if running
+        if task_id in _active_tasks:
+            _active_tasks[task_id].cancel()
+            await _mark_task_cancelled(task_id, task_type)
+            return {"status": "success", "message": "Task cancelled"}
+        else:
+            # Task not in active registry, just mark as cancelled
+            await _mark_task_cancelled(task_id, task_type)
+            return {"status": "success", "message": "Task marked as cancelled (was not running)"}
+    except Exception as e:
+        logger.exception(f"cancel_task failed for {task_id}")
+        return {"status": "error", "message": str(e)}
+
+@router.post("/{task_id}/retry")
+async def retry_task(task_id: str, background_tasks: BackgroundTasks):
+    """Retry a failed task using original parameters from payload."""
+    try:
+        with get_db_connection() as conn:
+            cursor = conn.execute("SELECT task_type, payload FROM task_queue WHERE task_id = ?", (task_id,))
+            row = cursor.fetchone()
+            if not row:
+                return {"status": "error", "message": "Task not found"}
+
+            task_type = row["task_type"]
+            payload_str = row["payload"]
+
+        # Parse original parameters from payload
+        try:
+            original_params = json.loads(payload_str) if payload_str else {}
+        except Exception:
+            original_params = {}
+
+        # Remove internal fields
+        original_params.pop("msg", None)
+
+        # Determine task type and create new task
+        if task_type == "pipeline" and "url" in original_params:
+            req = PipelineRequest(
+                url=original_params.get("url", ""),
+                max_counts=original_params.get("max_counts", 5),
+                auto_delete=original_params.get("auto_delete", True)
+            )
+            new_task_id = str(uuid.uuid4())
+            await _create_task(new_task_id, task_type, {"url": req.url, "max_counts": req.max_counts})
+            _register_background_task(new_task_id, _background_pipeline_worker(new_task_id, req))
+            return {"task_id": new_task_id, "status": "started", "message": "Pipeline task retry started"}
+
+        elif task_type == "pipeline" and "video_urls" in original_params:
+            req = BatchPipelineRequest(
+                video_urls=original_params.get("video_urls", []),
+                auto_delete=original_params.get("auto_delete", True)
+            )
+            new_task_id = str(uuid.uuid4())
+            await _create_task(new_task_id, task_type, {"video_urls": req.video_urls})
+            _register_background_task(new_task_id, _background_batch_worker(new_task_id, req))
+            return {"task_id": new_task_id, "status": "started", "message": "Batch pipeline task retry started"}
+
+        elif task_type == "download" and "video_urls" in original_params:
+            req = DownloadBatchRequest(video_urls=original_params.get("video_urls", []))
+            new_task_id = str(uuid.uuid4())
+            await _create_task(new_task_id, task_type, {"video_urls": req.video_urls})
+            _register_background_task(new_task_id, _background_download_worker(new_task_id, req))
+            return {"task_id": new_task_id, "status": "started", "message": "Download task retry started"}
+
+        elif task_type.startswith("creator_sync") and "uid" in original_params:
+            uid = original_params.get("uid")
+            mode = original_params.get("mode", "incremental")
+            new_task_id = str(uuid.uuid4())
+            await _create_task(new_task_id, f"creator_sync_{mode}", {"uid": uid, "mode": mode})
+            _register_background_task(new_task_id, _background_creator_download_worker(new_task_id, uid, mode))
+            return {"task_id": new_task_id, "status": "started", "message": "Creator download task retry started"}
+
+        elif task_type.startswith("full_sync") and "mode" in original_params:
+            mode = original_params.get("mode", "incremental")
+            new_task_id = str(uuid.uuid4())
+            await _create_task(new_task_id, f"full_sync_{mode}", {"mode": mode})
+            _register_background_task(new_task_id, _background_full_sync_worker(new_task_id, mode))
+            return {"task_id": new_task_id, "status": "started", "message": "Full sync task retry started"}
+
+        elif task_type == "local_transcribe" and "file_paths" in original_params:
+            req = LocalTranscribeRequest(
+                file_paths=original_params.get("file_paths", []),
+                delete_after=original_params.get("delete_after", False),
+                directory_root=original_params.get("directory_root")
+            )
+            _register_local_assets(req.file_paths, req.delete_after, req.directory_root)
+            new_task_id = str(uuid.uuid4())
+            await _create_task(new_task_id, task_type, {"file_paths": req.file_paths, "delete_after": req.delete_after})
+            _register_background_task(new_task_id, _background_local_transcribe_worker(new_task_id, req))
+            return {"task_id": new_task_id, "status": "started", "message": "Local transcribe task retry started"}
+
+        else:
+            return {"status": "error", "message": f"Unsupported task type for retry: {task_type}"}
+
+    except Exception as e:
+        logger.exception(f"retry_task failed for {task_id}")
+        return {"status": "error", "message": str(e)}
 
 class BatchPipelineRequest(BaseModel):
     video_urls: List[str]
@@ -350,7 +514,7 @@ async def _background_batch_worker(task_id: str, req: BatchPipelineRequest):
 async def trigger_batch_pipeline(req: BatchPipelineRequest, background_tasks: BackgroundTasks):
     task_id = str(uuid.uuid4())
     await _create_task(task_id, "pipeline", {"video_urls": req.video_urls})
-    background_tasks.add_task(_background_batch_worker, task_id, req)
+    _register_background_task(task_id, _background_batch_worker(task_id, req))
     return {"task_id": task_id, "status": "started"}
 
 async def _background_download_worker(task_id: str, req: DownloadBatchRequest):
@@ -376,7 +540,7 @@ async def _background_download_worker(task_id: str, req: DownloadBatchRequest):
 async def trigger_download_batch(req: DownloadBatchRequest, background_tasks: BackgroundTasks):
     task_id = str(uuid.uuid4())
     await _create_task(task_id, "download", {"video_urls": req.video_urls})
-    background_tasks.add_task(_background_download_worker, task_id, req)
+    _register_background_task(task_id, _background_download_worker(task_id, req))
     return {"task_id": task_id, "status": "started"}
 
 async def _background_creator_download_worker(task_id: str, uid: str, mode: str = "incremental"):
@@ -457,7 +621,7 @@ async def _background_creator_download_worker(task_id: str, uid: str, mode: str 
 async def trigger_creator_download(req: CreatorDownloadRequest, background_tasks: BackgroundTasks):
     task_id = str(uuid.uuid4())
     await _create_task(task_id, f"creator_sync_{req.mode}", {"uid": req.uid, "mode": req.mode})
-    background_tasks.add_task(_background_creator_download_worker, task_id, req.uid, req.mode)
+    _register_background_task(task_id, _background_creator_download_worker(task_id, req.uid, req.mode))
     return {"task_id": task_id, "status": "started"}
 
 async def _background_full_sync_worker(task_id: str, mode: str = "incremental"):
@@ -514,7 +678,7 @@ async def _background_full_sync_worker(task_id: str, mode: str = "incremental"):
 async def trigger_full_sync(req: FullSyncRequest, background_tasks: BackgroundTasks):
     task_id = str(uuid.uuid4())
     await _create_task(task_id, f"full_sync_{req.mode}", {"mode": req.mode})
-    background_tasks.add_task(_background_full_sync_worker, task_id, req.mode)
+    _register_background_task(task_id, _background_full_sync_worker(task_id, req.mode))
     return {"task_id": task_id, "status": "started"}
 
 
@@ -559,7 +723,7 @@ async def trigger_local_transcribe(req: LocalTranscribeRequest, background_tasks
     task_id = str(uuid.uuid4())
     _register_local_assets(req.file_paths, req.delete_after, req.directory_root)
     await _create_task(task_id, "local_transcribe", {"file_paths": req.file_paths, "delete_after": req.delete_after})
-    background_tasks.add_task(_background_local_transcribe_worker, task_id, req)
+    _register_background_task(task_id, _background_local_transcribe_worker(task_id, req))
     return {"task_id": task_id, "status": "started"}
 
 @router.post("/transcribe/scan")

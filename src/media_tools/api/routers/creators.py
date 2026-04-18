@@ -1,4 +1,5 @@
-from fastapi import APIRouter, HTTPException
+from typing import Optional
+from fastapi import APIRouter, HTTPException, Query
 from media_tools.douyin.core.config_mgr import get_config
 from media_tools.db.core import get_db_connection
 import os
@@ -30,8 +31,20 @@ def _resolve_safe_path(base_dir: Path, relative_path: str | None) -> Path | None
 class CreatorCreateRequest(BaseModel):
     url: str
 
+def _resolve_query_value(val, default):
+    """Convert Query object to actual value."""
+    if hasattr(val, 'default'):
+        return val.default if val.default is not None else default
+    return val if val is not None else default
+
+
 @router.get("/")
-def list_creators():
+def list_creators(
+    limit: Optional[int] = Query(default=None, ge=1, le=500),
+    offset: Optional[int] = Query(default=None, ge=0),
+):
+    limit = _resolve_query_value(limit, 100)
+    offset = _resolve_query_value(offset, 0)
     try:
         with get_db_connection() as conn:
             conn.row_factory = sqlite3.Row
@@ -56,7 +69,8 @@ def list_creators():
                     CASE WHEN c.last_fetch_time IS NULL THEN 1 ELSE 0 END,
                     c.last_fetch_time DESC,
                     c.nickname COLLATE NOCASE ASC
-            """)
+                LIMIT ? OFFSET ?
+            """, (limit, offset))
             return [dict(row) for row in cursor.fetchall()]
     except Exception:
         logger.exception("list_creators failed")
