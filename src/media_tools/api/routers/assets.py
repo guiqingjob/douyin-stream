@@ -59,29 +59,35 @@ def list_assets(
 
 @router.get("/search")
 def search_assets(q: str = Query(..., min_length=1)):
-    """搜索素材标题和转写文稿内容"""
+    """搜索素材标题和转写文稿内容（FTS5全文索引）"""
     try:
-        like = f"%{q}%"
+        # Lazily populate FTS5 index if empty (first search after startup / DB reset)
+        from media_tools.db.core import ensure_fts_populated
+
+        ensure_fts_populated()
+
+        # Sanitize user query: escape FTS5 special chars, allow prefix match with *
+        safe_q = q.replace('"', '""')
+        # Use prefix match (q*) for better UX
+        fts_query = f'"{safe_q}"*'
+
         with get_db_connection() as conn:
             conn.row_factory = sqlite3.Row
             cursor = conn.execute(
                 """
-                SELECT asset_id, creator_uid, title, video_status, transcript_status,
-                       transcript_path, transcript_preview, folder_path, is_read, is_starred,
-                       create_time, update_time,
-                       CASE
-                         WHEN LOWER(title) LIKE LOWER(?) THEN 'title'
-                         ELSE 'content'
-                       END AS match_type
-                FROM media_assets
-                WHERE LOWER(title) LIKE LOWER(?)
-                   OR LOWER(COALESCE(transcript_text, '')) LIKE LOWER(?)
+                SELECT a.asset_id, a.creator_uid, a.title, a.video_status, a.transcript_status,
+                       a.transcript_path, a.transcript_preview, a.folder_path, a.is_read, a.is_starred,
+                       a.create_time, a.update_time,
+                       CASE WHEN LOWER(a.title) LIKE LOWER(?) THEN 'title' ELSE 'content' END AS match_type
+                FROM media_assets a
+                INNER JOIN assets_fts f ON a.asset_id = f.asset_id
+                WHERE assets_fts MATCH ?
                 ORDER BY
-                  CASE WHEN LOWER(title) LIKE LOWER(?) THEN 0 ELSE 1 END,
-                  update_time DESC
+                  CASE WHEN LOWER(a.title) LIKE LOWER(?) THEN 0 ELSE 1 END,
+                  a.update_time DESC
                 LIMIT 50
                 """,
-                (like, like, like, like),
+                (f"%{q}%", fts_query, f"%{q}%"),
             )
             return [dict(row) for row in cursor.fetchall()]
     except Exception as e:

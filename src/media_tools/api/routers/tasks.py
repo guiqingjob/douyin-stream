@@ -341,6 +341,27 @@ async def _mark_task_cancelled(task_id: str, task_type: str) -> None:
     except Exception as e:
         logger.error(f"Failed to mark task {task_id} as cancelled: {e}")
 
+async def _complete_task(task_id: str, task_type: str, msg: str, status: str = "COMPLETED", error_msg: str | None = None) -> None:
+    """Update task row to completed status and broadcast WebSocket notification."""
+    with get_db_connection() as conn:
+        payload_str = _merge_payload_from_db(conn, task_id, msg)
+        conn.execute(
+            "UPDATE task_queue SET status=?, progress=1.0, payload=?, error_msg=? WHERE task_id=?",
+            (status, payload_str, error_msg, task_id),
+        )
+    await notify_task_update(task_id, 1.0, msg, status, task_type)
+
+
+async def _fail_task(task_id: str, task_type: str, error: str) -> None:
+    """Update task row to failed status and broadcast WebSocket notification."""
+    with get_db_connection() as conn:
+        conn.execute(
+            "UPDATE task_queue SET status='FAILED', error_msg=? WHERE task_id=?",
+            (str(error), task_id),
+        )
+    await notify_task_update(task_id, 0.0, str(error), "FAILED", task_type)
+
+
 async def _background_pipeline_worker(task_id: str, req: PipelineRequest):
     async def _progress_fn(p, m):
         await update_task_progress(task_id, p, m, "pipeline")
@@ -766,23 +787,12 @@ async def _background_batch_worker(task_id: str, req: BatchPipelineRequest):
         success_count = result.get('success_count', 0)
         failed_count = result.get('failed_count', 0)
         failed_items = result.get('failed_items', []) or []
-        status = "COMPLETED"
-        error_msg = None
         if success_count == 0 and failed_count > 0:
-            status = "FAILED"
-            error_msg = failed_items[0]["error"] if failed_items else "全部视频处理失败"
-        msg = f"批量处理完成：成功 {success_count} 个，失败 {failed_count} 个"
-        with get_db_connection() as conn:
-            payload_str = _merge_payload_from_db(conn, task_id, msg)
-            conn.execute(
-                "UPDATE task_queue SET status=?, progress=1.0, payload=?, error_msg=? WHERE task_id=?",
-                (status, payload_str, error_msg, task_id)
-            )
-        await notify_task_update(task_id, 1.0, msg, status, "pipeline")
+            await _fail_task(task_id, "pipeline", failed_items[0]["error"] if failed_items else "全部视频处理失败")
+        else:
+            await _complete_task(task_id, "pipeline", f"批量处理完成：成功 {success_count} 个，失败 {failed_count} 个")
     except Exception as e:
-        with get_db_connection() as conn:
-            conn.execute("UPDATE task_queue SET status='FAILED', error_msg=? WHERE task_id=?", (str(e), task_id))
-        await notify_task_update(task_id, 0.0, str(e), "FAILED", "pipeline")
+        await _fail_task(task_id, "pipeline", str(e))
 
 @router.post("/pipeline/batch")
 async def trigger_batch_pipeline(req: BatchPipelineRequest, background_tasks: BackgroundTasks):
@@ -801,15 +811,12 @@ async def _background_download_worker(task_id: str, req: DownloadBatchRequest):
             update_progress_fn=_progress_fn,
             task_id=task_id,
         )
-        msg = f"下载完成：成功 {result.get('success_count', 0)} 个，失败 {result.get('failed_count', 0)} 个"
-        with get_db_connection() as conn:
-            payload_str = _merge_payload_from_db(conn, task_id, msg)
-            conn.execute("UPDATE task_queue SET status='COMPLETED', progress=1.0, payload=? WHERE task_id=?", (payload_str, task_id))
-        await notify_task_update(task_id, 1.0, msg, "COMPLETED", "download")
+        await _complete_task(
+            task_id, "download",
+            f"下载完成：成功 {result.get('success_count', 0)} 个，失败 {result.get('failed_count', 0)} 个"
+        )
     except Exception as e:
-        with get_db_connection() as conn:
-            conn.execute("UPDATE task_queue SET status='FAILED', error_msg=? WHERE task_id=?", (str(e), task_id))
-        await notify_task_update(task_id, 0.0, str(e), "FAILED", "download")
+        await _fail_task(task_id, "download", str(e))
 
 @router.post("/download/batch")
 async def trigger_download_batch(req: DownloadBatchRequest, background_tasks: BackgroundTasks):
@@ -1038,15 +1045,10 @@ async def _background_local_transcribe_worker(task_id: str, req: LocalTranscribe
         f_count = result.get("failed_count", 0)
         total = result.get("total", 0)
         msg = "没有找到有效的音视频文件" if total == 0 else f"本地转写完成：成功 {s_count} 个，失败 {f_count} 个"
-        with get_db_connection() as conn:
-            payload_str = _merge_payload_from_db(conn, task_id, msg)
-            conn.execute("UPDATE task_queue SET status='COMPLETED', progress=1.0, payload=? WHERE task_id=?", (payload_str, task_id))
-        await notify_task_update(task_id, 1.0, msg, "COMPLETED", "local_transcribe")
+        await _complete_task(task_id, "local_transcribe", msg)
     except Exception as e:
         logger.error(f"Local transcribe worker failed: {e}")
-        with get_db_connection() as conn:
-            conn.execute("UPDATE task_queue SET status='FAILED', error_msg=? WHERE task_id=?", (str(e), task_id))
-        await notify_task_update(task_id, 0.0, str(e), "FAILED", "local_transcribe")
+        await _fail_task(task_id, "local_transcribe", str(e))
 
 @router.post("/transcribe/local")
 async def trigger_local_transcribe(req: LocalTranscribeRequest, background_tasks: BackgroundTasks):

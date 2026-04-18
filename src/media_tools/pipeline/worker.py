@@ -87,6 +87,20 @@ async def run_local_transcribe(file_paths: list[str], update_progress_fn=None, d
                         (transcript_name, preview, full_text, _local_asset_id(video_path)),
                     )
                     conn.commit()
+                    # Keep FTS5 index in sync
+                    try:
+                        from media_tools.db.core import update_fts_for_asset
+                        title_row = conn.execute(
+                            "SELECT title FROM media_assets WHERE asset_id = ?",
+                            (_local_asset_id(video_path),),
+                        ).fetchone()
+                        update_fts_for_asset(
+                            _local_asset_id(video_path),
+                            title_row["title"] if title_row else "",
+                            full_text,
+                        )
+                    except Exception:
+                        pass
             except Exception:
                 pass
             if delete_after and video_path.exists():

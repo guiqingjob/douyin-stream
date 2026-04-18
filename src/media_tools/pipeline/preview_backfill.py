@@ -1,13 +1,14 @@
 """Backfill missing transcript_preview / transcript_text in the background.
 
 New transcripts write both inline (orchestrator / local worker). This module
-handles existing rows that predate those columns.
+handles existing rows that predate those columns, and keeps the FTS5 search
+index up to date.
 """
 import sqlite3
 import threading
 from pathlib import Path
 
-from media_tools.db.core import get_db_connection
+from media_tools.db.core import get_db_connection, update_fts_for_asset
 from media_tools.logger import get_logger
 from media_tools.pipeline.preview import extract_transcript_preview, extract_transcript_text
 
@@ -32,7 +33,7 @@ def _run() -> None:
                 conn.row_factory = sqlite3.Row
                 cursor = conn.execute(
                     """
-                    SELECT asset_id, transcript_path FROM media_assets
+                    SELECT asset_id, title, transcript_path FROM media_assets
                     WHERE transcript_status = 'completed'
                       AND transcript_path IS NOT NULL AND transcript_path != ''
                       AND (transcript_preview IS NULL OR transcript_text IS NULL)
@@ -43,19 +44,21 @@ def _run() -> None:
                 rows = cursor.fetchall()
             if not rows:
                 break
-            updates: list[tuple[str, str, str]] = []
+            media_updates: list[tuple[str, str, str]] = []
             for row in rows:
                 file_path = base_dir / row["transcript_path"]
                 preview = extract_transcript_preview(file_path)
                 full_text = extract_transcript_text(file_path)
-                updates.append((preview, full_text, row["asset_id"]))
+                media_updates.append((preview, full_text, row["asset_id"]))
+                # Sync to FTS5 index
+                update_fts_for_asset(row["asset_id"], row["title"] or "", full_text)
             with get_db_connection() as conn:
                 conn.executemany(
                     "UPDATE media_assets SET transcript_preview = ?, transcript_text = ? WHERE asset_id = ?",
-                    updates,
+                    media_updates,
                 )
                 conn.commit()
-            total += len(updates)
+            total += len(media_updates)
         if total:
             logger.info(f"Backfilled transcript preview/text for {total} rows")
     except Exception as exc:  # noqa: BLE001

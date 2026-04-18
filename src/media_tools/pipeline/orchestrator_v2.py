@@ -916,6 +916,16 @@ class OrchestratorV2:
                                 f"%{video_path.stem}%"
                             ))
                         conn.commit()
+                        # Sync to FTS5 index for the asset we just updated
+                        if aweme_matches:
+                            try:
+                                from media_tools.db.core import update_fts_for_asset
+                                title_row = conn.execute(
+                                    "SELECT title FROM media_assets WHERE asset_id = ?", (asset_id,)
+                                ).fetchone()
+                                update_fts_for_asset(asset_id, title_row["title"] if title_row else "", full_text)
+                            except Exception:
+                                pass
                 except Exception as e:
                     logger.warning(f"更新 media_assets 转写状态失败: {e}")
 
