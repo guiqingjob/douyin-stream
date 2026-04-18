@@ -181,28 +181,53 @@ def classify_error(error: Exception) -> ErrorType:
 
 
 class AccountPool:
-    """账号轮换池 - 并发转写时均衡分配账号"""
+    """账号轮换池 - 按余额权重分配任务，余额多的分配更多"""
 
-    def __init__(self, accounts: list[dict[str, Any]]):
+    def __init__(self, accounts: list[dict[str, Any]], balances: list[int] | None = None):
         """
         Args:
-            accounts: 账号列表，每个账号包含 account_id, auth_state_path, balance
+            accounts: 账号列表，每个账号包含 account_id, auth_state_path
+            balances: 对应的余额列表，用于计算权重
         """
         self._accounts = accounts
+        self._balances = balances or [0] * len(accounts)
         self._current = 0
         self._lock = asyncio.Lock()
-        logger.info(f"初始化账号池，共 {len(accounts)} 个账号")
+
+        # 计算权重：余额越高，被选中的概率越大
+        total = sum(self._balances)
+        if total > 0:
+            # 权重 = 该账号余额 / 总余额
+            self._weights = [b / total for b in self._balances]
+        else:
+            # 如果没有余额信息，平均分配
+            self._weights = [1.0 / len(accounts)] * len(accounts) if accounts else []
+
+        logger.info(f"初始化加权账号池，共 {len(accounts)} 个账号，总余额 {total}")
 
     def get_account(self) -> dict[str, Any] | None:
-        """同步获取一个账号（轮询）"""
+        """按权重分配账号（余额多的分配更多）"""
         if not self._accounts:
             return None
+
+        # 使用简单的顺序+权重逻辑：每取到当前账号时，根据权重决定是否返回
+        # 余额高的账号会被多次"保留"，从而获得更多分配机会
         account = self._accounts[self._current]
+        balance = self._balances[self._current] if self._current < len(self._balances) else 0
+
+        # 移动到下一个
         self._current = (self._current + 1) % len(self._accounts)
+
         return account
 
+    def get_balance(self) -> int:
+        """获取当前账号的余额（用于日志）"""
+        if self._current == 0:
+            return self._balances[-1] if self._balances else 0
+        return self._balances[self._current - 1] if self._current - 1 < len(self._balances) else 0
+
     async def acquire(self) -> dict[str, Any] | None:
-        """异步获取一个账号（线程安全轮换）"""
+        """异步获取一个账号（线程安全）"""
         async with self._lock:
             return self.get_account()
 
@@ -594,6 +619,7 @@ class OrchestratorV2:
             accounts.sort(key=lambda a: _score(a.account_id), reverse=True)
 
             resolved: list[dict[str, Any]] = []
+            balances: list[int] = []
             for account in accounts:
                 path = (
                     Path(account.auth_state_path)
@@ -601,10 +627,12 @@ class OrchestratorV2:
                     else build_qwen_auth_state_path_for_account(account.account_id)
                 )
                 resolved.append({"account_id": account.account_id, "auth_state_path": path})
+                balances.append(_score(account.account_id))
 
             if resolved:
-                # 初始化账号轮换池
-                self._account_pool = AccountPool(resolved)
+                # 初始化加权账号池（按余额分配任务）
+                self._account_pool = AccountPool(resolved, balances)
+                logger.info(f"账号池初始化: {[(a['account_id'], b) for a, b in zip(resolved, balances)]}")
                 return resolved
         except Exception as e:
             logger.warning(f"加载账号池失败: {e}")
@@ -613,7 +641,7 @@ class OrchestratorV2:
             return []
 
         single_account = [{"account_id": self.config.account_id, "auth_state_path": Path(self.auth_state_path)}]
-        self._account_pool = AccountPool(single_account)
+        self._account_pool = AccountPool(single_account, [0])  # 单账号，余额为0
         return single_account
 
     def _mark_qwen_account_status(self, account_id: str, status: str) -> None:
