@@ -75,7 +75,18 @@ def _lookup_video_title(video_path: Path) -> str | None:
 
 
 def _lookup_creator_folder(video_path: Path) -> str | None:
-    """从数据库查询视频所属创作者昵称（用作转写子目录名）"""
+    """从视频所在目录或数据库查询视频所属创作者昵称（用作转写子目录名）"""
+
+    # 方法1：从视频所在目录获取（视频在 downloads/创作者名/ 下）
+    parent_name = video_path.parent.name
+    if parent_name and parent_name not in ["downloads", "douyin", "bilibili", ""]:
+        # 清理目录名
+        name = re.sub(r'[<>:"/\\|?*]', '', parent_name).strip()
+        name = re.sub(r'\.+', '_', name).strip()
+        if name and name != "downloads":
+            return name
+
+    # 方法2：从文件名中的 aweme_id 查询
     aweme_matches = re.findall(r'\d{15,}', video_path.name)
     if not aweme_matches:
         return None
