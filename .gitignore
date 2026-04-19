@@ -77,6 +77,7 @@ venv.bak/
 
 # mypy
 .mypy_cache/
+.ruff_cache/
 .dmypy.json
 dmypy.json
 
@@ -185,6 +186,7 @@ transcripts/
 
 !docs/
 docs/*
+!docs/references/
 !docs/superpowers/
 docs/superpowers/*
 !docs/superpowers/specs/
