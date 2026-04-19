@@ -126,6 +126,11 @@ config_export/
 
 # 本地调试与协作草稿
 .superpowers/
+
+# Frontend build artifacts
+frontend/dist/
+frontend/node_modules/
+.agent_browser_shots/
 src/config/active_preset.txt
 src/test_add_user.py
 src/test_cli.py
