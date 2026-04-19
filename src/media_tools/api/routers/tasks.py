@@ -244,44 +244,25 @@ async def websocket_endpoint(websocket: WebSocket):
         except Exception:
             logger.exception("Heartbeat task unexpected error")
 
-    async def _pong_handler():
-        """Handle incoming pong responses and detect stale connections."""
-        try:
-            while True:
-                data = await websocket.receive_text()
-                if data:
-                    # Handle pong/ACK messages if needed
-                    logger.debug(f"WebSocket received: {data[:50]}...")
-        except asyncio.CancelledError:
-            logger.debug("Pong handler task cancelled")
-        except Exception:
-            logger.exception("Pong handler unexpected error")
-
     # 跟踪所有后台任务，防止 GC 导致静默失败
     heartbeat_task = asyncio.create_task(_heartbeat())
     _background_tasks.add(heartbeat_task)
     heartbeat_task.add_done_callback(lambda t: _background_tasks.discard(t))
 
-    # 也可以跟踪 pong_handler
-    pong_task = asyncio.create_task(_pong_handler())
-    _background_tasks.add(pong_task)
-    pong_task.add_done_callback(lambda t: _background_tasks.discard(t))
-
     try:
         while True:
             # Just keep connection alive, we broadcast updates from the worker
+            # 注意：同一时间只能有一个 coroutine 调用 receive_text()
             data = await websocket.receive_text()
+            # 可以在这里处理收到的消息（如 pong/ACK）
+            if data:
+                logger.debug(f"WebSocket received: {data[:50]}...")
     except WebSocketDisconnect:
         manager.disconnect(websocket)
     finally:
         heartbeat_task.cancel()
-        pong_task.cancel()
         try:
             await heartbeat_task
-        except asyncio.CancelledError:
-            pass
-        try:
-            await pong_task
         except asyncio.CancelledError:
             pass
 
