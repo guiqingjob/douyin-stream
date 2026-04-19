@@ -1,13 +1,21 @@
 from __future__ import annotations
 
+import atexit
 import inspect
 import os
+import re
+import shutil
 import signal
+import sqlite3
 import subprocess
+import tempfile
 import threading
-from dataclasses import dataclass
+import time
+from contextlib import contextmanager
+from dataclasses import dataclass, field
+from datetime import datetime
 from pathlib import Path
-from typing import Any, Callable
+from typing import Any, Callable, Generator
 
 from media_tools.douyin.core.config_mgr import get_config
 from media_tools.logger import get_logger
@@ -16,6 +24,88 @@ from media_tools.bilibili.utils.cookies import get_bilibili_cookie_string
 from media_tools.bilibili.utils.naming import sanitize_filename
 
 logger = get_logger("bilibili")
+
+# --- 临时文件安全管理（复用 douyin_ytdlp 的实现）---
+_temp_files: set[str] = set()
+_temp_files_lock = threading.Lock()
+
+
+def _cleanup_temp_files() -> None:
+    """进程退出时清理所有临时文件"""
+    with _temp_files_lock:
+        for path_str in list(_temp_files):
+            try:
+                if os.path.exists(path_str):
+                    os.unlink(path_str)
+                    logger.debug(f"Cleaned up temp file: {path_str}")
+            except Exception as e:
+                logger.warning(f"Failed to cleanup temp file {path_str}: {e}")
+        _temp_files.clear()
+
+
+def _register_temp_file(path_str: str) -> None:
+    """注册临时文件到清理列表"""
+    with _temp_files_lock:
+        _temp_files.add(path_str)
+
+
+def _unregister_temp_file(path_str: str) -> None:
+    """从清理列表移除（已清理时调用）"""
+    with _temp_files_lock:
+        _temp_files.discard(path_str)
+
+
+def _cleanup_on_signal(signum, frame) -> None:
+    """信号处理时清理临时文件"""
+    _cleanup_temp_files()
+    signal.signal(signum, signal.SIG_DFL)
+    os.kill(os.getpid(), signum)
+
+
+# 注册进程退出清理
+atexit.register(_cleanup_temp_files)
+signal.signal(signal.SIGTERM, _cleanup_on_signal)
+signal.signal(signal.SIGINT, _cleanup_on_signal)
+
+
+@contextmanager
+def managed_temp_file(mode: str = 'w', suffix: str = '.txt', dir: str | None = None) -> Generator[tuple, None, None]:
+    """
+    安全的临时文件上下文管理器（同 douyin_ytdlp）
+
+    - 使用 delete=True（自动删除）
+    - 显式在 finally 中 close + unlink（双重保险）
+    - mode=0o600 权限，防止其他用户读取
+    - 注册到 atexit 清理列表（进程崩溃时也能清理）
+    """
+    import sys
+    if sys.platform == 'win32':
+        fd, path_str = tempfile.mkstemp(suffix=suffix, dir=dir, text=True)
+        os.chmod(path_str, 0o600)
+        f = os.fdopen(fd, mode)
+    else:
+        f = tempfile.NamedTemporaryFile(
+            mode=mode, suffix=suffix, dir=dir,
+            delete=True,
+        )
+        path_str = f.name
+        os.chmod(path_str, 0o600)
+
+    _register_temp_file(path_str)
+
+    try:
+        yield f, path_str
+    finally:
+        try:
+            f.close()
+        except Exception:
+            pass
+        try:
+            if os.path.exists(path_str):
+                os.unlink(path_str)
+                _unregister_temp_file(path_str)
+        except Exception as e:
+            logger.warning(f"Failed to cleanup temp file {path_str}: {e}")
 
 # 扩展进度回调：支持详细进度信息
 DownloadProgress = dict[str, Any]
@@ -269,10 +359,10 @@ def download_up_by_url(
                 key, value = part.split("=", 1)
                 cookie_lines.append(f".bilibili.com\tTRUE\t/\tFALSE\t0\t{key}\t{value}")
         cookie_content = "\n".join(cookie_lines)
-        cookie_file = tempfile.NamedTemporaryFile(mode='w', suffix='.txt', delete=False)
-        cookie_file.write(cookie_content)
-        cookie_file.close()
-        ydl_opts["cookiefile"] = cookie_file.name
+        # 使用安全的临时文件管理器
+        with managed_temp_file(mode='w', suffix='.txt') as (f, cookie_path):
+            f.write(cookie_content)
+        ydl_opts["cookiefile"] = cookie_path
 
     headers: dict[str, str] = {
         "User-Agent": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36",

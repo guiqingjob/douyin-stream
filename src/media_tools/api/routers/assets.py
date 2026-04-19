@@ -41,21 +41,67 @@ def list_assets(
     creator_uid: Optional[str] = Query(None),
     limit: Optional[int] = Query(default=None, ge=1, le=500),
     offset: Optional[int] = Query(default=None, ge=0),
+    silent: bool = Query(default=False, description="返回空列表而非抛错（兼容旧版）"),
 ):
+    """
+    获取素材列表
+
+    - silent=false（默认）：数据库错误抛 500
+    - silent=true：数据库错误返回空列表（兼容旧版）
+    """
+    import sqlite3
+
     limit = _resolve_query_value(limit, 100)
     offset = _resolve_query_value(offset, 0)
+
     try:
         with get_db_connection() as conn:
             conn.row_factory = sqlite3.Row
             base_sql = "SELECT asset_id, creator_uid, title, video_status, transcript_status, transcript_path, transcript_preview, folder_path, is_read, is_starred, create_time, update_time FROM media_assets"
             if creator_uid:
-                cursor = conn.execute(base_sql + " WHERE creator_uid = ? ORDER BY update_time DESC LIMIT ? OFFSET ?", (creator_uid, limit, offset))
+                cursor = conn.execute(
+                    base_sql + " WHERE creator_uid = ? ORDER BY update_time DESC LIMIT ? OFFSET ?",
+                    (creator_uid, limit, offset)
+                )
             else:
-                cursor = conn.execute(base_sql + " ORDER BY update_time DESC LIMIT ? OFFSET ?", (limit, offset))
+                cursor = conn.execute(
+                    base_sql + " ORDER BY update_time DESC LIMIT ? OFFSET ?",
+                    (limit, offset)
+                )
             return [dict(row) for row in cursor.fetchall()]
-    except Exception:
-        logger.exception("list_assets failed")
-        return []
+
+    except sqlite3.OperationalError as e:
+        # 数据库错误（表不存在、语法错误等）
+        logger.error(f"list_assets 数据库错误: creator_uid={creator_uid}, limit={limit}, offset={offset}, error={e}")
+        logger.exception("list_assets 数据库错误详情")
+        if silent:
+            return []
+        raise HTTPException(
+            status_code=500,
+            detail={"detail": "Database error", "type": "database_error", "message": str(e)}
+        )
+
+    except sqlite3.IntegrityError as e:
+        # 数据完整性错误
+        logger.error(f"list_assets 数据完整性错误: {e}")
+        logger.exception("list_assets 完整性错误详情")
+        if silent:
+            return []
+        raise HTTPException(
+            status_code=500,
+            detail={"detail": "Data integrity error", "type": "integrity_error", "message": str(e)}
+        )
+
+    except Exception as e:
+        # 其他未预期异常
+        logger.error(f"list_assets 未知错误: creator_uid={creator_uid}, limit={limit}, offset={offset}")
+        logger.exception("list_assets 未知错误详情")
+        if silent:
+            return []
+        raise HTTPException(
+            status_code=500,
+            detail={"detail": "Internal error", "type": "internal_error", "message": str(e)}
+        )
 
 @router.get("/search")
 def search_assets(q: str = Query(..., min_length=1)):
@@ -161,42 +207,49 @@ def delete_asset(asset_id: str):
     try:
         with get_db_connection() as conn:
             conn.row_factory = sqlite3.Row
+            # 开启事务，文件删除失败可回滚
+            conn.execute("BEGIN IMMEDIATE")
+
             cursor = conn.execute("SELECT video_path, transcript_path FROM media_assets WHERE asset_id = ?", (asset_id,))
             row = cursor.fetchone()
-            
+
             if not row:
                 raise HTTPException(status_code=404, detail="Asset not found")
-                
+
             video_path = row['video_path']
             transcript_name = row['transcript_path']
 
             config = get_config()
 
-            # Delete video file
+            # Phase 1: Delete video file (先删文件)
             if video_path:
                 full_video_path = _resolve_safe_path(config.get_download_path(), video_path)
                 if full_video_path and full_video_path.exists():
                     try:
                         full_video_path.unlink()
-                    except Exception as e:
-                        logger.warning(f"Failed to delete video file {full_video_path}: {e}")
+                    except OSError as e:
+                        conn.rollback()
+                        raise HTTPException(status_code=500, detail=f"删除视频文件失败: {full_video_path}")
 
-            # Delete transcript file
+            # Phase 2: Delete transcript file
             if transcript_name:
                 full_transcript_path = _resolve_safe_path(config.project_root / "transcripts", transcript_name)
                 if full_transcript_path and full_transcript_path.exists():
                     try:
                         full_transcript_path.unlink()
-                    except Exception as e:
-                        logger.warning(f"Failed to delete transcript file {full_transcript_path}: {e}")
-            
-            # Delete from database
+                    except OSError as e:
+                        conn.rollback()
+                        raise HTTPException(status_code=500, detail=f"删除转写文件失败: {full_transcript_path}")
+
+            # Phase 3: Delete from database (后删DB)
             conn.execute("DELETE FROM media_assets WHERE asset_id = ?", (asset_id,))
             conn.commit()
-            
+
             return {"status": "success", "message": f"Asset {asset_id} deleted successfully"}
-            
+
     except HTTPException:
+        raise
+    except OSError:
         raise
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
@@ -277,44 +330,60 @@ def bulk_delete_assets(req: BulkAssetDeleteRequest):
     config = get_config()
     download_dir = config.get_download_path()
     transcripts_dir = config.project_root / "transcripts"
+    failed_deletions: list[str] = []
 
     deleted = 0
     with get_db_connection() as conn:
         conn.row_factory = sqlite3.Row
-        # Look up file paths in one go
-        for start in range(0, len(req.ids), 500):
-            chunk = req.ids[start:start + 500]
-            placeholders = ",".join("?" * len(chunk))
-            cursor = conn.execute(
-                f"SELECT asset_id, video_path, transcript_path FROM media_assets WHERE asset_id IN ({placeholders})",
-                chunk,
-            )
-            rows = cursor.fetchall()
+        conn.execute("BEGIN IMMEDIATE")
 
-            for row in rows:
-                video_path = row["video_path"]
-                transcript_name = row["transcript_path"]
-                if video_path:
-                    full_video_path = _resolve_safe_path(download_dir, video_path)
-                    if full_video_path and full_video_path.exists():
-                        try:
-                            full_video_path.unlink()
-                        except Exception as e:
-                            logger.warning(f"Failed to delete video file {full_video_path}: {e}")
-                if transcript_name:
-                    full_transcript_path = _resolve_safe_path(transcripts_dir, transcript_name)
-                    if full_transcript_path and full_transcript_path.exists():
-                        try:
-                            full_transcript_path.unlink()
-                        except Exception as e:
-                            logger.warning(f"Failed to delete transcript file {full_transcript_path}: {e}")
+        try:
+            # Look up file paths in one go
+            for start in range(0, len(req.ids), 500):
+                chunk = req.ids[start:start + 500]
+                placeholders = ",".join("?" * len(chunk))
+                cursor = conn.execute(
+                    f"SELECT asset_id, video_path, transcript_path FROM media_assets WHERE asset_id IN ({placeholders})",
+                    chunk,
+                )
+                rows = cursor.fetchall()
 
-            cursor = conn.execute(
-                f"DELETE FROM media_assets WHERE asset_id IN ({placeholders})",
-                chunk,
-            )
-            deleted += cursor.rowcount
-        conn.commit()
+                # Phase 1: 删除文件
+                for row in rows:
+                    video_path = row["video_path"]
+                    transcript_name = row["transcript_path"]
+                    if video_path:
+                        full_video_path = _resolve_safe_path(download_dir, video_path)
+                        if full_video_path and full_video_path.exists():
+                            try:
+                                full_video_path.unlink()
+                            except OSError:
+                                failed_deletions.append(f"video:{full_video_path}")
+                    if transcript_name:
+                        full_transcript_path = _resolve_safe_path(transcripts_dir, transcript_name)
+                        if full_transcript_path and full_transcript_path.exists():
+                            try:
+                                full_transcript_path.unlink()
+                            except OSError:
+                                failed_deletions.append(f"transcript:{full_transcript_path}")
+
+                # 检查是否有文件删除失败
+                if failed_deletions:
+                    conn.rollback()
+                    raise HTTPException(status_code=500, detail=f"部分文件删除失败: {failed_deletions[:10]}")
+
+                # Phase 2: 删除 DB 记录
+                cursor = conn.execute(
+                    f"DELETE FROM media_assets WHERE asset_id IN ({placeholders})",
+                    chunk,
+                )
+                deleted += cursor.rowcount
+            conn.commit()
+        except HTTPException:
+            raise
+        except OSError:
+            raise
+
     return {"status": "success", "deleted": deleted}
 
 

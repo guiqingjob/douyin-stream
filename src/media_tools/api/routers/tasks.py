@@ -6,7 +6,7 @@ import hashlib
 from datetime import datetime, timedelta
 from fastapi import APIRouter, BackgroundTasks, HTTPException, WebSocket, WebSocketDisconnect
 from pydantic import BaseModel
-from typing import Any, List
+from typing import Any, List, Set
 import uuid
 from pathlib import Path
 import sys
@@ -83,21 +83,58 @@ def cleanup_stale_tasks(conn: sqlite3.Connection):
 class ConnectionManager:
     def __init__(self):
         self.active_connections: List[WebSocket] = []
+        # 连接生命周期统计
+        self._stats = {"connected": 0, "disconnected": 0, "broadcast_success": 0, "broadcast_failed": 0}
 
     async def connect(self, websocket: WebSocket):
         await websocket.accept()
         self.active_connections.append(websocket)
+        self._stats["connected"] += 1
 
     def disconnect(self, websocket: WebSocket):
         if websocket in self.active_connections:
             self.active_connections.remove(websocket)
+            self._stats["disconnected"] += 1
+
+    def get_stats(self) -> dict:
+        """返回连接统计"""
+        return {
+            "active_connections": len(self.active_connections),
+            **self._stats
+        }
 
     async def broadcast(self, message: dict):
-        for connection in self.active_connections:
+        """广播消息给所有活跃连接"""
+        # 先检查并清理关闭的连接
+        dead_connections = []
+        for conn in self.active_connections:
+            try:
+                # 检查连接是否仍然打开
+                if not hasattr(conn, 'closed') or conn.closed:
+                    dead_connections.append(conn)
+            except Exception:
+                dead_connections.append(conn)
+
+        for conn in dead_connections:
+            self.disconnect(conn)
+
+        # 广播
+        for connection in list(self.active_connections):  # 复制列表避免迭代中修改
             try:
                 await connection.send_json(message)
-            except Exception:
-                pass
+                self._stats["broadcast_success"] += 1
+            except Exception as e:
+                # 区分异常类型
+                from starlette.websockets import WebSocketClose
+                if isinstance(e, (WebSocketClose, ConnectionResetError, OSError, BrokenPipeError)):
+                    # 连接已关闭/重置，移除该连接
+                    logger.info(f"WebSocket 连接已关闭，移除连接: {id(connection)}")
+                    self.disconnect(connection)
+                    self._stats["broadcast_failed"] += 1
+                else:
+                    # 其他异常，记录错误但不移除连接
+                    logger.error(f"WebSocket 广播失败: {e}")
+                    self._stats["broadcast_failed"] += 1
 
 manager = ConnectionManager()
 
@@ -105,7 +142,9 @@ manager = ConnectionManager()
 # Tracks the asyncio.Task handle for every background worker currently running,
 # keyed by task_id. Populated by _register_background_task, auto-evicted by
 # add_done_callback. Enables POST /tasks/{id}/cancel to actually interrupt work.
+# Also tracks all background tasks in a set to prevent GC of unreferenced tasks.
 _active_tasks: dict[str, "asyncio.Task[Any]"] = {}  # type: ignore[type-arg]
+_background_tasks: "set[asyncio.Task[Any]]" = set()  # type: ignore[type-arg]
 MAX_AUTO_RETRY = 2  # 最大自动重试次数
 
 
@@ -154,27 +193,32 @@ async def _handle_auto_retry(task_id: str):
         logger.info(f"任务 {task_id} 失败，自动重试 ({retry_count + 1}/{MAX_AUTO_RETRY})...")
         await _start_task_worker(task_id, task_type, original_params)
 
-    except Exception as e:
-        logger.error(f"自动重试失败: {e}")
+    except Exception:
+        # 自动重试失败必须记录堆栈，否则难以排查
+        logger.exception(f"自动重试失败 task_id={task_id}")
 
 
 def _register_background_task(task_id: str, coro) -> "asyncio.Task[Any]":  # type: ignore[type-arg]
     task = asyncio.create_task(coro)
     _active_tasks[task_id] = task
+    _background_tasks.add(task)
 
     def _on_done(t: "asyncio.Task[Any]") -> None:  # type: ignore[type-arg]
         _active_tasks.pop(task_id, None)
+        _background_tasks.discard(t)
 
-        # 检查任务是否失败，如果是则尝试自动重试
+        # 检查任务是否失败，如果是则触发自动重试
         if not t.cancelled() and t.done():
             try:
                 exc = t.exception()
                 if exc is not None:
                     logger.error(f"Background task {task_id} crashed: {exc!r}")
-                    # 触发自动重试
-                    asyncio.create_task(_handle_auto_retry(task_id))
-            except Exception:
-                pass
+                    # 触发自动重试，并跟踪任务防止 GC
+                    retry_task = asyncio.create_task(_handle_auto_retry(task_id))
+                    _background_tasks.add(retry_task)
+                    retry_task.add_done_callback(lambda t: _background_tasks.discard(t))
+            except Exception as e:
+                logger.exception(f"检查 task exception 失败 task_id={task_id}: {e}")
 
     task.add_done_callback(_on_done)
     return task
@@ -191,28 +235,38 @@ async def websocket_endpoint(websocket: WebSocket):
                 await asyncio.sleep(20)
                 try:
                     await websocket.send_json({"type": "ping"})
-                except Exception:
+                except Exception as e:
+                    logger.warning(f"WebSocket ping failed: {e}")
                     break
         except asyncio.CancelledError:
-            pass
+            # 正常取消，不记录
+            logger.debug("Heartbeat task cancelled")
         except Exception:
-            pass
+            logger.exception("Heartbeat task unexpected error")
 
     async def _pong_handler():
         """Handle incoming pong responses and detect stale connections."""
         try:
             while True:
                 data = await websocket.receive_text()
-                # Acknowledge but don't crash on any message
                 if data:
-                    # Could log or handle pong here if needed
-                    pass
+                    # Handle pong/ACK messages if needed
+                    logger.debug(f"WebSocket received: {data[:50]}...")
         except asyncio.CancelledError:
-            pass
+            logger.debug("Pong handler task cancelled")
         except Exception:
-            pass
+            logger.exception("Pong handler unexpected error")
 
+    # 跟踪所有后台任务，防止 GC 导致静默失败
     heartbeat_task = asyncio.create_task(_heartbeat())
+    _background_tasks.add(heartbeat_task)
+    heartbeat_task.add_done_callback(lambda t: _background_tasks.discard(t))
+
+    # 也可以跟踪 pong_handler
+    pong_task = asyncio.create_task(_pong_handler())
+    _background_tasks.add(pong_task)
+    pong_task.add_done_callback(lambda t: _background_tasks.discard(t))
+
     try:
         while True:
             # Just keep connection alive, we broadcast updates from the worker
@@ -221,8 +275,13 @@ async def websocket_endpoint(websocket: WebSocket):
         manager.disconnect(websocket)
     finally:
         heartbeat_task.cancel()
+        pong_task.cancel()
         try:
             await heartbeat_task
+        except asyncio.CancelledError:
+            pass
+        try:
+            await pong_task
         except asyncio.CancelledError:
             pass
 
@@ -951,9 +1010,11 @@ async def _transcribe_files(task_id: str, _progress_fn, new_files: list, display
             logger.warning(f"转写失败 {file_path}: {e}")
         if delete_after:
             try:
-                Path(file_path).unlink(missing_ok=True)
-            except Exception:
-                pass
+                Path(file_path).unlink()
+            except FileNotFoundError:
+                pass  # 文件已不存在，可忽略
+            except OSError as e:
+                logger.error(f"删除转写后视频失败: {file_path}, {e}")
 
 @router.post("/download/creator")
 async def trigger_creator_download(req: CreatorDownloadRequest, background_tasks: BackgroundTasks):

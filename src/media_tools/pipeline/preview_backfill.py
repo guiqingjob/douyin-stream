@@ -24,9 +24,66 @@ def _transcripts_dir() -> Path:
     return get_config().project_root / "transcripts"
 
 
+def _validate_path(base_dir: Path, transcript_path: str) -> Path | None:
+    """
+    校验并安全拼接 transcript_path
+
+    1. 白名单校验：只允许 [a-zA-Z0-9_-./] 字符
+    2. 路径穿越校验：resolve() 后必须在 base_dir 内
+    3. 审计日志：记录原始值和尝试解析的路径
+
+    返回安全的绝对路径，或 None（校验失败）
+    """
+    import re
+
+    base_resolved = base_dir.resolve()
+
+    # 1. 白名单校验：禁止 .. 序列和非法字符
+    if ".." in transcript_path or not re.match(r'^[a-zA-Z0-9_/.\-]+$', transcript_path):
+        logger.warning(
+            f"[SECURITY] Invalid transcript_path rejected: "
+            f"db_value={transcript_path!r}, base_dir={base_resolved}, "
+            f"reason=illegal_chars_or_dotdot"
+        )
+        return None
+
+    # 2. 安全拼接 + 路径穿越校验
+    try:
+        full_path = (base_dir / transcript_path).resolve()
+
+        # 校验路径前缀，禁止穿越到 base_dir 外
+        if not str(full_path).startswith(str(base_resolved) + str(Path('/'))):
+            logger.warning(
+                f"[SECURITY] Path traversal attempt detected: "
+                f"db_value={transcript_path!r}, resolved={full_path}, "
+                f"base_dir={base_resolved}"
+            )
+            return None
+
+        # 3. 校验文件存在且可读
+        if not full_path.is_file():
+            logger.warning(
+                f"[AUDIT] Transcript file not accessible: "
+                f"db_value={transcript_path!r}, resolved={full_path}, "
+                f"exists={full_path.exists()}, is_file={full_path.is_file()}"
+            )
+            return None
+
+        return full_path
+
+    except Exception as e:
+        logger.warning(
+            f"[AUDIT] Path resolution failed: "
+            f"db_value={transcript_path!r}, base_dir={base_resolved}, error={type(e).__name__}: {e}"
+        )
+        return None
+
+
 def _run() -> None:
     base_dir = _transcripts_dir()
     total = 0
+    failed = 0
+
     try:
         while True:
             with get_db_connection() as conn:
@@ -42,26 +99,53 @@ def _run() -> None:
                     (_BATCH,),
                 )
                 rows = cursor.fetchall()
+
             if not rows:
                 break
+
             media_updates: list[tuple[str, str, str]] = []
+
             for row in rows:
-                file_path = base_dir / row["transcript_path"]
-                preview = extract_transcript_preview(file_path)
-                full_text = extract_transcript_text(file_path)
-                media_updates.append((preview, full_text, row["asset_id"]))
-                # Sync to FTS5 index
-                update_fts_for_asset(row["asset_id"], row["title"] or "", full_text)
-            with get_db_connection() as conn:
-                conn.executemany(
-                    "UPDATE media_assets SET transcript_preview = ?, transcript_text = ? WHERE asset_id = ?",
-                    media_updates,
-                )
-                conn.commit()
-            total += len(media_updates)
+                asset_id = row["asset_id"]
+                title = row["title"]
+                transcript_path = row["transcript_path"]
+
+                # 安全校验路径
+                file_path = _validate_path(base_dir, transcript_path)
+                if file_path is None:
+                    failed += 1
+                    continue
+
+                try:
+                    preview = extract_transcript_preview(file_path)
+                    full_text = extract_transcript_text(file_path)
+                    media_updates.append((preview, full_text, asset_id))
+
+                    # Sync to FTS5 index
+                    update_fts_for_asset(asset_id, title or "", full_text)
+
+                except Exception as e:
+                    # 单条失败不影响批次
+                    logger.warning(f"Failed to extract preview/text for {asset_id}: {e}")
+                    failed += 1
+                    continue
+
+            # 批量更新 DB
+            if media_updates:
+                with get_db_connection() as conn:
+                    conn.executemany(
+                        "UPDATE media_assets SET transcript_preview = ?, transcript_text = ? WHERE asset_id = ?",
+                        media_updates,
+                    )
+                    conn.commit()
+                total += len(media_updates)
+
         if total:
-            logger.info(f"Backfilled transcript preview/text for {total} rows")
-    except Exception as exc:  # noqa: BLE001
+            logger.info(f"Backfilled transcript preview/text for {total} rows, failed {failed}")
+        elif failed:
+            logger.warning(f"Preview/text backfill: {failed} rows failed")
+
+    except Exception as exc:
         logger.warning(f"Preview/text backfill aborted: {exc}")
 
 

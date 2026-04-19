@@ -6,23 +6,119 @@
 
 from __future__ import annotations
 
+import atexit
 import inspect
+import os
 import re
-import sqlite3
+import shutil
 import signal
+import sqlite3
 import subprocess
+import tempfile
 import threading
 import time
+from contextlib import contextmanager
 from dataclasses import dataclass, field
 from datetime import datetime
 from pathlib import Path
-from typing import Any, Callable
+from typing import Any, Callable, Generator
 
 from media_tools.douyin.core.config_mgr import get_config
 from media_tools.logger import get_logger
 from media_tools.bilibili.utils.naming import sanitize_filename
 
 logger = get_logger("douyin_ytdlp")
+
+# --- 临时文件安全管理 ---
+_temp_files: set[str] = set()
+_temp_files_lock = threading.Lock()
+
+
+def _cleanup_temp_files() -> None:
+    """进程退出时清理所有临时文件"""
+    with _temp_files_lock:
+        for path_str in list(_temp_files):
+            try:
+                if os.path.exists(path_str):
+                    os.unlink(path_str)
+                    logger.debug(f"Cleaned up temp file: {path_str}")
+            except Exception as e:
+                logger.warning(f"Failed to cleanup temp file {path_str}: {e}")
+        _temp_files.clear()
+
+
+def _register_temp_file(path_str: str) -> None:
+    """注册临时文件到清理列表"""
+    with _temp_files_lock:
+        _temp_files.add(path_str)
+
+
+def _unregister_temp_file(path_str: str) -> None:
+    """从清理列表移除（已清理时调用）"""
+    with _temp_files_lock:
+        _temp_files.discard(path_str)
+
+
+def _cleanup_on_signal(signum, frame) -> None:
+    """信号处理时清理临时文件"""
+    _cleanup_temp_files()
+    # 重新设置信号处理器并发送原信号
+    signal.signal(signum, signal.SIG_DFL)
+    os.kill(os.getpid(), signum)
+
+
+# 注册进程退出清理
+atexit.register(_cleanup_temp_files)
+signal.signal(signal.SIGTERM, _cleanup_on_signal)
+signal.signal(signal.SIGINT, _cleanup_on_signal)
+
+
+@contextmanager
+def managed_temp_file(mode: str = 'w', suffix: str = '.txt', dir: str | None = None) -> Generator[tuple, None, None]:
+    """
+    安全的临时文件上下文管理器
+
+    - 使用 delete=True（自动删除）
+    - 显式在 finally 中 close + unlink（双重保险）
+    - mode=0o600 权限，防止其他用户读取
+    - 注册到 atexit 清理列表（进程崩溃时也能清理）
+
+    Yields:
+        (file_handle, file_path)
+    """
+    # Windows 不支持 delete + mode='w' 组合，需要用 delete=False + 手动清理
+    import sys
+    if sys.platform == 'win32':
+        fd, path_str = tempfile.mkstemp(suffix=suffix, dir=dir, text=True)
+        # 设置权限 0o600
+        os.chmod(path_str, 0o600)
+        f = os.fdopen(fd, mode)
+    else:
+        f = tempfile.NamedTemporaryFile(
+            mode=mode, suffix=suffix, dir=dir,
+            delete=True,  # 自动删除
+        )
+        path_str = f.name
+        # 重新设置权限（delete=True 时 NamedTemporaryFile 可能忽略 mode）
+        os.chmod(path_str, 0o600)
+
+    # 注册到清理列表
+    _register_temp_file(path_str)
+
+    try:
+        yield f, path_str
+    finally:
+        try:
+            f.close()
+        except Exception:
+            pass
+        # 显式删除（即使 delete=True 也双重保险）
+        try:
+            if os.path.exists(path_str):
+                os.unlink(path_str)
+                _unregister_temp_file(path_str)
+        except Exception as e:
+            logger.warning(f"Failed to cleanup temp file {path_str}: {e}")
 
 # 扩展进度回调：支持详细进度信息
 DownloadProgress = dict[str, Any]
@@ -346,10 +442,10 @@ def download_by_url(
                 # domain, flag, path, secure, expiration, name, value
                 cookie_lines.append(f".douyin.com\tTRUE\t/\tFALSE\t0\t{key}\t{value}")
         cookie_content = "\n".join(cookie_lines)
-        cookie_file = tempfile.NamedTemporaryFile(mode='w', suffix='.txt', delete=False)
-        cookie_file.write(cookie_content)
-        cookie_file.close()
-        ydl_opts["cookiefile"] = cookie_file.name
+        # 使用安全的临时文件管理器
+        with managed_temp_file(mode='w', suffix='.txt') as (f, cookie_path):
+            f.write(cookie_content)
+        ydl_opts["cookiefile"] = cookie_path
 
     # 用户主页下载数量限制
     if download_type in ("user_sec", "user_uid") and max_counts is not None:
@@ -521,7 +617,7 @@ def download_by_url_pausable(
     cmd.append(url)
 
     # 处理 cookie - 转换为 Netscape 格式
-    cookie_file = None
+    cookie_path = None
     if cookie:
         import tempfile
         # 转换为 Netscape 格式
@@ -532,11 +628,11 @@ def download_by_url_pausable(
                 key, value = part.split("=", 1)
                 cookie_lines.append(f".douyin.com\tTRUE\t/\tFALSE\t0\t{key}\t{value}")
         cookie_content = "\n".join(cookie_lines)
-        cookie_file = tempfile.NamedTemporaryFile(mode='w', suffix='.txt', delete=False)
-        cookie_file.write(cookie_content)
-        cookie_file.close()
+        # 使用安全的临时文件管理器
+        with managed_temp_file(mode='w', suffix='.txt') as (f, cookie_path):
+            f.write(cookie_content)
         cmd.insert(1, "--cookiefile")
-        cmd.insert(2, cookie_file.name)
+        cmd.insert(2, cookie_path)
 
     # 用户主页下载数量限制
     if download_type in ("user_sec", "user_uid") and max_counts is not None:
@@ -552,6 +648,12 @@ def download_by_url_pausable(
     uploader_info: DouyinUploaderInfo | None = None
     new_files: list[str] = []
 
+    # 用于线程间通信的队列，避免管道死锁
+    import queue
+    stdout_queue: queue.Queue[str | None] = queue.Queue()
+    stderr_lines: list[str] = []
+    stderr_lock = threading.Lock()
+
     try:
         # 使用 subprocess 运行，支持暂停
         logger.info(f"Starting download: {' '.join(cmd)}")
@@ -561,14 +663,55 @@ def download_by_url_pausable(
             stdout=subprocess.PIPE,
             stderr=subprocess.PIPE,
             text=True,
-            bufsize=1,
+            bufsize=1,  # 行缓冲
         )
         controller.set_process(proc)
 
-        # 监控输出并处理暂停
-        import select
+        def _reader_stdout():
+            """Daemon 线程：持续读取 stdout"""
+            try:
+                while True:
+                    line = proc.stdout.readline()  # type: ignore[union-attr]
+                    if not line:
+                        break
+                    stdout_queue.put(line)
+            except Exception:
+                pass
+            finally:
+                stdout_queue.put(None)  # 发送结束信号
 
+        def _reader_stderr():
+            """Daemon 线程：持续读取 stderr"""
+            try:
+                while True:
+                    line = proc.stderr.readline()  # type: ignore[union-attr]
+                    if not line:
+                        break
+                    with stderr_lock:
+                        stderr_lines.append(line)
+            except Exception:
+                pass
+
+        # 启动 reader 线程
+        stdout_thread = threading.Thread(target=_reader_stdout, daemon=True)
+        stderr_thread = threading.Thread(target=_reader_stderr, daemon=True)
+        stdout_thread.start()
+        stderr_thread.start()
+
+        # 设置整体超时
+        timeout_seconds = 600  # 10 分钟
+        start_time = time.time()
+
+        # 监控输出并处理暂停
         while True:
+            # 检查超时
+            elapsed = time.time() - start_time
+            if elapsed > timeout_seconds:
+                logger.error(f"Download timeout ({timeout_seconds}s), killing process")
+                proc.kill()
+                proc.wait()
+                raise RuntimeError(f"下载超时 ({timeout_seconds}秒)")
+
             # 检查是否被取消
             if controller.is_cancelled():
                 logger.info(f"Task {task_id} cancelled by user")
@@ -577,49 +720,59 @@ def download_by_url_pausable(
             # 检查暂停状态
             controller.check_pause()
 
-            # 非阻塞读取 stdout
-            ready, _, _ = select.select([proc.stdout], [], [], 0.5)  # type: ignore[arg-type]
-            if ready:
-                line = proc.stdout.readline()  # type: ignore[union-attr]
-                if line:
-                    # 解析进度
-                    if progress_cb and "%" in line:  # type: ignore[truthy-function]
-                        # 尝试提取进度百分比
-                        import re as re2
-                        percent_match = re2.search(r'(\d+\.?\d*)%', line)
-                        speed_match = re2.search(r'(\d+\.?\d*\s*[KMG]?B/s)', line)
-                        eta_match = re2.search(r'ETA\s*(\d+:\d+)', line)
+            # 从队列非阻塞读取 stdout
+            try:
+                line = stdout_queue.get_nowait()
+                if line is None:
+                    # stdout 结束
+                    break
+            except queue.Empty:
+                time.sleep(0.1)
+                continue
 
-                        p = 0.0
-                        msg = "下载中"
-                        extra: dict = {}
+            if line:
+                # 解析进度
+                if progress_cb and "%" in line:
+                    # 尝试提取进度百分比
+                    percent_match = re.search(r'(\d+\.?\d*)%', line)
+                    speed_match = re.search(r'(\d+\.?\d*\s*[KMG]?B/s)', line)
+                    eta_match = re.search(r'ETA\s*(\d+:\d+)', line)
 
-                        if percent_match:
-                            p = float(percent_match.group(1)) / 100
-                            msg = f"下载中 {percent_match.group(1)}%"
-                            extra["percent"] = float(percent_match.group(1))
+                    p = 0.0
+                    msg = "下载中"
+                    extra: dict = {}
 
-                        if speed_match:
-                            msg = f"{msg} · {speed_match.group(1)}"
-                            extra["speed"] = speed_match.group(1)
+                    if percent_match:
+                        p = float(percent_match.group(1)) / 100
+                        msg = f"下载中 {percent_match.group(1)}%"
+                        extra["percent"] = float(percent_match.group(1))
 
-                        if eta_match:
-                            msg = f"{msg} · 剩余 {eta_match.group(1)}"
+                    if speed_match:
+                        msg = f"{msg} · {speed_match.group(1)}"
+                        extra["speed"] = speed_match.group(1)
 
-                        if progress_cb:  # type: ignore[truthy-function]
-                            progress_cb(min(max(p, 0.0), 1.0), msg, extra)
+                    if eta_match:
+                        msg = f"{msg} · 剩余 {eta_match.group(1)}"
 
-            # 检查进程是否结束
-            if proc.poll() is not None:
+                    progress_cb(min(max(p, 0.0), 1.0), msg, extra)
+
+            # 检查进程是否结束（通过队列状态判断）
+            if proc.poll() is not None and stdout_queue.empty():
                 break
+
+            time.sleep(0.05)
 
         # 等待进程结束
         proc.wait()
 
-        # 读取 stderr（如果有错误）
-        stderr = proc.stderr.read() if proc.stderr else ""
+        # 等待 stderr 线程结束
+        stderr_thread.join(timeout=2)
+
+        # 读取收集的 stderr（如果有错误）
+        with stderr_lock:
+            stderr = "".join(stderr_lines)
         if proc.returncode != 0 and stderr:
-            logger.warning(f"yt-dlp stderr: {stderr}")
+            logger.warning(f"yt-dlp stderr: {stderr[:2000]}")  # 截断过长输出
 
     finally:
         # 清理

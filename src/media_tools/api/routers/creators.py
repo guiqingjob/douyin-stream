@@ -2,6 +2,7 @@ from typing import Optional
 from fastapi import APIRouter, HTTPException, Query
 from media_tools.douyin.core.config_mgr import get_config
 from media_tools.db.core import get_db_connection
+import asyncio
 import os
 import sqlite3
 import shutil
@@ -11,6 +12,53 @@ from pathlib import Path
 
 router = APIRouter(prefix="/api/v1/creators", tags=["creators"])
 logger = logging.getLogger(__name__)
+
+# Bilibili API 并发限制
+_bilibili_semaphore = asyncio.Semaphore(5)  # 最多 5 个并发请求
+
+
+async def _fetch_bilibili_nickname(mid: str, retries: int = 3) -> str:
+    """
+    异步获取 B 站用户昵称
+
+    - 超时控制: connect=5s, read=10s
+    - 重试: 最多 3 次，指数退避
+    - 异常: 返回 mid 作为后备
+    """
+    import httpx
+
+    url = f"https://api.bilibili.com/x/web-interface/card?mid={mid}"
+    timeout = httpx.Timeout(connect=5.0, read=10.0)
+
+    for attempt in range(retries):
+        try:
+            async with _bilibili_semaphore:  # 限制并发
+                async with httpx.AsyncClient(timeout=timeout, follow_redirects=True) as client:
+                    resp = await client.get(url)
+                    if resp.status_code == 200:
+                        data = resp.json().get("data", {})
+                        if data.get("card"):
+                            return data["card"].get("name") or mid
+                    elif resp.status_code == 404:
+                        logger.warning(f"B站用户不存在: mid={mid}")
+                        return mid
+                    else:
+                        logger.warning(f"B站API返回非200: {resp.status_code}, mid={mid}")
+        except httpx.TimeoutException:
+            wait = 2 ** attempt
+            logger.warning(f"B站API超时 (attempt {attempt + 1}/{retries}), 重试等待 {wait}s: mid={mid}")
+            if attempt < retries - 1:
+                await asyncio.sleep(wait)
+        except httpx.HTTPError as e:
+            wait = 2 ** attempt
+            logger.warning(f"B站API错误 (attempt {attempt + 1}/{retries}): {e}")
+            if attempt < retries - 1:
+                await asyncio.sleep(wait)
+        except Exception as e:
+            logger.error(f"B站API异常: {e}")
+            break
+
+    return mid  # 所有重试失败，使用 mid 作为后备
 
 
 def _resolve_safe_path(base_dir: Path, relative_path: str | None) -> Path | None:
@@ -79,7 +127,7 @@ def list_creators(
 
 
 @router.post("/")
-def create_creator(req: CreatorCreateRequest):
+async def create_creator(req: CreatorCreateRequest):
     try:
         if "bilibili.com" in req.url or "b23.tv" in req.url:
             from media_tools.bilibili.core.url_parser import BilibiliUrlKind, normalize_bilibili_url
@@ -91,21 +139,14 @@ def create_creator(req: CreatorCreateRequest):
 
             uid = build_bilibili_creator_uid(parsed.mid)
 
-            # 尝试获取B站用户真实昵称
+            # 尝试获取B站用户真实昵称（异步，不阻塞线程池）
             nickname = parsed.mid
             homepage_url = f"https://space.bilibili.com/{parsed.mid}"
             try:
-                import requests
-                resp = requests.get(
-                    f"https://api.bilibili.com/x/web-interface/card?mid={parsed.mid}",
-                    timeout=5,
-                )
-                if resp.status_code == 200:
-                    data = resp.json().get("data", {})
-                    if data.get("card"):
-                        nickname = data["card"].get("name") or nickname
-            except Exception:
-                pass  # 使用 mid 作为后备
+                nickname = await _fetch_bilibili_nickname(parsed.mid)
+            except Exception as e:
+                logger.warning(f"获取B站昵称失败: {e}")
+                # 使用 mid 作为后备
 
             with get_db_connection() as conn:
                 # 先检查是否存在
@@ -157,21 +198,23 @@ def delete_creator(uid: str):
     try:
         with get_db_connection() as conn:
             conn.row_factory = sqlite3.Row
-            
+            conn.execute("BEGIN IMMEDIATE")
+
             # Check if creator exists
             cursor = conn.execute("SELECT nickname FROM creators WHERE uid = ?", (uid,))
             creator = cursor.fetchone()
             if not creator:
                 raise HTTPException(status_code=404, detail="Creator not found")
-                
+
             nickname = creator['nickname']
-            
+
             # Find all assets for this creator
             cursor = conn.execute("SELECT asset_id, video_path, transcript_path FROM media_assets WHERE creator_uid = ?", (uid,))
             assets = cursor.fetchall()
-            
+
             config = get_config()
-            
+
+            # Phase 1: 删除文件（先删文件）
             for asset in assets:
                 video_path = asset['video_path']
                 transcript_name = asset['transcript_path']
@@ -182,8 +225,9 @@ def delete_creator(uid: str):
                     if full_video_path and full_video_path.exists():
                         try:
                             full_video_path.unlink()
-                        except Exception as e:
-                            logger.warning(f"Failed to delete video file {full_video_path}: {e}")
+                        except OSError as e:
+                            conn.rollback()
+                            raise HTTPException(status_code=500, detail=f"删除视频失败: {full_video_path}")
 
                 # Delete transcript file
                 if transcript_name:
@@ -191,11 +235,11 @@ def delete_creator(uid: str):
                     if full_transcript_path and full_transcript_path.exists():
                         try:
                             full_transcript_path.unlink()
-                        except Exception as e:
-                            logger.warning(f"Failed to delete transcript file {full_transcript_path}: {e}")
+                        except OSError as e:
+                            conn.rollback()
+                            raise HTTPException(status_code=500, detail=f"删除转写失败: {full_transcript_path}")
 
             # Also try to delete the creator's download folder if it exists
-            # Usually it's named after the nickname or uid
             download_base = config.get_download_path().resolve()
             for folder_name in [nickname, uid]:
                 if folder_name:
@@ -203,20 +247,23 @@ def delete_creator(uid: str):
                     if creator_dir and creator_dir.exists() and creator_dir.is_dir():
                         try:
                             shutil.rmtree(creator_dir)
-                        except Exception as e:
-                            logger.warning(f"Failed to delete creator directory {creator_dir}: {e}")
-            
-            # Delete assets from database
+                        except OSError as e:
+                            conn.rollback()
+                            raise HTTPException(status_code=500, detail=f"删除创作者目录失败: {creator_dir}")
+
+            # Phase 2: 删除 DB 记录（后删DB）
             conn.execute("DELETE FROM media_assets WHERE creator_uid = ?", (uid,))
-            
+
             # Delete creator from database
             conn.execute("DELETE FROM creators WHERE uid = ?", (uid,))
-            
+
             conn.commit()
-            
+
             return {"status": "success", "message": f"Creator {uid} and all their assets deleted successfully"}
-            
+
     except HTTPException:
+        raise
+    except OSError:
         raise
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))

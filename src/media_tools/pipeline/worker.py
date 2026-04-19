@@ -2,18 +2,41 @@ import asyncio
 import inspect
 import hashlib
 from pathlib import Path
+from typing import Any
 from media_tools.logger import get_logger
 from media_tools.pipeline.media_extensions import MEDIA_EXTENSIONS
 
 logger = get_logger('pipeline')
+# 跟踪所有后台任务，防止 GC 导致静默失败
+_background_tasks: set[asyncio.Task[Any]] = set()
 
 
 async def _call_progress(update_progress_fn, progress: float, msg: str) -> None:
     if not update_progress_fn:
         return
-    result = update_progress_fn(progress, msg)
-    if inspect.isawaitable(result):
-        await result
+    try:
+        result = update_progress_fn(progress, msg)
+        if inspect.isawaitable(result):
+            await result
+    except Exception as e:
+        logger.error(f"update_progress_fn 内部抛错: {e}")
+
+
+def _create_managed_task(coro) -> asyncio.Task[Any]:
+    """创建受管理的后台任务，自动跟踪并在 done 时检查异常"""
+    task = asyncio.create_task(coro)
+    _background_tasks.add(task)
+
+    def _on_done(t: asyncio.Task[Any]) -> None:
+        _background_tasks.discard(t)
+        if t.cancelled() or not t.done():
+            return
+        exc = t.exception()
+        if exc is not None:
+            logger.error(f"Background task failed: {exc!r}")
+
+    task.add_done_callback(_on_done)
+    return task
 
 
 def filter_supported_media_paths(file_paths: list[str]) -> list[Path]:
@@ -106,8 +129,10 @@ async def run_local_transcribe(file_paths: list[str], update_progress_fn=None, d
             if delete_after and video_path.exists():
                 try:
                     video_path.unlink()
-                except Exception as e:  # noqa: BLE001
-                    logger.warning(f"无法删除视频 {video_path}: {e}")
+                except FileNotFoundError:
+                    pass
+                except OSError as e:
+                    logger.error(f"删除视频失败 (DB已更新): {video_path}, {e}")
         else:
             failed_count += 1
 
@@ -155,12 +180,14 @@ async def run_pipeline_for_user(url: str, max_counts: int, update_progress_fn, d
     total = len(new_files)
 
     # 使用批量并发转写
-    def _progress_callback(current: int, total: int, video_path: Path, status: str) -> None:
+    def _progress_callback(current: int, total: int, video_path: Path, status: str):
         progress = 0.4 + 0.6 * (current / total) if total > 0 else 0.4
         result = update_progress_fn(progress, status)
-        if result is not None:
-            import asyncio
-            asyncio.create_task(result)
+        if inspect.isawaitable(result):
+            _create_managed_task(result)
+        elif result is not None:
+            logger.warning(f"update_progress_fn 返回非协程: {type(result)}")
+        return None
 
     orchestrator.on_progress = _progress_callback
 
@@ -178,9 +205,11 @@ async def run_pipeline_for_user(url: str, max_counts: int, update_progress_fn, d
         for path in video_paths:
             if path.exists():
                 try:
-                    path.unlink(missing_ok=True)
-                except Exception as e:
-                    logger.warning(f"无法删除视频 {path}: {e}")
+                    path.unlink()
+                except FileNotFoundError:
+                    pass
+                except OSError as e:
+                    logger.error(f"删除视频失败 (DB已更新): {path}, {e}")
 
     await _call_progress(update_progress_fn, 1.0, f"流水线完成: 成功 {success_count}, 失败 {failed_count}")
 
@@ -212,12 +241,14 @@ async def run_batch_pipeline(video_urls: list[str], update_progress_fn, delete_a
     orchestrator = create_orchestrator(config)
 
     # 使用批量并发转写
-    def _progress_callback(current: int, total: int, video_path: Path, status: str) -> None:
+    def _progress_callback(current: int, total: int, video_path: Path, status: str):
         progress = 0.4 + 0.6 * (current / total) if total > 0 else 0.4
         result = update_progress_fn(progress, status)
-        if result is not None:
-            import asyncio
-            asyncio.create_task(result)
+        if inspect.isawaitable(result):
+            _create_managed_task(result)
+        elif result is not None:
+            logger.warning(f"update_progress_fn 返回非协程: {type(result)}")
+        return None
 
     orchestrator.on_progress = _progress_callback
 
@@ -232,9 +263,11 @@ async def run_batch_pipeline(video_urls: list[str], update_progress_fn, delete_a
         for path in video_paths:
             if path.exists():
                 try:
-                    path.unlink(missing_ok=True)
-                except Exception as e:
-                    logger.warning(f"无法删除视频 {path}: {e}")
+                    path.unlink()
+                except FileNotFoundError:
+                    pass
+                except OSError as e:
+                    logger.error(f"删除视频失败 (DB已更新): {path}, {e}")
 
     return {"success_count": success_count, "failed_count": failed_count}
 

@@ -1,3 +1,4 @@
+import re
 import sqlite3
 import os
 from pathlib import Path
@@ -5,6 +6,46 @@ from typing import Generator
 from media_tools.logger import get_logger
 
 logger = get_logger('db')
+
+# --- Identifier validation ---
+# 白名单：只允许字母、数字、下划线，首字符不能是数字
+_IDENTIFIER_RE = re.compile(r'^[a-zA-Z_][a-zA-Z0-9_]*$')
+
+# 硬编码的表名白名单（内部可信来源）
+_VALID_TABLES = frozenset({
+    'creators', 'media_assets', 'task_queue', 'auth_credentials',
+    'Accounts_Pool', 'SystemSettings', 'scheduled_tasks', 'assets_fts'
+})
+
+
+def validate_identifier(name: str, field_name: str = "identifier") -> str:
+    """
+    校验标识符（表名、列名、索引名）安全性
+
+    白名单正则：^[a-zA-Z_][a-zA-Z0-9_]*$
+
+    Args:
+        name: 要校验的标识符
+        field_name: 字段名（用于错误信息）
+
+    Returns:
+        校验通过的标识符
+
+    Raises:
+        ValueError: 标识符包含非法字符
+    """
+    if not name or not _IDENTIFIER_RE.match(name):
+        raise ValueError(f"Invalid {field_name}: {name!r} (must match ^[a-zA-Z_][a-zA-Z0-9_]*$)")
+    return name
+
+
+def _check_table_name(table: str) -> str:
+    """校验表名，先检查硬编码白名单，再做通用校验"""
+    if table in _VALID_TABLES:
+        return table
+    # 不在白名单中，做通用校验
+    return validate_identifier(table, "table_name")
+
 
 # --- Resolved DB path (set once at init, reused everywhere) ---
 _db_path: str | None = None
@@ -41,20 +82,83 @@ def get_db() -> Generator[sqlite3.Connection, None, None]:
         conn.close()
 
 
-def get_db_connection() -> sqlite3.Connection:
-    """Non-generator helper for background tasks / non-FastAPI contexts."""
-    conn = sqlite3.connect(get_db_path(), timeout=15.0)
-    _set_wal_mode(conn)
-    conn.row_factory = sqlite3.Row
-    return conn
+class DBConnection:
+    """SQLite 连接封装，自动管理 WAL 模式和关闭"""
+
+    _open_count = 0  # 打开的连接数（用于监控）
+    _max_connections_warning = 20  # 超过此阈值警告
+
+    def __init__(self, keep_open: bool = False):
+        self._conn = sqlite3.connect(get_db_path(), timeout=15.0)
+        self._keep_open = keep_open
+        self._committed = False
+
+        # 设置 WAL 模式
+        _set_wal_mode(self._conn)
+        self._conn.row_factory = sqlite3.Row
+
+        # 监控连接数
+        DBConnection._open_count += 1
+        if DBConnection._open_count > DBConnection._max_connections_warning:
+            logger.warning(f"DB connection count high: {DBConnection._open_count}")
+
+    def __enter__(self) -> sqlite3.Connection:
+        return self._conn
+
+    def __exit__(self, exc_type, exc_val, exc_tb) -> None:
+        """自动 commit/rollback + close"""
+        DBConnection._open_count -= 1
+
+        try:
+            if exc_type is None and not self._committed:
+                self._conn.commit()
+            else:
+                self._conn.rollback()
+        except Exception:
+            self._conn.rollback()
+        finally:
+            if not self._keep_open:
+                self._conn.close()
+
+    def commit(self) -> None:
+        """显式提交（可选）"""
+        self._conn.commit()
+        self._committed = True
+
+    @classmethod
+    def get_stats(cls) -> dict:
+        """返回连接统计"""
+        return {"open_connections": cls._open_count, "max_warning": cls._max_connections_warning}
+
+
+def get_db_connection(keep_open: bool = False) -> DBConnection:
+    """
+    获取数据库连接的上下文管理器
+
+    用法:
+        with get_db_connection() as conn:
+            conn.execute(...)
+
+    Args:
+        keep_open: True 时不自动关闭连接（用于长事务场景）
+
+    Returns:
+        DBConnection 上下文管理器
+    """
+    return DBConnection(keep_open=keep_open)
 
 
 def _ensure_column(conn: sqlite3.Connection, table: str, column: str, column_def: str) -> None:
+    """确保列存在，不存在则添加（带标识符校验）"""
+    # 校验标识符安全
+    safe_table = _check_table_name(table)
+    safe_column = validate_identifier(column, "column_name")
+
     cursor = conn.cursor()
-    cursor.execute(f"PRAGMA table_info({table})")
+    cursor.execute(f"PRAGMA table_info({safe_table})")
     existing = {row[1] for row in cursor.fetchall()}
-    if column not in existing:
-        cursor.execute(f"ALTER TABLE {table} ADD COLUMN {column} {column_def}")
+    if safe_column not in existing:
+        cursor.execute(f"ALTER TABLE {safe_table} ADD COLUMN {safe_column} {column_def}")
 
 
 def _ensure_fts_table(conn: sqlite3.Connection) -> None:
@@ -75,8 +179,7 @@ def _ensure_fts_table(conn: sqlite3.Connection) -> None:
 
 def ensure_fts_populated() -> bool:
     """Ensure FTS5 index has data; rebuilds from media_assets if empty. Returns True if populated."""
-    conn = get_db_connection()
-    try:
+    with get_db_connection() as conn:
         cur = conn.execute("SELECT COUNT(*) FROM assets_fts")
         count = cur.fetchone()[0]
         if count > 0:
@@ -84,21 +187,15 @@ def ensure_fts_populated() -> bool:
         _ensure_fts_table(conn)
         _rebuild_fts_from_assets(conn)
         return True
-    finally:
-        conn.close()
 
 
 def update_fts_for_asset(asset_id: str, title: str, transcript_text: str) -> None:
     """Upsert a single asset into the FTS5 index."""
-    conn = get_db_connection()
-    try:
+    with get_db_connection() as conn:
         conn.execute(
             "INSERT OR REPLACE INTO assets_fts(asset_id, title, transcript_text) VALUES (?, ?, ?)",
             (asset_id, title, transcript_text or ""),
         )
-        conn.commit()
-    finally:
-        conn.close()
 
 
 def _rebuild_fts_from_assets(conn: sqlite3.Connection) -> int:
@@ -119,14 +216,11 @@ def _rebuild_fts_from_assets(conn: sqlite3.Connection) -> int:
 
 def rebuild_fts_index() -> int:
     """Full rebuild of FTS5 index. Returns row count."""
-    conn = get_db_connection()
-    try:
+    with get_db_connection() as conn:
         _ensure_fts_table(conn)
         count = _rebuild_fts_from_assets(conn)
         logger.info(f"FTS5 index rebuilt: {count} rows")
         return count
-    finally:
-        conn.close()
 
 def init_db(db_path: str | Path):
     """

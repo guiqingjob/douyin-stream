@@ -1049,30 +1049,30 @@ class OrchestratorV2:
         tasks = [_process_with_semaphore(path) for path in pending_paths]
         results = await asyncio.gather(*tasks, return_exceptions=True)
 
-        # 汇总结果
-        for result in results:
+        # 汇总结果 - 使用 zip 保持结果与原始路径的一一对应
+        for video_path, result in zip(pending_paths, results):
             pipeline_result: PipelineResultV2
+
             if isinstance(result, Exception):
-                # 异常情况 - 需要从tasks中找到对应的video_path
+                # 异常情况 - 正确归因到具体 video_path
                 error_type = classify_error(result)
-                # 使用空Path并记录错误
                 pipeline_result = PipelineResultV2(
                     success=False,
-                    video_path=Path(""),
+                    video_path=video_path,  # 正确的错误归因
                     error=str(result),
                     error_type=error_type,
                 )
-                logger.error(f"任务执行异常: {result}")
+                logger.error(f"视频转写异常: video_path={video_path}, error={result}")
             else:
-                pipeline_result = result  # type: ignore[assignment]
-
-            # 确保video_path不为空
-            if not pipeline_result.video_path or not pipeline_result.video_path.exists():
-                # 尝试从状态管理器中找到失败的记录
-                for path_str, state in self.state_manager.states.items():
-                    if state.status == "running":
-                        pipeline_result.video_path = Path(path_str)
-                        break
+                # 结果校验：确保返回的 path 属于当前任务
+                if result.video_path != video_path:
+                    logger.warning(
+                        f"结果路径不匹配: expected={video_path}, got={result.video_path}, "
+                        "使用原始路径"
+                    )
+                    # 使用原始路径，保持一致性
+                    result.video_path = video_path
+                pipeline_result = result
 
             # 添加到报告
             result_dict = {

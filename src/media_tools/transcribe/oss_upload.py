@@ -2,13 +2,15 @@ from __future__ import annotations
 
 import asyncio
 import base64
+import socket
+import time
 from email.utils import formatdate
 import hashlib
 import hmac
 import os
 import re
 from pathlib import Path
-from typing import Any, Callable
+from typing import Any, Callable, Iterable
 from urllib import request as urllib_request
 from xml.sax.saxutils import escape as xml_escape
 
@@ -113,15 +115,51 @@ def _read_error_body(error: Exception) -> str:
     return ""
 
 
-def _open_request(req: urllib_request.Request) -> Any:
-    try:
-        return urllib_request.urlopen(req)
-    except Exception as error:  # pragma: no cover - exercised via live HTTP only
-        detail = _read_error_body(error)
-        message = str(error)
-        if detail:
-            message = f"{message} {detail}"
-        raise RuntimeError(message) from error
+def _open_request(req: urllib_request.Request, timeout: int = 30) -> Any:
+    """打开请求，支持超时和重试"""
+    last_error = None
+    for attempt in range(3):
+        try:
+            return urllib_request.urlopen(req, timeout=timeout)
+        except (socket.timeout, urllib_request.URLError) as e:
+            last_error = e
+            if attempt < 2:
+                wait = 2 ** attempt
+                time.sleep(wait)
+            else:
+                break
+    # 所有重试失败
+    detail = _read_error_body(last_error)
+    message = str(last_error)
+    if detail:
+        message = f"{message} {detail}"
+    raise RuntimeError(f"请求失败 (重试3次): {message}") from last_error
+
+
+CHUNK_SIZE = 8 * 1024 * 1024  # 8MB chunks
+
+
+class _ChunkedFileReader:
+    """流式文件读取器，避免大文件一次性读入内存"""
+    def __init__(self, file_path: Path, chunk_size: int = CHUNK_SIZE):
+        self.file_path = file_path
+        self.chunk_size = chunk_size
+        self._file = None
+
+    def __enter__(self):
+        self._file = open(self.file_path, 'rb')
+        return self
+
+    def __exit__(self, *args):
+        if self._file:
+            self._file.close()
+
+    def __iter__(self) -> Iterable[bytes]:
+        while True:
+            chunk = self._file.read(self.chunk_size)
+            if not chunk:
+                break
+            yield chunk
 
 
 def initiate_multipart_upload(sts: dict[str, Any], mime_type: str) -> str:
@@ -167,11 +205,11 @@ def direct_upload_with_presigned_url(url: str, file_buffer: bytes, mime_type: st
 
 
 def _direct_upload_with_presigned_url_from_path(url: str, file_path: Path, mime_type: str) -> None:
-    """从文件路径直接上传到预签名URL"""
-    with open(file_path, 'rb') as f:
+    """从文件路径直接上传到预签名URL，使用流式上传避免大文件 OOM"""
+    with _ChunkedFileReader(file_path) as reader:
         req = urllib_request.Request(
             url,
-            data=f.read(),
+            data=reader,
             method="PUT",
             headers={"content-type": mime_type},
         )
