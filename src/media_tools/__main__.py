@@ -4,7 +4,7 @@
 """
 
 # 导入抖音 CLI 入口
-from .cli_main import main
+from .cli.main import main_menu as main
 
 if __name__ == "__main__":
     main()
