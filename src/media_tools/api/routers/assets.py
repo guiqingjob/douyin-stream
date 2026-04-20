@@ -13,6 +13,7 @@ from pathlib import Path
 
 router = APIRouter(prefix="/api/v1/assets", tags=["assets"])
 logger = logging.getLogger(__name__)
+LOCAL_CREATOR_UID = "local:upload"
 
 
 def _resolve_safe_path(base_dir: Path, relative_path: str | None) -> Path | None:
@@ -28,6 +29,28 @@ def _resolve_safe_path(base_dir: Path, relative_path: str | None) -> Path | None
         return target
     except Exception:
         return None
+
+
+def _resolve_asset_video_file(
+    *,
+    creator_uid: str | None,
+    source_url: str | None,
+    video_path: str | None,
+    download_dir: Path,
+) -> Path | None:
+    if creator_uid == LOCAL_CREATOR_UID and source_url:
+        try:
+            return Path(source_url).resolve()
+        except Exception:
+            return None
+    return _resolve_safe_path(download_dir, video_path)
+
+
+def _get_table_columns(conn: sqlite3.Connection, table: str) -> set[str]:
+    return {
+        row["name"] if isinstance(row, sqlite3.Row) else row[1]
+        for row in conn.execute(f"PRAGMA table_info({table})").fetchall()
+    }
 
 def _resolve_query_value(val, default):
     """Convert Query object to actual value."""
@@ -144,11 +167,15 @@ def search_assets(q: str = Query(..., min_length=1)):
 @router.post("/export")
 def export_transcripts(asset_ids: list[str]):
     """批量导出转写文稿为 zip"""
+    if not asset_ids:
+        raise HTTPException(status_code=400, detail="No asset IDs provided")
+
     config = get_config()
     transcripts_dir = config.project_root / "transcripts"
 
     buffer = io.BytesIO()
     with zipfile.ZipFile(buffer, 'w', zipfile.ZIP_DEFLATED) as zf:
+        used_filenames: set[str] = set()
         with get_db_connection() as conn:
             conn.row_factory = sqlite3.Row
             placeholders = ','.join('?' * len(asset_ids))
@@ -159,10 +186,15 @@ def export_transcripts(asset_ids: list[str]):
             for row in cursor.fetchall():
                 transcript_file = _resolve_safe_path(transcripts_dir, row['transcript_path'])
                 if transcript_file and transcript_file.exists():
-                    filename = f"{row['title'] or row['asset_id']}.md"
+                    suffix = transcript_file.suffix or ".md"
+                    stem = f"{row['title'] or row['asset_id']}"
                     # 清理文件名
-                    filename = ''.join(c for c in filename if c not in '<>:"/\\|?*')
-                    zf.writestr(filename, transcript_file.read_text(encoding='utf-8'))
+                    stem = ''.join(c for c in stem if c not in '<>:"/\\|?*').strip() or str(row['asset_id'])
+                    filename = f"{stem}{suffix}"
+                    if filename in used_filenames:
+                        filename = f"{stem}-{row['asset_id']}{suffix}"
+                    used_filenames.add(filename)
+                    zf.writestr(filename, transcript_file.read_bytes())
 
     buffer.seek(0)
     return StreamingResponse(
@@ -194,7 +226,12 @@ def get_transcript(asset_id: str):
                 conn.commit()
             raise HTTPException(status_code=404, detail="Transcript file not found on disk")
 
-        content = transcript_file.read_text(encoding="utf-8")
+        if transcript_file.suffix.lower() == ".docx":
+            from media_tools.pipeline.preview import extract_transcript_text
+
+            content = extract_transcript_text(transcript_file)
+        else:
+            content = transcript_file.read_text(encoding="utf-8", errors="replace")
         return {"content": content}
 
     except HTTPException:
@@ -210,20 +247,32 @@ def delete_asset(asset_id: str):
             # 开启事务，文件删除失败可回滚
             conn.execute("BEGIN IMMEDIATE")
 
-            cursor = conn.execute("SELECT video_path, transcript_path FROM media_assets WHERE asset_id = ?", (asset_id,))
+            media_asset_columns = _get_table_columns(conn, "media_assets")
+            source_url_select = "source_url," if "source_url" in media_asset_columns else "'' AS source_url,"
+            cursor = conn.execute(
+                f"SELECT creator_uid, {source_url_select} video_path, transcript_path FROM media_assets WHERE asset_id = ?",
+                (asset_id,),
+            )
             row = cursor.fetchone()
 
             if not row:
                 raise HTTPException(status_code=404, detail="Asset not found")
 
+            creator_uid = row['creator_uid']
+            source_url = row['source_url']
             video_path = row['video_path']
             transcript_name = row['transcript_path']
 
             config = get_config()
 
             # Phase 1: Delete video file (先删文件)
-            if video_path:
-                full_video_path = _resolve_safe_path(config.get_download_path(), video_path)
+            if creator_uid != LOCAL_CREATOR_UID and (source_url or video_path):
+                full_video_path = _resolve_asset_video_file(
+                    creator_uid=creator_uid,
+                    source_url=source_url,
+                    video_path=video_path,
+                    download_dir=config.get_download_path(),
+                )
                 if full_video_path and full_video_path.exists():
                     try:
                         full_video_path.unlink()
@@ -276,7 +325,9 @@ def mark_asset(asset_id: str, req: AssetMarkRequest):
     params.append(asset_id)
 
     with get_db_connection() as conn:
-        conn.execute(f"UPDATE media_assets SET {', '.join(updates)} WHERE asset_id = ?", params)
+        cursor = conn.execute(f"UPDATE media_assets SET {', '.join(updates)} WHERE asset_id = ?", params)
+        if cursor.rowcount == 0:
+            raise HTTPException(status_code=404, detail="Asset not found")
         conn.commit()
     return {"status": "success"}
 
@@ -336,6 +387,8 @@ def bulk_delete_assets(req: BulkAssetDeleteRequest):
     with get_db_connection() as conn:
         conn.row_factory = sqlite3.Row
         conn.execute("BEGIN IMMEDIATE")
+        media_asset_columns = _get_table_columns(conn, "media_assets")
+        source_url_select = "source_url," if "source_url" in media_asset_columns else "'' AS source_url,"
 
         try:
             # Look up file paths in one go
@@ -343,17 +396,24 @@ def bulk_delete_assets(req: BulkAssetDeleteRequest):
                 chunk = req.ids[start:start + 500]
                 placeholders = ",".join("?" * len(chunk))
                 cursor = conn.execute(
-                    f"SELECT asset_id, video_path, transcript_path FROM media_assets WHERE asset_id IN ({placeholders})",
+                    f"SELECT asset_id, creator_uid, {source_url_select} video_path, transcript_path FROM media_assets WHERE asset_id IN ({placeholders})",
                     chunk,
                 )
                 rows = cursor.fetchall()
 
                 # Phase 1: 删除文件
                 for row in rows:
+                    creator_uid = row["creator_uid"]
+                    source_url = row["source_url"]
                     video_path = row["video_path"]
                     transcript_name = row["transcript_path"]
-                    if video_path:
-                        full_video_path = _resolve_safe_path(download_dir, video_path)
+                    if creator_uid != LOCAL_CREATOR_UID and (source_url or video_path):
+                        full_video_path = _resolve_asset_video_file(
+                            creator_uid=creator_uid,
+                            source_url=source_url,
+                            video_path=video_path,
+                            download_dir=download_dir,
+                        )
                         if full_video_path and full_video_path.exists():
                             try:
                                 full_video_path.unlink()
@@ -397,12 +457,16 @@ def cleanup_missing_assets():
     deleted = 0
     with get_db_connection() as conn:
         conn.row_factory = sqlite3.Row
+        media_asset_columns = _get_table_columns(conn, "media_assets")
+        source_url_select = "source_url," if "source_url" in media_asset_columns else "'' AS source_url,"
         # 获取所有素材
-        cursor = conn.execute("SELECT asset_id, video_path, transcript_path FROM media_assets")
+        cursor = conn.execute(f"SELECT asset_id, creator_uid, {source_url_select} video_path, transcript_path FROM media_assets")
         rows = cursor.fetchall()
 
         for row in rows:
             asset_id = row["asset_id"]
+            creator_uid = row["creator_uid"]
+            source_url = row["source_url"]
             video_path = row["video_path"]
             transcript_name = row["transcript_path"]
 
@@ -410,8 +474,13 @@ def cleanup_missing_assets():
             transcript_exists = False
 
             # 检查视频文件是否存在
-            if video_path:
-                full_video_path = _resolve_safe_path(download_dir, video_path)
+            if source_url or video_path:
+                full_video_path = _resolve_asset_video_file(
+                    creator_uid=creator_uid,
+                    source_url=source_url,
+                    video_path=video_path,
+                    download_dir=download_dir,
+                )
                 if full_video_path and full_video_path.exists():
                     video_exists = True
 

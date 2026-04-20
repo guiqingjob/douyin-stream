@@ -199,10 +199,17 @@ async def run_pipeline_for_user(url: str, max_counts: int, update_progress_fn, d
 
     success_count = report.success
     failed_count = report.failed
+    successful_paths = {
+        str(Path(item["video_path"]).resolve())
+        for item in getattr(report, "results", [])
+        if item.get("success") and item.get("video_path")
+    }
 
     # 删除已转写的视频（如果配置了 delete_after）
     if delete_after:
         for path in video_paths:
+            if str(path.resolve()) not in successful_paths:
+                continue
             if path.exists():
                 try:
                     path.unlink()
@@ -257,10 +264,17 @@ async def run_batch_pipeline(video_urls: list[str], update_progress_fn, delete_a
 
     success_count = report.success
     failed_count = report.failed
+    successful_paths = {
+        str(Path(item["video_path"]).resolve())
+        for item in getattr(report, "results", [])
+        if item.get("success") and item.get("video_path")
+    }
 
     # 删除已转写的视频
     if delete_after:
         for path in video_paths:
+            if str(path.resolve()) not in successful_paths:
+                continue
             if path.exists():
                 try:
                     path.unlink()

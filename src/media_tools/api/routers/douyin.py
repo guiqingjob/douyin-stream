@@ -2,21 +2,39 @@ from fastapi import APIRouter, HTTPException
 
 router = APIRouter(prefix="/api/v1/douyin", tags=["douyin"])
 
+_f2_import_error: Exception | None = None
+
 try:
-    from f2.apps.douyin.handler import DouyinHandler
-    from f2.apps.douyin.utils import SecUserIdFetcher
-except Exception:
-    DouyinHandler = None
-    SecUserIdFetcher = None
+    from f2.apps.douyin.handler import DouyinHandler as _RealDouyinHandler
+    from f2.apps.douyin.utils import SecUserIdFetcher as _RealSecUserIdFetcher
+
+    DouyinHandler = _RealDouyinHandler
+    SecUserIdFetcher = _RealSecUserIdFetcher
+except Exception as exc:  # pragma: no cover - depends on optional runtime dependency/network side effects
+    _f2_import_error = exc
+
+    class DouyinHandler:  # type: ignore[no-redef]
+        def __init__(self, *args, **kwargs):
+            self._args = args
+            self._kwargs = kwargs
+
+        async def fetch_user_profile(self, *_args, **_kwargs):
+            raise RuntimeError(f"f2 unavailable: {_f2_import_error}")
+
+        async def fetch_user_post_videos(self, *_args, **_kwargs):
+            raise RuntimeError(f"f2 unavailable: {_f2_import_error}")
+            yield
+
+    class SecUserIdFetcher:  # type: ignore[no-redef]
+        @staticmethod
+        async def get_sec_user_id(*_args, **_kwargs):
+            raise RuntimeError(f"f2 unavailable: {_f2_import_error}")
 
 
 @router.get("/metadata")
 async def get_metadata(url: str, max_counts: int = 10):
     try:
         from media_tools.douyin.core.f2_helper import get_f2_kwargs
-
-        if DouyinHandler is None or SecUserIdFetcher is None:
-            raise HTTPException(status_code=500, detail="f2 not installed")
 
         sec_user_id = await SecUserIdFetcher.get_sec_user_id(url)
         if not sec_user_id:
@@ -76,7 +94,7 @@ async def get_metadata(url: str, max_counts: int = 10):
                 "nickname": getattr(user_profile, "nickname", sec_user_id),
                 "avatar": getattr(user_profile, "avatar_larger", ""),
             },
-            "videos": videos[:max_counts]
+            "videos": videos[:max_counts],
         }
     except HTTPException:
         raise

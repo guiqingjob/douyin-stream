@@ -86,6 +86,13 @@ def _resolve_query_value(val, default):
     return val if val is not None else default
 
 
+def _get_table_columns(conn: sqlite3.Connection, table: str) -> set[str]:
+    return {
+        row["name"] if isinstance(row, sqlite3.Row) else row[1]
+        for row in conn.execute(f"PRAGMA table_info({table})").fetchall()
+    }
+
+
 @router.get("/")
 def list_creators(
     limit: Optional[int] = Query(default=None, ge=1, le=500),
@@ -96,15 +103,21 @@ def list_creators(
     try:
         with get_db_connection() as conn:
             conn.row_factory = sqlite3.Row
+            creator_columns = _get_table_columns(conn, "creators")
+            platform_select = "c.platform" if "platform" in creator_columns else "'douyin' AS platform"
+            platform_group = ", c.platform" if "platform" in creator_columns else ""
+            homepage_select = "c.homepage_url" if "homepage_url" in creator_columns else "'' AS homepage_url"
+            homepage_group = ", c.homepage_url" if "homepage_url" in creator_columns else ""
             cursor = conn.execute("""
                 SELECT
                     c.uid,
                     c.nickname,
                     c.sec_user_id,
+                    {platform_select},
                     c.sync_status,
                     c.avatar,
                     c.bio,
-                    c.homepage_url,
+                    {homepage_select},
                     c.last_fetch_time,
                     COUNT(ma.asset_id) AS asset_count,
                     COALESCE(SUM(CASE WHEN ma.video_status = 'downloaded' THEN 1 ELSE 0 END), 0) AS downloaded_videos_count,
@@ -113,13 +126,18 @@ def list_creators(
                     COALESCE(SUM(CASE WHEN ma.transcript_status NOT IN ('completed', 'none') THEN 1 ELSE 0 END), 0) AS transcript_pending_count
                 FROM creators c
                 LEFT JOIN media_assets ma ON ma.creator_uid = c.uid
-                GROUP BY c.uid, c.nickname, c.sec_user_id, c.sync_status, c.avatar, c.bio, c.homepage_url, c.last_fetch_time
+                GROUP BY c.uid, c.nickname, c.sec_user_id{platform_group}, c.sync_status, c.avatar, c.bio{homepage_group}, c.last_fetch_time
                 ORDER BY
                     CASE WHEN c.last_fetch_time IS NULL THEN 1 ELSE 0 END,
                     c.last_fetch_time DESC,
                     c.nickname COLLATE NOCASE ASC
                 LIMIT ? OFFSET ?
-            """, (limit, offset))
+            """.format(
+                platform_select=platform_select,
+                platform_group=platform_group,
+                homepage_select=homepage_select,
+                homepage_group=homepage_group,
+            ), (limit, offset))
             return [dict(row) for row in cursor.fetchall()]
     except Exception:
         logger.exception("list_creators failed")
@@ -149,22 +167,53 @@ async def create_creator(req: CreatorCreateRequest):
                 # 使用 mid 作为后备
 
             with get_db_connection() as conn:
+                creator_columns = _get_table_columns(conn, "creators")
                 # 先检查是否存在
                 cursor = conn.execute("SELECT uid FROM creators WHERE uid = ?", (uid,))
                 exists = cursor.fetchone() is not None
 
                 if exists:
                     # 已存在则更新
-                    conn.execute(
-                        "UPDATE creators SET sec_user_id = ?, nickname = ?, homepage_url = ? WHERE uid = ?",
-                        (parsed.mid, nickname, homepage_url, uid),
-                    )
+                    if "homepage_url" in creator_columns:
+                        conn.execute(
+                            (
+                                "UPDATE creators SET sec_user_id = ?, nickname = ?, homepage_url = ?"
+                                + (", platform = 'bilibili'" if "platform" in creator_columns else "")
+                                + " WHERE uid = ?"
+                            ),
+                            (parsed.mid, nickname, homepage_url, uid),
+                        )
+                    else:
+                        conn.execute(
+                            (
+                                "UPDATE creators SET sec_user_id = ?, nickname = ?"
+                                + (", platform = 'bilibili'" if "platform" in creator_columns else "")
+                                + " WHERE uid = ?"
+                            ),
+                            (parsed.mid, nickname, uid),
+                        )
                 else:
                     # 不存在则插入
-                    conn.execute(
-                        "INSERT INTO creators (uid, sec_user_id, nickname, homepage_url, platform, sync_status) VALUES (?, ?, ?, ?, 'bilibili', 'active')",
-                        (uid, parsed.mid, nickname, homepage_url),
-                    )
+                    if "homepage_url" in creator_columns and "platform" in creator_columns:
+                        conn.execute(
+                            "INSERT INTO creators (uid, sec_user_id, nickname, homepage_url, platform, sync_status) VALUES (?, ?, ?, ?, 'bilibili', 'active')",
+                            (uid, parsed.mid, nickname, homepage_url),
+                        )
+                    elif "homepage_url" in creator_columns:
+                        conn.execute(
+                            "INSERT INTO creators (uid, sec_user_id, nickname, homepage_url, sync_status) VALUES (?, ?, ?, ?, 'active')",
+                            (uid, parsed.mid, nickname, homepage_url),
+                        )
+                    elif "platform" in creator_columns:
+                        conn.execute(
+                            "INSERT INTO creators (uid, sec_user_id, nickname, platform, sync_status) VALUES (?, ?, ?, 'bilibili', 'active')",
+                            (uid, parsed.mid, nickname),
+                        )
+                    else:
+                        conn.execute(
+                            "INSERT INTO creators (uid, sec_user_id, nickname, sync_status) VALUES (?, ?, ?, 'active')",
+                            (uid, parsed.mid, nickname),
+                        )
                 conn.commit()
 
                 created = not exists
@@ -175,6 +224,7 @@ async def create_creator(req: CreatorCreateRequest):
                     "uid": uid,
                     "nickname": nickname,
                     "sec_user_id": parsed.mid,
+                    "platform": "bilibili",
                     "homepage_url": homepage_url,
                     "sync_status": "active",
                 },

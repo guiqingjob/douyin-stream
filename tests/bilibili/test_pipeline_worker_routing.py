@@ -10,11 +10,11 @@ from media_tools.pipeline.worker import run_pipeline_for_user
 class PipelineWorkerRoutingTests(unittest.IsolatedAsyncioTestCase):
     async def test_pipeline_download_uses_router(self) -> None:
         update_progress = AsyncMock()
-        download_mock = AsyncMock()
-        orchestrator = SimpleNamespace(transcribe_with_retry=AsyncMock())
+        download_mock = object()
+        orchestrator = SimpleNamespace(transcribe_batch=AsyncMock(return_value=SimpleNamespace(success=1, failed=0)))
         fake_config = SimpleNamespace()
 
-        with patch("media_tools.pipeline.download_router.download_by_url", download_mock), patch(
+        with patch("media_tools.bilibili.core.downloader.download_up_by_url", download_mock), patch(
             "media_tools.pipeline.worker.asyncio.to_thread",
             new=AsyncMock(return_value={"success": True, "new_files": ["/tmp/video.mp4"]}),
         ) as mocked_to_thread, patch(
@@ -36,7 +36,7 @@ class PipelineWorkerRoutingTests(unittest.IsolatedAsyncioTestCase):
         self.assertIs(mocked_to_thread.await_args.args[0], download_mock)
         self.assertEqual(
             mocked_to_thread.await_args.args[1:],
-            ("https://space.bilibili.com/123", 1, True, True),
+            ("https://space.bilibili.com/123", 1, True, None),
         )
 
 

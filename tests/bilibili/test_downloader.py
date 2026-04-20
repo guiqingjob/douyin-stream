@@ -35,12 +35,14 @@ def test_download_up_returns_requested_filepaths(tmp_path: Path, monkeypatch) ->
     assert "format" in captured_opts
 
 
-def test_download_up_adds_cookie_header_when_available(tmp_path: Path, monkeypatch) -> None:
+def test_download_up_adds_cookiefile_when_available(tmp_path: Path, monkeypatch) -> None:
     captured_opts: dict = {}
 
     class FakeYDL:
         def __init__(self, opts: dict):
             captured_opts.update(opts)
+            assert "cookiefile" in opts
+            assert Path(opts["cookiefile"]).exists()
 
         def __enter__(self):
             return self
@@ -56,5 +58,4 @@ def test_download_up_adds_cookie_header_when_available(tmp_path: Path, monkeypat
     monkeypatch.setattr("media_tools.bilibili.core.downloader.get_config", lambda: type("C", (), {"get_download_path": lambda self: tmp_path})())
 
     download_up_by_url("https://space.bilibili.com/123", max_counts=None, skip_existing=True)
-    assert captured_opts["http_headers"]["Cookie"] == "SESSDATA=xxx"
 

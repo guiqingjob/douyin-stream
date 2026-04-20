@@ -3,6 +3,7 @@ from __future__ import annotations
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
+import asyncio
 
 
 @dataclass(frozen=True, slots=True)
@@ -57,7 +58,7 @@ def test_local_transcribe_uses_batch_transcribe(monkeypatch) -> None:
     mp3_path = Path("/tmp/local_concurrency_test.mp3")
     mp3_path.write_bytes(b"ok")
 
-    result = run_local_transcribe([str(mp3_path)], update_progress_fn=None, delete_after=False)
+    result = asyncio.run(run_local_transcribe([str(mp3_path)], update_progress_fn=None, delete_after=False))
     assert result["total"] == 1
     assert len(fake.transcribe_batch_calls) == 1
     assert fake.transcribe_with_retry_calls == []

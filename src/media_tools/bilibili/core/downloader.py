@@ -345,24 +345,24 @@ def download_up_by_url(
         "max_sleep_interval": 6,
     }
 
+    if skip_existing:
+        archive_path = downloads_path / ".bilibili-download-archive.txt"
+        archive_path.parent.mkdir(parents=True, exist_ok=True)
+        ydl_opts["download_archive"] = str(archive_path)
+
     proxy = os.environ.get("BILIBILI_PROXY", "").strip()
     ydl_opts["proxy"] = proxy if proxy else ""
 
     # Cookie 配置 - 转换为 Netscape 格式文件
-    cookie_file = None
+    cookie_content: str | None = None
     if cookie:
-        import tempfile
         cookie_lines = ["# Netscape HTTP Cookie File"]
         for part in cookie.split(";"):
             part = part.strip()
             if "=" in part:
                 key, value = part.split("=", 1)
-                cookie_lines.append(f".bilibili.com\tTRUE\t/\tFALSE\t0\t{key}\t{value}")
+                cookie_lines.append(f".bilibili.com	TRUE	/	FALSE	0	{key}	{value}")
         cookie_content = "\n".join(cookie_lines)
-        # 使用安全的临时文件管理器
-        with managed_temp_file(mode='w', suffix='.txt') as (f, cookie_path):
-            f.write(cookie_content)
-        ydl_opts["cookiefile"] = cookie_path
 
     headers: dict[str, str] = {
         "User-Agent": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36",
@@ -373,8 +373,16 @@ def download_up_by_url(
     if max_counts is not None:
         ydl_opts["playlistend"] = max_counts
 
-    with YoutubeDL(ydl_opts) as ydl:
-        info = ydl.extract_info(url, download=True)
+    if cookie_content is not None:
+        with managed_temp_file(mode='w', suffix='.txt') as (f, cookie_path):
+            f.write(cookie_content)
+            f.flush()
+            ydl_opts["cookiefile"] = cookie_path
+            with YoutubeDL(ydl_opts) as ydl:
+                info = ydl.extract_info(url, download=True)
+    else:
+        with YoutubeDL(ydl_opts) as ydl:
+            info = ydl.extract_info(url, download=True)
 
     # 尝试从 info 中提取 uploader 信息（如果 hook 没有捕获到）
     if uploader_info is None and isinstance(info, dict):
@@ -397,14 +405,6 @@ def download_up_by_url(
 
     if not new_files:
         logger.warning("No files downloaded")
-
-    # 清理临时 cookie 文件
-    if cookie_file:
-        try:
-            import os as os_module
-            os_module.unlink(cookie_file.name)
-        except Exception:
-            pass
 
     result = {"success": True, "new_files": new_files}
     if uploader_info:

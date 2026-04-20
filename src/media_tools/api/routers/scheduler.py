@@ -14,6 +14,7 @@ logger = logging.getLogger(__name__)
 
 # Initialize scheduler (started by startup_scheduler() on app lifespan)
 scheduler = BackgroundScheduler()
+SYSTEM_JOB_IDS = {"__stale_task_cleanup__", "__auto_claim_qwen_quota__"}
 
 class ScheduleRequest(BaseModel):
     cron_expr: str  # e.g., "0 2 * * *" for 02:00 daily
@@ -32,41 +33,18 @@ def _run_scan_all_following():
     except Exception as e:
         logger.error(f"Scheduled task 'full sync all following' failed: {e}")
 
-def _sync_scheduler():
-    """Sync jobs in DB with APScheduler"""
-    scheduler.remove_all_jobs()
-    with get_db_connection() as conn:
-        cursor = conn.cursor()
-        cursor.execute("SELECT task_id, task_type, cron_expr, enabled FROM scheduled_tasks WHERE enabled=1")
-        tasks = cursor.fetchall()
 
-    for task in tasks:
-        task_id, task_type, cron_expr, enabled = task
-        if task_type == "scan_all_following":
-            try:
-                trigger = CronTrigger.from_crontab(cron_expr)
-                scheduler.add_job(
-                    _run_scan_all_following,
-                    trigger=trigger,
-                    id=task_id,
-                    replace_existing=True
-                )
-            except Exception as e:
-                logger.error(f"Failed to schedule task {task_id} with cron '{cron_expr}': {e}")
-
-def startup_scheduler():
-    """Called from app lifespan to sync scheduled tasks on startup."""
-    if not scheduler.running:
-        scheduler.start()
-    _sync_scheduler()
+def _register_system_jobs() -> None:
     # Register periodic stale task cleanup (every 10 minutes)
     from media_tools.api.routers.tasks import cleanup_stale_tasks
+
     def _cleanup_job():
         try:
             with get_db_connection() as conn:
                 cleanup_stale_tasks(conn)
         except Exception as e:
             logger.error(f"Stale task cleanup failed: {e}")
+
     scheduler.add_job(
         _cleanup_job,
         trigger="interval",
@@ -110,6 +88,7 @@ def startup_scheduler():
                         f"(claimed={getattr(result, 'claimed', False)})"
                     )
             finally:
+                asyncio.set_event_loop(None)
                 loop.close()
         except Exception as e:
             logger.error(f"Auto-claim Qwen quota failed: {e}")
@@ -120,6 +99,37 @@ def startup_scheduler():
         id="__auto_claim_qwen_quota__",
         replace_existing=True,
     )
+
+def _sync_scheduler():
+    """Sync jobs in DB with APScheduler"""
+    for job in scheduler.get_jobs():
+        if job.id not in SYSTEM_JOB_IDS:
+            scheduler.remove_job(job.id)
+    with get_db_connection() as conn:
+        cursor = conn.cursor()
+        cursor.execute("SELECT task_id, task_type, cron_expr, enabled FROM scheduled_tasks WHERE enabled=1")
+        tasks = cursor.fetchall()
+
+    for task in tasks:
+        task_id, task_type, cron_expr, enabled = task
+        if task_type == "scan_all_following":
+            try:
+                trigger = CronTrigger.from_crontab(cron_expr)
+                scheduler.add_job(
+                    _run_scan_all_following,
+                    trigger=trigger,
+                    id=task_id,
+                    replace_existing=True
+                )
+            except Exception as e:
+                logger.error(f"Failed to schedule task {task_id} with cron '{cron_expr}': {e}")
+
+def startup_scheduler():
+    """Called from app lifespan to sync scheduled tasks on startup."""
+    if not scheduler.running:
+        scheduler.start()
+    _register_system_jobs()
+    _sync_scheduler()
 
 def shutdown_scheduler():
     """Called from app lifespan to shut down APScheduler."""
@@ -145,6 +155,10 @@ def list_schedules():
 @router.post("/")
 def add_schedule(req: ScheduleRequest):
     task_id = str(uuid.uuid4())
+    try:
+        CronTrigger.from_crontab(req.cron_expr)
+    except Exception as e:
+        raise HTTPException(status_code=400, detail=f"Invalid cron expression: {e}")
     with get_db_connection() as conn:
         try:
             conn.execute(
@@ -161,11 +175,21 @@ def add_schedule(req: ScheduleRequest):
 def toggle_schedule(task_id: str, req: ToggleRequest):
     with get_db_connection() as conn:
         try:
-            conn.execute(
+            if req.enabled:
+                cursor = conn.execute("SELECT cron_expr FROM scheduled_tasks WHERE task_id = ?", (task_id,))
+                row = cursor.fetchone()
+                if not row:
+                    raise HTTPException(status_code=404, detail="Schedule not found")
+                CronTrigger.from_crontab(row[0])
+            cursor = conn.execute(
                 "UPDATE scheduled_tasks SET enabled = ?, update_time = CURRENT_TIMESTAMP WHERE task_id = ?",
                 (req.enabled, task_id)
             )
+            if cursor.rowcount == 0:
+                raise HTTPException(status_code=404, detail="Schedule not found")
             conn.commit()
+        except HTTPException:
+            raise
         except Exception as e:
             raise HTTPException(status_code=400, detail=str(e))
     _sync_scheduler()
@@ -175,8 +199,12 @@ def toggle_schedule(task_id: str, req: ToggleRequest):
 def delete_schedule(task_id: str):
     with get_db_connection() as conn:
         try:
-            conn.execute("DELETE FROM scheduled_tasks WHERE task_id = ?", (task_id,))
+            cursor = conn.execute("DELETE FROM scheduled_tasks WHERE task_id = ?", (task_id,))
+            if cursor.rowcount == 0:
+                raise HTTPException(status_code=404, detail="Schedule not found")
             conn.commit()
+        except HTTPException:
+            raise
         except Exception as e:
             raise HTTPException(status_code=400, detail=str(e))
     _sync_scheduler()

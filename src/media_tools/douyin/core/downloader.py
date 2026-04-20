@@ -1016,7 +1016,7 @@ def _trigger_auto_transcribe(uid, nickname):
         if not user_dir or not user_dir.exists():
             user_dir = _resolve_safe_path(downloads_path, uid)
         
-        if not user_dir.exists():
+        if not user_dir or not user_dir.exists():
             logger.info("⚠️  未找到下载目录，跳过自动转写")
             return
 

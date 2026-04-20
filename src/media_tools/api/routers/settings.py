@@ -75,6 +75,9 @@ def get_settings():
     douyin_cookie_source = "pool" if douyin_accounts_count > 0 else ("config" if douyin_primary_configured else "none")
     qwen_configured = has_qwen_auth_state()
     qwen_accounts_count = len(qwen_accounts)
+    bilibili_accounts_count = len(bilibili_accounts)
+    can_download = douyin_primary_configured or douyin_accounts_count > 0 or bilibili_accounts_count > 0
+    can_transcribe = qwen_configured or qwen_accounts_count > 0
 
     return {
         "qwen_configured": qwen_configured,
@@ -93,10 +96,10 @@ def get_settings():
             "douyin_primary_configured": douyin_primary_configured,
             "douyin_cookie_source": douyin_cookie_source,
             "qwen_accounts_count": qwen_accounts_count,
-            "bilibili_accounts_count": len(bilibili_accounts),
-            "can_download": douyin_primary_configured or douyin_accounts_count > 0,
-            "can_transcribe": qwen_configured or qwen_accounts_count > 0,
-            "can_run_pipeline": (douyin_primary_configured or douyin_accounts_count > 0) and (qwen_configured or qwen_accounts_count > 0),
+            "bilibili_accounts_count": bilibili_accounts_count,
+            "can_download": can_download,
+            "can_transcribe": can_transcribe,
+            "can_run_pipeline": can_download and can_transcribe,
         }
     }
 
@@ -118,9 +121,14 @@ def add_douyin_account(req: DouyinAccountRequest):
 def delete_douyin_account(account_id: str):
     try:
         with get_db_connection() as conn:
-            conn.execute("DELETE FROM Accounts_Pool WHERE account_id=?", (account_id,))
+            cursor = conn.cursor()
+            cursor.execute("DELETE FROM Accounts_Pool WHERE account_id=? AND platform='douyin'", (account_id,))
+            if cursor.rowcount == 0:
+                raise HTTPException(status_code=404, detail="Account not found")
             conn.commit()
         return {"status": "success"}
+    except HTTPException:
+        raise
     except Exception as e:
         raise HTTPException(status_code=400, detail=str(e))
 
@@ -129,7 +137,10 @@ def update_douyin_account_remark(account_id: str, req: RemarkRequest):
     try:
         with get_db_connection() as conn:
             cursor = conn.cursor()
-            cursor.execute("UPDATE Accounts_Pool SET remark=? WHERE account_id=?", (req.remark, account_id))
+            cursor.execute(
+                "UPDATE Accounts_Pool SET remark=? WHERE account_id=? AND platform='douyin'",
+                (req.remark, account_id),
+            )
             if cursor.rowcount == 0:
                 raise HTTPException(status_code=404, detail="Account not found")
             conn.commit()

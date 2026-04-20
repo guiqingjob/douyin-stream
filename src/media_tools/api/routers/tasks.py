@@ -458,7 +458,7 @@ async def _create_task(task_id: str, task_type: str, request_params: dict):
 @router.post("/pipeline")
 async def trigger_pipeline(req: PipelineRequest, background_tasks: BackgroundTasks):
     task_id = str(uuid.uuid4())
-    await _create_task(task_id, "pipeline", {"url": req.url, "max_counts": req.max_counts})
+    await _create_task(task_id, "pipeline", {"url": req.url, "max_counts": req.max_counts, "auto_delete": req.auto_delete})
     _register_background_task(task_id, _background_pipeline_worker(task_id, req))
     return {"task_id": task_id, "status": "started"}
 
@@ -741,7 +741,11 @@ async def retry_task(task_id: str, background_tasks: BackgroundTasks):
                 auto_delete=original_params.get("auto_delete", True)
             )
             new_task_id = str(uuid.uuid4())
-            await _create_task(new_task_id, task_type, {"url": req.url, "max_counts": req.max_counts})
+            await _create_task(
+                new_task_id,
+                task_type,
+                {"url": req.url, "max_counts": req.max_counts, "auto_delete": req.auto_delete},
+            )
             _register_background_task(new_task_id, _background_pipeline_worker(new_task_id, req))
             return {"task_id": new_task_id, "status": "started", "message": "Pipeline task retry started"}
 
@@ -751,7 +755,11 @@ async def retry_task(task_id: str, background_tasks: BackgroundTasks):
                 auto_delete=original_params.get("auto_delete", True)
             )
             new_task_id = str(uuid.uuid4())
-            await _create_task(new_task_id, task_type, {"video_urls": batch_req.video_urls})
+            await _create_task(
+                new_task_id,
+                task_type,
+                {"video_urls": batch_req.video_urls, "auto_delete": batch_req.auto_delete},
+            )
             _register_background_task(new_task_id, _background_batch_worker(new_task_id, batch_req))
             return {"task_id": new_task_id, "status": "started", "message": "Batch pipeline task retry started"}
 
@@ -765,9 +773,10 @@ async def retry_task(task_id: str, background_tasks: BackgroundTasks):
         elif task_type.startswith("creator_sync") and "uid" in original_params:
             uid = str(original_params.get("uid", ""))
             mode = str(original_params.get("mode", "incremental"))
+            batch_size: int | None = original_params.get("batch_size")
             new_task_id = str(uuid.uuid4())
-            await _create_task(new_task_id, f"creator_sync_{mode}", {"uid": uid, "mode": mode})
-            _register_background_task(new_task_id, _background_creator_download_worker(new_task_id, uid, mode))
+            await _create_task(new_task_id, f"creator_sync_{mode}", {"uid": uid, "mode": mode, "batch_size": batch_size})
+            _register_background_task(new_task_id, _background_creator_download_worker(new_task_id, uid, mode, batch_size))
             return {"task_id": new_task_id, "status": "started", "message": "Creator download task retry started"}
 
         elif task_type.startswith("full_sync") and "mode" in original_params:
@@ -785,7 +794,15 @@ async def retry_task(task_id: str, background_tasks: BackgroundTasks):
             )
             _register_local_assets(local_req.file_paths, local_req.delete_after, local_req.directory_root)
             new_task_id = str(uuid.uuid4())
-            await _create_task(new_task_id, task_type, {"file_paths": local_req.file_paths, "delete_after": local_req.delete_after})
+            await _create_task(
+                new_task_id,
+                task_type,
+                {
+                    "file_paths": local_req.file_paths,
+                    "delete_after": local_req.delete_after,
+                    "directory_root": local_req.directory_root,
+                },
+            )
             _register_background_task(new_task_id, _background_local_transcribe_worker(new_task_id, local_req))
             return {"task_id": new_task_id, "status": "started", "message": "Local transcribe task retry started"}
 
@@ -837,7 +854,7 @@ async def _background_batch_worker(task_id: str, req: BatchPipelineRequest):
 @router.post("/pipeline/batch")
 async def trigger_batch_pipeline(req: BatchPipelineRequest, background_tasks: BackgroundTasks):
     task_id = str(uuid.uuid4())
-    await _create_task(task_id, "pipeline", {"video_urls": req.video_urls})
+    await _create_task(task_id, "pipeline", {"video_urls": req.video_urls, "auto_delete": req.auto_delete})
     _register_background_task(task_id, _background_batch_worker(task_id, req))
     return {"task_id": task_id, "status": "started"}
 
@@ -884,16 +901,20 @@ async def _background_creator_download_worker(task_id: str, uid: str, mode: str 
         sec_user_id = (creator_row.get("sec_user_id") if isinstance(creator_row, dict) else creator_row["sec_user_id"]) or ""
         display_name = (creator_row.get("nickname") if isinstance(creator_row, dict) else creator_row["nickname"]) or uid
 
-        await _progress_fn(0.05, f"开始同步 {display_name} 的视频（{mode}，每批 {batch_size or '全部'} 个）...")
+        requested_batch_size = batch_size
+        douyin_batch_size = batch_size or 50  # 抖音默认每批50个
+        batch_label = requested_batch_size if requested_batch_size is not None else ("全部" if platform == "bilibili" else douyin_batch_size)
+        await _progress_fn(0.05, f"开始同步 {display_name} 的视频（{mode}，每批 {batch_label} 个）...")
 
         skip_existing = mode != "full"
-        batch_size = batch_size or 50  # 默认每批50个
         total_downloaded = 0
         batch_num = 1
+        completed_batches = 0
         all_new_files: list[str] = []
+        last_result: dict[str, Any] = {}
 
         while True:
-            current_batch_size = batch_size if batch_size else None
+            current_batch_size = requested_batch_size if platform == "bilibili" else douyin_batch_size
             await _progress_fn(0.1, f"第 {batch_num} 批：下载中（最多 {current_batch_size or '全部'} 个）...")
 
             if platform == "bilibili":
@@ -911,11 +932,19 @@ async def _background_creator_download_worker(task_id: str, uid: str, mode: str 
                         await _progress_fn(0.5, f"B站请求被拦截(412)，请更换IP或稍后重试")
                         raise RuntimeError(f"B站请求被拦截(412)，请更换IP或稍后重试: {error_msg}")
                     raise
+                completed_batches += 1
+                if isinstance(result, dict):
+                    last_result = result
                 new_files = (result.get("new_files") or []) if isinstance(result, dict) else []
 
                 config = get_config()
                 if config.is_auto_transcribe() and new_files:
                     await _transcribe_files(task_id, _progress_fn, new_files, display_name, config)
+
+                total_downloaded += len(new_files)
+                all_new_files.extend(new_files)
+                # B站下载器当前不支持可靠的游标分页，这里只做一次完整扫描，避免反复扫描列表头部。
+                break
 
             else:
                 # 抖音使用 F2 下载器
@@ -927,6 +956,9 @@ async def _background_creator_download_worker(task_id: str, uid: str, mode: str 
                     url = f"https://www.douyin.com/user/{uid}"
 
                 result = await asyncio.to_thread(download_by_url, url, current_batch_size, False, skip_existing)
+                completed_batches += 1
+                if isinstance(result, dict):
+                    last_result = result
 
                 if not isinstance(result, dict) or not result.get("success"):
                     logger.warning(f"下载批次 {batch_num} 失败: {result}")
@@ -940,7 +972,7 @@ async def _background_creator_download_worker(task_id: str, uid: str, mode: str 
                 if config.is_auto_transcribe() and new_files:
                     await _transcribe_files(task_id, _progress_fn, new_files, display_name, config)
 
-            if not new_files or not batch_size:
+            if not new_files:
                 # 没有更多视频或不需要分批，结束
                 break
 
@@ -951,16 +983,26 @@ async def _background_creator_download_worker(task_id: str, uid: str, mode: str 
             await _progress_fn(0.9, f"第 {batch_num - 1} 批完成（累计 {total_downloaded} 个），继续下一批...")
 
         # 更新创作者信息
-        if uploader := result.get("uploader"):
+        if uploader := last_result.get("uploader"):
             if uploader.get("nickname"):
                 with get_db_connection() as conn:
-                    conn.execute(
-                        "UPDATE creators SET nickname = ?, homepage_url = ? WHERE uid = ?",
-                        (uploader["nickname"], uploader.get("homepage_url", ""), uid),
-                    )
+                    creator_columns = {
+                        row["name"] if isinstance(row, sqlite3.Row) else row[1]
+                        for row in conn.execute("PRAGMA table_info(creators)").fetchall()
+                    }
+                    if "homepage_url" in creator_columns:
+                        conn.execute(
+                            "UPDATE creators SET nickname = ?, homepage_url = ? WHERE uid = ?",
+                            (uploader["nickname"], uploader.get("homepage_url", ""), uid),
+                        )
+                    else:
+                        conn.execute(
+                            "UPDATE creators SET nickname = ? WHERE uid = ?",
+                            (uploader["nickname"], uid),
+                        )
                     conn.commit()
 
-        msg = f"{display_name} 同步完成：共 {total_downloaded} 个新视频（{batch_num - 1} 批，{mode}）"
+        msg = f"{display_name} 同步完成：共 {total_downloaded} 个新视频（{completed_batches} 批，{mode}）"
         with get_db_connection() as conn:
             payload_str = _merge_payload_from_db(conn, task_id, msg)
             conn.execute("UPDATE task_queue SET status='COMPLETED', progress=1.0, payload=? WHERE task_id=?", (payload_str, task_id))
@@ -985,11 +1027,13 @@ async def _transcribe_files(task_id: str, _progress_fn, new_files: list, display
 
     for index, file_path in enumerate(new_files, 1):
         await _progress_fn(0.6 + 0.3 * ((index - 1) / total), f"正在转写 ({index}/{total})")
+        transcribe_ok = False
         try:
-            await orchestrator.transcribe_with_retry(Path(file_path))
+            result = await orchestrator.transcribe_with_retry(Path(file_path))
+            transcribe_ok = bool(getattr(result, "success", False))
         except Exception as e:
             logger.warning(f"转写失败 {file_path}: {e}")
-        if delete_after:
+        if delete_after and transcribe_ok:
             try:
                 Path(file_path).unlink()
             except FileNotFoundError:
@@ -1096,7 +1140,11 @@ async def _background_local_transcribe_worker(task_id: str, req: LocalTranscribe
 async def trigger_local_transcribe(req: LocalTranscribeRequest, background_tasks: BackgroundTasks):
     task_id = str(uuid.uuid4())
     _register_local_assets(req.file_paths, req.delete_after, req.directory_root)
-    await _create_task(task_id, "local_transcribe", {"file_paths": req.file_paths, "delete_after": req.delete_after})
+    await _create_task(
+        task_id,
+        "local_transcribe",
+        {"file_paths": req.file_paths, "delete_after": req.delete_after, "directory_root": req.directory_root},
+    )
     _register_background_task(task_id, _background_local_transcribe_worker(task_id, req))
     return {"task_id": task_id, "status": "started"}
 

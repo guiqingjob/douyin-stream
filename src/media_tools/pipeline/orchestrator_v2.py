@@ -719,7 +719,9 @@ class OrchestratorV2:
 
             # 初始化账号池（如果尚未初始化）
             if self._account_pool is None:
-                self._resolve_qwen_execution_accounts()
+                resolved_accounts = self._resolve_qwen_execution_accounts()
+                if self._account_pool is None and resolved_accounts:
+                    self._account_pool = AccountPool(resolved_accounts, [0] * len(resolved_accounts))
 
             # 从账号池轮换获取账号
             accounts_tried = set()
