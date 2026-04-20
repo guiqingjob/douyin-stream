@@ -1,6 +1,7 @@
 import asyncio
 import inspect
 import hashlib
+import sqlite3
 from pathlib import Path
 from typing import Any
 from media_tools.logger import get_logger
@@ -96,7 +97,8 @@ async def run_local_transcribe(file_paths: list[str], update_progress_fn=None, d
                 if transcript_path:
                     try:
                         transcript_name = str(Path(transcript_path).resolve().relative_to(output_root))
-                    except Exception:
+                    except ValueError:
+                        # 路径不在 output_root 下，使用文件名
                         transcript_name = str(Path(transcript_path).name)
                     preview = extract_transcript_preview(transcript_path)
                     full_text = extract_transcript_text(transcript_path)
@@ -122,9 +124,9 @@ async def run_local_transcribe(file_paths: list[str], update_progress_fn=None, d
                             title_row["title"] if title_row else "",
                             full_text,
                         )
-                    except Exception:
+                    except sqlite3.Error:
                         pass
-            except Exception:
+            except sqlite3.Error:
                 pass
             if delete_after and video_path.exists():
                 try:

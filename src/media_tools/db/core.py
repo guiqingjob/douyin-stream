@@ -67,7 +67,7 @@ def _set_wal_mode(conn: sqlite3.Connection) -> None:
         mode = cursor.fetchone()[0]
         if mode.upper() != "WAL":
             conn.execute("PRAGMA journal_mode=WAL;")
-    except Exception:
+    except sqlite3.Error:
         conn.execute("PRAGMA journal_mode=WAL;")
 
 

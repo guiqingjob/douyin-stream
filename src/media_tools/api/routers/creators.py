@@ -72,7 +72,7 @@ def _resolve_safe_path(base_dir: Path, relative_path: str | None) -> Path | None
             logger.warning(f"Path traversal blocked: {relative_path} -> {target}")
             return None
         return target
-    except Exception:
+    except (OSError, ValueError):
         return None
 
 
@@ -139,7 +139,7 @@ def list_creators(
                 homepage_group=homepage_group,
             ), (limit, offset))
             return [dict(row) for row in cursor.fetchall()]
-    except Exception:
+    except sqlite3.Error:
         logger.exception("list_creators failed")
         return []
 

@@ -27,7 +27,8 @@ def _resolve_safe_path(base_dir: Path, relative_path: str | None) -> Path | None
             logger.warning(f"Path traversal blocked: {relative_path} -> {target}")
             return None
         return target
-    except Exception:
+    except (OSError, ValueError):
+        # 路径解析失败（文件不存在、权限问题、无效路径等）
         return None
 
 
@@ -41,7 +42,7 @@ def _resolve_asset_video_file(
     if creator_uid == LOCAL_CREATOR_UID and source_url:
         try:
             return Path(source_url).resolve()
-        except Exception:
+        except (OSError, ValueError):
             return None
     return _resolve_safe_path(download_dir, video_path)
 
