@@ -25,3 +25,5 @@ def read_result_metadata(transcript_path: str | Path) -> dict[str, Any]:
     except Exception:
         return {}
     return parsed if isinstance(parsed, dict) else {}
+
+

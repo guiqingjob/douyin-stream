@@ -16,7 +16,7 @@ from .config import load_config
 from .http import api_json, download_file
 from .oss_upload import upload_file_to_oss
 from .quota import get_quota_snapshot, record_quota_consumption
-from .runtime import ExportConfig, ensure_dir, env_flag, guess_mime_type, now_stamp
+from .runtime import ExportConfig, ensure_dir, guess_mime_type, now_stamp
 
 
 @dataclass(frozen=True, slots=True)

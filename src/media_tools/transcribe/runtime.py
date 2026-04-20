@@ -78,12 +78,6 @@ def get_export_config(format_name: str) -> ExportConfig:
     raise ValueError(f"Unsupported export format: {format_name}")
 
 
-def enable_live_output() -> None:
-    for stream_name in ("stdout", "stderr"):
-        stream = getattr(sys, stream_name, None)
-        reconfigure = getattr(stream, "reconfigure", None)
-        if callable(reconfigure):
-            reconfigure(line_buffering=True, write_through=True)
 
 
 def env_flag(name: str, default: bool = False) -> bool:

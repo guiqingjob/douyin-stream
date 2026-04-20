@@ -1,12 +1,11 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
-import sys
 from typing import Any
 
 import questionary
 
-from media_tools.transcribe.cli.main import DIRECT_COMMANDS, GROUP_COMMANDS, run as run_cli
+from media_tools.transcribe.cli.main import DIRECT_COMMANDS, GROUP_COMMANDS
 
 
 @dataclass(frozen=True, slots=True)
@@ -36,25 +35,6 @@ def build_group_menu(group_name: str) -> list[MenuItem]:
         )
     items.append(MenuItem(title="back", description="Back", action="back", icon="<"))
     return items
-
-
-def execute_direct_command(command_name: str, argv: list[str]) -> int:
-    if command_name not in DIRECT_COMMANDS:
-        print(f"unknown command '{command_name}'", file=sys.stderr)
-        return 2
-    return run_cli([command_name, *argv])
-
-
-def execute_sub_command(group_name: str, sub_name: str, argv: list[str]) -> int:
-    group = GROUP_COMMANDS.get(group_name)
-    if not group:
-        print(f"unknown group '{group_name}'", file=sys.stderr)
-        return 2
-    _, subs = group
-    if sub_name not in subs:
-        print(f"unknown subcommand '{sub_name}'", file=sys.stderr)
-        return 2
-    return run_cli([group_name, sub_name, *argv])
 
 
 async def run(argv: list[str]) -> int:
