@@ -28,22 +28,26 @@ def _validate_path(base_dir: Path, transcript_path: str) -> Path | None:
     """
     校验并安全拼接 transcript_path
 
-    1. 白名单校验：只允许 [a-zA-Z0-9_-./] 字符
-    2. 路径穿越校验：resolve() 后必须在 base_dir 内
-    3. 审计日志：记录原始值和尝试解析的路径
+    1. 禁止路径穿越序列 (..)
+    2. 禁止空字节和换行符（防止注入）
+    3. resolve() 后必须在 base_dir 内
 
     返回安全的绝对路径，或 None（校验失败）
     """
-    import re
-
     base_resolved = base_dir.resolve()
 
-    # 1. 白名单校验：禁止 .. 序列和非法字符
-    if ".." in transcript_path or not re.match(r'^[a-zA-Z0-9_/.\-]+$', transcript_path):
+    # 1. 基本校验：禁止 .. 路径穿越、空字节、换行符
+    if ".." in transcript_path:
         logger.warning(
-            f"[SECURITY] Invalid transcript_path rejected: "
-            f"db_value={transcript_path!r}, base_dir={base_resolved}, "
-            f"reason=illegal_chars_or_dotdot"
+            f"[SECURITY] Path traversal attempt: "
+            f"db_value={transcript_path!r}, base_dir={base_resolved}"
+        )
+        return None
+
+    if "\x00" in transcript_path or "\n" in transcript_path or "\r" in transcript_path:
+        logger.warning(
+            f"[SECURITY] Invalid chars in transcript_path: "
+            f"db_value={transcript_path!r}"
         )
         return None
 

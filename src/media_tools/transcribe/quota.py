@@ -8,11 +8,11 @@ import json
 import re
 import uuid
 
-import httpx
+from playwright.async_api import async_playwright
 
-from .auth_state import ResolvedQwenAuthState, resolve_qwen_auth_state_for_playwright
+from .auth_state import resolve_qwen_auth_state_for_playwright
 from .config import load_config
-from .http_client import api_json, create_qwen_client
+from .http import api_json
 from .runtime import ensure_dir
 
 
@@ -130,18 +130,22 @@ async def get_quota_snapshot(
 ) -> QuotaSnapshot:
     resolved = resolve_qwen_auth_state_for_playwright(auth_state_path)
 
-    async with create_qwen_client(resolved) as client:
-        quota_json = await api_json(
-            client,
-            "https://api.qianwen.com/growth/user/benefit/base",
-            {"requestId": str(uuid.uuid4())},
-            {
-                "referer": referer,
-                "platform": "QIANWEN",
-                "request-id": str(uuid.uuid4()),
-                "bx-v": "2.5.36",
-            },
-        )
+    async with async_playwright() as playwright:
+        api = await playwright.request.new_context(storage_state=resolved.storage_state)  # type: ignore[arg-type]
+        try:
+            quota_json = await api_json(
+                api,
+                "https://api.qianwen.com/growth/user/benefit/base",
+                {"requestId": str(uuid.uuid4())},
+                {
+                    "referer": referer,
+                    "platform": "QIANWEN",
+                    "request-id": str(uuid.uuid4()),
+                    "bx-v": "2.5.36",
+                },
+            )
+        finally:
+            await api.dispose()
 
     data = quota_json.get("data", []) if isinstance(quota_json, dict) else []
     tingwu_benefit = {}
@@ -213,18 +217,17 @@ def get_daily_quota_record(account_id: str) -> dict[str, Any]:
 
 
 async def visit_equity_page(auth_state_path: str | Path) -> None:
-    """使用 headless 浏览器访问权益页面触发领取"""
-    from playwright.async_api import async_playwright
-
     resolved = resolve_qwen_auth_state_for_playwright(auth_state_path)
 
     async with async_playwright() as playwright:
+        # 修复：尝试使用Chrome，如果不可用则回退到默认浏览器
         try:
             browser = await playwright.chromium.launch(channel="chrome", headless=True)
         except Exception:
+            # Chrome不可用时回退到默认浏览器
             browser = await playwright.chromium.launch(headless=True)
         try:
-            context = await browser.new_context(storage_state=resolved.storage_state)
+            context = await browser.new_context(storage_state=resolved.storage_state)  # type: ignore[arg-type]
             page = await context.new_page()
             await page.goto("https://www.qianwen.com/equity", wait_until="domcontentloaded")
             try:
