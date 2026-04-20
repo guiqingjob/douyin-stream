@@ -1184,3 +1184,94 @@ def scan_directory(req: ScanDirectoryRequest):
         if f.is_file() and f.suffix.lower() in extensions:
             files.append({"path": str(f), "name": f.name, "size_mb": round(f.stat().st_size / 1024 / 1024, 1)})
     return {"directory": str(dir_path), "files": files}
+
+
+@router.post("/reconcile-transcripts")
+def reconcile_transcripts():
+    """从 transcripts 目录反向同步数据库记录
+
+    扫描所有子文件夹，为孤儿文稿创建或更新 media_assets 记录
+    """
+    # transcripts 目录在项目根目录
+    from pathlib import Path
+    project_root = Path(__file__).parent.parent.parent.parent.parent  # 向上到项目根目录
+    transcripts_dir = project_root / "transcripts"
+
+    if not transcripts_dir.exists():
+        return {"status": "error", "message": f"transcripts 目录不存在: {transcripts_dir}"}
+
+    results = {"creators_found": 0, "assets_created": 0, "assets_updated": 0}
+    now = datetime.now().isoformat()
+
+    with get_db_connection() as conn:
+        conn.row_factory = sqlite3.Row
+
+        # 获取所有创作者映射 {nickname: uid}
+        creators = conn.execute("SELECT uid, nickname FROM creators WHERE platform != 'local'").fetchall()
+        creator_map = {row['nickname']: row['uid'] for row in creators}
+
+        # 遍历 transcripts 目录下的每个文件夹
+        for folder in transcripts_dir.iterdir():
+            if not folder.is_dir():
+                continue
+
+            folder_name = folder.name
+            # 跳过隐藏文件夹
+            if folder_name.startswith('.'):
+                continue
+
+            # 尝试匹配创作者
+            creator_uid = creator_map.get(folder_name)
+
+            # 如果没有匹配到创作者，创建一个新的本地创作者记录
+            if not creator_uid:
+                creator_uid = f"local:{hashlib.sha1(folder_name.encode()).hexdigest()[:16]}"
+                conn.execute(
+                    """
+                    INSERT OR IGNORE INTO creators (uid, nickname, platform, sync_status, last_fetch_time)
+                    VALUES (?, ?, 'local', 'active', ?)
+                    """,
+                    (creator_uid, folder_name, now)
+                )
+                results['creators_found'] += 1
+
+            # 遍历文件夹下的所有 .md 文件
+            for md_file in folder.glob("*.md"):
+                title = md_file.stem
+                asset_id = f"local:{hashlib.sha1(str(md_file.resolve()).encode()).hexdigest()[:24]}"
+                relative_path = f"{folder_name}/{md_file.name}"
+
+                # 检查是否已存在
+                existing = conn.execute(
+                    "SELECT asset_id FROM media_assets WHERE asset_id = ?",
+                    (asset_id,)
+                ).fetchone()
+
+                if existing:
+                    # 更新 transcript_status 为 completed
+                    conn.execute(
+                        """
+                        UPDATE media_assets SET
+                            transcript_status = 'completed',
+                            transcript_path = ?,
+                            update_time = ?
+                        WHERE asset_id = ?
+                        """,
+                        (relative_path, now, asset_id)
+                    )
+                    results['assets_updated'] += 1
+                else:
+                    # 创建新记录
+                    conn.execute(
+                        """
+                        INSERT INTO media_assets
+                        (asset_id, creator_uid, title, video_status, transcript_status, transcript_path, folder_path, create_time, update_time)
+                        VALUES (?, ?, ?, 'downloaded', 'completed', ?, ?, ?, ?)
+                        """,
+                        (asset_id, creator_uid, title, folder_name, relative_path, now, now)
+                    )
+                    results['assets_created'] += 1
+
+        conn.commit()
+
+    return {"status": "success", **results}

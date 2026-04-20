@@ -7,13 +7,13 @@ from pathlib import Path
 from typing import Any
 
 from media_tools.logger import get_logger
-logger = get_logger(__name__)
 
-from playwright.async_api import async_playwright
+logger = get_logger(__name__)
 
 from .auth_state import resolve_qwen_auth_state_for_playwright
 from .config import load_config
-from .http import api_json, download_file
+from .http import download_file
+from .http_client import api_json, create_qwen_client
 from .oss_upload import upload_file_to_oss
 from .quota import get_quota_snapshot, record_quota_consumption
 from .runtime import ExportConfig, ensure_dir, env_flag, guess_mime_type, now_stamp
@@ -56,7 +56,7 @@ def transcript_headers(gen_record_id: str) -> dict[str, str]:
     }
 
 
-async def poll_until_done(context: Any, gen_record_id: str, timeout_seconds: float = 15 * 60) -> dict[str, Any]:
+async def poll_until_done(client: Any, gen_record_id: str, timeout_seconds: float = 15 * 60) -> dict[str, Any]:
     url = "https://api.qianwen.com/assistant/api/record/list/poll?c=tongyi-web"
     payload = {
         "status": [10, 20, 30, 40, 41],
@@ -78,7 +78,7 @@ async def poll_until_done(context: Any, gen_record_id: str, timeout_seconds: flo
 
     async def _poll_loop() -> dict[str, Any]:
         while True:
-            response = await api_json(context, url, payload)
+            response = await api_json(client, url, payload)
             for batch in response.get("data", {}).get("batchRecord", []):
                 for record in batch.get("recordList", []):
                     if record.get("genRecordId") == gen_record_id and record.get("recordStatus") == 30:
@@ -91,18 +91,18 @@ async def poll_until_done(context: Any, gen_record_id: str, timeout_seconds: flo
         raise RuntimeError(f"Polling timed out after {timeout_seconds}s for genRecordId={gen_record_id}")
 
 
-async def delete_record(context: Any, record_ids: list[str]) -> bool:
+async def delete_record(client: Any, record_ids: list[str]) -> bool:
     if not record_ids:
         return False
     response = await api_json(
-        context,
+        client,
         "https://api.qianwen.com/assistant/api/record/task/delete?c=tongyi-web",
         {"recordIds": record_ids},
     )
     return response.get("data") is True
 
 
-async def export_file(context: Any, gen_record_id: str, export_config: ExportConfig) -> str:
+async def export_file(client: Any, gen_record_id: str, export_config: ExportConfig) -> str:
     headers = transcript_headers(gen_record_id)
     app_config = load_config()
     max_attempts = app_config.export_max_retries
@@ -111,7 +111,7 @@ async def export_file(context: Any, gen_record_id: str, export_config: ExportCon
     export_start_json: Any = {}
     for attempt in range(max_attempts):
         export_start_json = await api_json(
-            context,
+            client,
             "https://audio-api.qianwen.com/api/export/request?c=tongyi-web",
             {
                 "action": "exportTrans",
@@ -142,7 +142,7 @@ async def export_file(context: Any, gen_record_id: str, export_config: ExportCon
 
     for _ in range(60):
         export_poll_json = await api_json(
-            context,
+            client,
             "https://audio-api.qianwen.com/api/export/request?c=tongyi-web",
             {
                 "action": "getExportStatus",
@@ -163,7 +163,7 @@ async def export_file(context: Any, gen_record_id: str, export_config: ExportCon
 def _get_video_title_from_db(video_path: Path) -> str | None:
     """从文件名提取标题（下载时已清洗）"""
     stem = Path(video_path).stem
-    
+
     # 如果文件名已经是清洗后的标题（长度适中，无 aweme_id），直接使用
     # aweme_id 通常是 19 位数字
     import re
@@ -175,7 +175,7 @@ def _get_video_title_from_db(video_path: Path) -> str | None:
         clean = stem.strip()
         if len(clean) > 5 and len(clean) < 65:
             return clean
-    
+
     return None
 
 
@@ -188,7 +188,7 @@ def build_export_output_path(
     title: str | None = None,
 ) -> Path:
     """构建导出文件路径
-    
+
     Args:
         input_path: 输入文件路径
         output_dir: 输出目录
@@ -197,7 +197,7 @@ def build_export_output_path(
         title: 视频标题（如果提供，用作文件名）
     """
     stamp = run_stamp or now_stamp()
-    
+
     if title:
         # 清理标题中的非法字符
         import re
@@ -209,7 +209,7 @@ def build_export_output_path(
     else:
         source_path = Path(input_path)
         filename = f"{source_path.stem}-{stamp}{export_config.extension}"
-    
+
     return Path(output_dir).resolve() / filename
 
 
@@ -269,15 +269,14 @@ async def run_real_flow(
 
     resolved_auth = resolve_qwen_auth_state_for_playwright(auth_state_path)
 
-    async with async_playwright() as playwright:
-        api = await playwright.request.new_context(storage_state=resolved_auth.storage_state)  # type: ignore[arg-type]
+    async with create_qwen_client(resolved_auth) as client:
         try:
             log(f"Using file: {input_path}")
             log(f"File size: {stats.st_size}")
             log(f"quota upload remaining: {quota_before.remaining_upload}/{quota_before.total_upload}")
 
             token_json = await api_json(
-                api,
+                client,
                 "https://api.qianwen.com/assistant/api/record/oss/token/get?c=tongyi-web",
                 {
                     "taskType": "local",
@@ -302,14 +301,14 @@ async def run_real_flow(
             )
 
             await api_json(
-                api,
+                client,
                 "https://api.qianwen.com/assistant/api/record/upload_heartbeat?c=tongyi-web",
                 {"genRecordId": token["genRecordId"]},
             )
             log("upload heartbeat sent")
 
             start_json = await api_json(
-                api,
+                client,
                 "https://api.qianwen.com/assistant/api/record/start?c=tongyi-web",
                 {
                     "taskType": "local",
@@ -324,21 +323,21 @@ async def run_real_flow(
             )
             log(f"started batchId={start_json['data']['batchId']}")
 
-            completed_record = await poll_until_done(api, token["genRecordId"])
+            completed_record = await poll_until_done(client, token["genRecordId"])
             log(f"record completed with status={completed_record['recordStatus']}")
 
             await api_json(
-                api,
+                client,
                 "https://api.qianwen.com/assistant/api/record/read?c=tongyi-web",
                 {"recordIds": [token["recordId"]]},
             )
 
             if export_gate is None:
-                export_url = await export_file(api, token["genRecordId"], export_config)
+                export_url = await export_file(client, token["genRecordId"], export_config)
             else:
                 async with export_gate:
-                    export_url = await export_file(api, token["genRecordId"], export_config)
-            
+                    export_url = await export_file(client, token["genRecordId"], export_config)
+
             run_stamp = now_stamp()
 
             # 从数据库获取视频原始标题（优先使用调用方传入的 title）
@@ -360,7 +359,7 @@ async def run_real_flow(
             if load_config().save_debug_json:
                 headers = transcript_headers(token["genRecordId"])
                 transcript_json = await api_json(
-                    api,
+                    client,
                     "https://audio-api.qianwen.com/api/trans/getTransResult?c=tongyi-web",
                     {
                         "action": "getTransResult",
@@ -370,7 +369,7 @@ async def run_real_flow(
                     headers,
                 )
                 doc_edit_json = await api_json(
-                    api,
+                    client,
                     "https://audio-api.qianwen.com/api/doc/getTransDocEdit?c=tongyi-web",
                     {
                         "action": "getTransDocEdit",
@@ -392,7 +391,7 @@ async def run_real_flow(
 
             deleted = False
             if should_delete:
-                deleted = await delete_record(api, [token["recordId"]])
+                deleted = await delete_record(client, [token["recordId"]])
                 log(f"delete status: {'success' if deleted else 'failed'}")
 
             quota_after = await get_quota_snapshot(auth_state_path=auth_state_path)
@@ -409,7 +408,7 @@ async def run_real_flow(
                 remote_deleted=deleted,
             )
         finally:
-            await api.dispose()
+            await client.aclose()
 
 
 def _make_flow_logger(file_name: str):
