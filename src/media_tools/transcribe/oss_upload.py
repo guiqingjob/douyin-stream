@@ -107,7 +107,7 @@ def _read_error_body(error: Exception) -> str:
     if callable(body):
         try:
             data = body()
-        except Exception:
+        except (OSError, IOError):
             return ""
         if isinstance(data, bytes):
             return data.decode("utf-8", errors="replace")

@@ -656,7 +656,7 @@ class OrchestratorV2:
                     (status, account_id),
                 )
                 conn.commit()
-        except Exception:
+        except sqlite3.Error:
             return
 
     def _mark_qwen_account_used(self, account_id: str) -> None:
@@ -671,7 +671,7 @@ class OrchestratorV2:
                     (account_id,),
                 )
                 conn.commit()
-        except Exception:
+        except sqlite3.Error:
             return
 
     async def _transcribe_single_video(
@@ -926,9 +926,9 @@ class OrchestratorV2:
                                     "SELECT title FROM media_assets WHERE asset_id = ?", (asset_id,)
                                 ).fetchone()
                                 update_fts_for_asset(asset_id, title_row["title"] if title_row else "", full_text)
-                            except Exception:
+                            except sqlite3.Error:
                                 pass
-                except Exception as e:
+                except sqlite3.Error as e:
                     logger.warning(f"更新 media_assets 转写状态失败: {e}")
 
                 self._fire_progress(1, 1, video_path, "成功")

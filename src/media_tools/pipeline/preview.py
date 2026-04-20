@@ -2,6 +2,7 @@
 from pathlib import Path
 import zipfile
 from xml.etree import ElementTree as ET
+from xml.parsers.expat import ExpatError
 
 PREVIEW_CHARS = 200
 
@@ -11,7 +12,7 @@ def _read_docx_text(file_path: Path | str) -> str:
         with zipfile.ZipFile(file_path) as zf:
             xml_bytes = zf.read("word/document.xml")
         root = ET.fromstring(xml_bytes)
-    except Exception:
+    except (OSError, zipfile.BadZipFile, ET.ParseError, ExpatError):
         return ""
 
     ns = {"w": "http://schemas.openxmlformats.org/wordprocessingml/2006/main"}
@@ -36,7 +37,7 @@ def _read_body(file_path: Path | str) -> str:
 
     try:
         text = path.read_text(encoding="utf-8", errors="replace")
-    except Exception:
+    except (OSError, UnicodeDecodeError):
         return ""
 
     lines = text.splitlines()

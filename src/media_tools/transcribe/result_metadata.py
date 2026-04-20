@@ -22,7 +22,7 @@ def read_result_metadata(transcript_path: str | Path) -> dict[str, Any]:
         return {}
     try:
         parsed = json.loads(sidecar.read_text(encoding="utf-8"))
-    except Exception:
+    except (OSError, json.JSONDecodeError):
         return {}
     return parsed if isinstance(parsed, dict) else {}
 
