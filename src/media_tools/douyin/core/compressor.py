@@ -64,7 +64,7 @@ def _get_video_info(video_path):
             )
             height = int(video_stream.get("height", 0)) if video_stream else 0
             return {"size": size, "duration": duration, "height": height}
-    except Exception:
+    except (subprocess.SubprocessError, json.JSONDecodeError, KeyError, ValueError, StopIteration):
         pass
     return None
 

@@ -22,7 +22,7 @@ class AuthParser:
             with open(RULES_PATH, "r", encoding="utf-8") as f:
                 config = yaml.safe_load(f)
                 return config.get("rules", {})
-        except Exception:
+        except (OSError, yaml.YAMLError):
             return {}
 
     def parse_cookie(

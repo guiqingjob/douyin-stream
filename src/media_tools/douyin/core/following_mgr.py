@@ -38,7 +38,7 @@ def _resolve_safe_path(base_dir: Path, relative_path: str | None) -> Path | None
             logger.warning(f"Path traversal blocked: {relative_path} -> {target}")
             return None
         return target
-    except Exception:
+    except (OSError, ValueError):
         return None
 
 
