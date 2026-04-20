@@ -290,16 +290,36 @@ async def websocket_endpoint(websocket: WebSocket):
         except asyncio.CancelledError:
             pass
 
-async def notify_task_update(task_id: str, progress: float, msg: str, status: str = "RUNNING", task_type: str = "pipeline"):
-    await manager.broadcast({
+async def notify_task_update(
+    task_id: str,
+    progress: float,
+    msg: str,
+    status: str = "RUNNING",
+    task_type: str = "pipeline",
+    result_summary: dict | None = None,
+    subtasks: list | None = None,
+):
+    """广播任务更新到 WebSocket 客户端"""
+    message = {
         "task_id": task_id,
         "progress": progress,
         "msg": msg,
         "status": status,
-        "task_type": task_type
-    })
+        "task_type": task_type,
+    }
+    if result_summary:
+        message["result_summary"] = result_summary
+    if subtasks:
+        message["subtasks"] = subtasks[-20:]  # 只发最近 20 条
+    await manager.broadcast(message)
 
-def _merge_task_payload(existing_payload: str | None, msg: str) -> str:
+def _merge_task_payload(
+    existing_payload: str | None,
+    msg: str,
+    result_summary: dict | None = None,
+    subtasks: list | None = None,
+) -> str:
+    """合并任务 payload，保留现有字段并更新进度信息"""
     base_payload: dict = {}
     if existing_payload:
         try:
@@ -309,16 +329,31 @@ def _merge_task_payload(existing_payload: str | None, msg: str) -> str:
         except Exception:
             base_payload = {}
     base_payload["msg"] = msg
+    if result_summary:
+        base_payload["total"] = result_summary.get("total", 0)
+        base_payload["completed"] = result_summary.get("success", 0)
+        base_payload["failed"] = result_summary.get("failed", 0)
+        base_payload["result_summary"] = result_summary
+    if subtasks:
+        # 保留最近 100 条子任务详情
+        base_payload["subtasks"] = subtasks[-100:]
     return json.dumps(base_payload, ensure_ascii=False)
 
-def _merge_payload_from_db(conn: sqlite3.Connection, task_id: str, msg: str) -> str:
+def _merge_payload_from_db(
+    conn: sqlite3.Connection,
+    task_id: str,
+    msg: str,
+    result_summary: dict | None = None,
+    subtasks: list | None = None,
+) -> str:
+    """从数据库读取现有 payload 并合并新信息"""
     try:
         cursor = conn.execute("SELECT payload FROM task_queue WHERE task_id = ?", (task_id,))
         row = cursor.fetchone()
         existing = row["payload"] if row else None
     except Exception:
         existing = None
-    return _merge_task_payload(existing, msg)
+    return _merge_task_payload(existing, msg, result_summary, subtasks)
 
 def _local_asset_id(file_path: str) -> str:
     resolved = str(Path(file_path).resolve())
@@ -363,12 +398,20 @@ def _register_local_assets(file_paths: list[str], delete_after: bool, directory_
             )
         conn.commit()
 
-async def update_task_progress(task_id: str, progress: float, msg: str, task_type: str = "pipeline"):
+async def update_task_progress(
+    task_id: str,
+    progress: float,
+    msg: str,
+    task_type: str = "pipeline",
+    result_summary: dict | None = None,
+    subtasks: list | None = None,
+):
+    """更新任务进度，支持详细的进度信息"""
     try:
         now = datetime.now().isoformat()
         with get_db_connection() as conn:
             conn.row_factory = sqlite3.Row
-            payload_str = _merge_payload_from_db(conn, task_id, msg)
+            payload_str = _merge_payload_from_db(conn, task_id, msg, result_summary, subtasks)
             conn.execute(
                 """INSERT INTO task_queue (task_id, task_type, status, progress, payload, create_time, update_time)
                    VALUES (?, ?, 'RUNNING', ?, ?, ?, ?)
@@ -379,7 +422,7 @@ async def update_task_progress(task_id: str, progress: float, msg: str, task_typ
                        update_time = excluded.update_time""",
                 (task_id, task_type, progress, payload_str, now, now)
             )
-        await notify_task_update(task_id, progress, msg, "RUNNING", task_type)
+        await notify_task_update(task_id, progress, msg, "RUNNING", task_type, result_summary, subtasks)
     except Exception as e:
         logger.error(f"Error updating task: {e}")
 
@@ -404,15 +447,23 @@ async def _mark_task_cancelled(task_id: str, task_type: str) -> None:
     except Exception as e:
         logger.error(f"Failed to mark task {task_id} as cancelled: {e}")
 
-async def _complete_task(task_id: str, task_type: str, msg: str, status: str = "COMPLETED", error_msg: str | None = None) -> None:
+async def _complete_task(
+    task_id: str,
+    task_type: str,
+    msg: str,
+    status: str = "COMPLETED",
+    error_msg: str | None = None,
+    result_summary: dict | None = None,
+    subtasks: list | None = None,
+) -> None:
     """Update task row to completed status and broadcast WebSocket notification."""
     with get_db_connection() as conn:
-        payload_str = _merge_payload_from_db(conn, task_id, msg)
+        payload_str = _merge_payload_from_db(conn, task_id, msg, result_summary, subtasks)
         conn.execute(
             "UPDATE task_queue SET status=?, progress=1.0, payload=?, error_msg=? WHERE task_id=?",
             (status, payload_str, error_msg, task_id),
         )
-    await notify_task_update(task_id, 1.0, msg, status, task_type)
+    await notify_task_update(task_id, 1.0, msg, status, task_type, result_summary, subtasks)
 
 
 async def _fail_task(task_id: str, task_type: str, error: str) -> None:
@@ -440,27 +491,37 @@ async def _background_pipeline_worker(task_id: str, req: PipelineRequest):
         msg = "成功转写完成"
         error_msg = None
         status = "COMPLETED"
-        if result:
-            s_count = result.get("success_count", 0)
-            f_count = result.get("failed_count", 0)
-            failed_items = result.get("failed_items", []) or []
-            if s_count == 0 and f_count == 0:
-                msg = "未找到新视频或链接无效"
-            elif s_count == 0 and f_count > 0:
-                status = "FAILED"
-                first_error = failed_items[0]["error"] if failed_items else "全部视频转写失败"
-                msg = f"全部转写失败：共 {f_count} 个"
-                error_msg = first_error
-            else:
-                msg = f"成功转写 {s_count} 个视频，失败 {f_count} 个"
+
+        # 解析结果
+        s_count = result.get("success_count", 0)
+        f_count = result.get("failed_count", 0)
+        total = result.get("total", s_count + f_count)
+        subtasks = result.get("subtasks", [])
+
+        result_summary = {
+            "success": s_count,
+            "failed": f_count,
+            "skipped": 0,
+            "total": total,
+        }
+
+        if s_count == 0 and f_count == 0:
+            msg = "未找到新视频或链接无效"
+        elif s_count == 0 and f_count > 0:
+            status = "FAILED"
+            first_error = subtasks[0].get("error") if subtasks else "全部视频转写失败"
+            msg = f"全部转写失败：共 {f_count} 个"
+            error_msg = first_error
+        else:
+            msg = f"成功转写 {s_count} 个视频，失败 {f_count} 个"
 
         with get_db_connection() as conn:
-            payload_str = _merge_payload_from_db(conn, task_id, msg)
+            payload_str = _merge_payload_from_db(conn, task_id, msg, result_summary, subtasks)
             conn.execute(
                 "UPDATE task_queue SET status=?, progress=1.0, payload=?, error_msg=? WHERE task_id=?",
                 (status, payload_str, error_msg, task_id)
             )
-        await notify_task_update(task_id, 1.0, msg, status, "pipeline")
+        await notify_task_update(task_id, 1.0, msg, status, "pipeline", result_summary, subtasks)
     except Exception as e:
         with get_db_connection() as conn:
             conn.execute("UPDATE task_queue SET status='FAILED', error_msg=? WHERE task_id=?", (str(e), task_id))

@@ -143,7 +143,24 @@ async def run_local_transcribe(file_paths: list[str], update_progress_fn=None, d
             f"已处理 {completed}/{total}",
         )
 
-    return {"success_count": success_count, "failed_count": failed_count, "total": total}
+    # 构建子任务列表
+    subtasks = []
+    for item in report.results:
+        video_path = Path(item["video_path"])
+        status = "completed" if item.get("success") else "failed"
+        error = item.get("error") if not item.get("success") else None
+        subtasks.append({
+            "title": video_path.stem,
+            "status": status,
+            "error": error,
+        })
+
+    return {
+        "success_count": success_count,
+        "failed_count": failed_count,
+        "total": total,
+        "subtasks": subtasks,
+    }
 
 
 async def run_pipeline_for_user(url: str, max_counts: int, update_progress_fn, delete_after: bool = True, task_id: str | None = None):
@@ -220,9 +237,28 @@ async def run_pipeline_for_user(url: str, max_counts: int, update_progress_fn, d
 
     await _call_progress(update_progress_fn, 1.0, f"流水线完成: 成功 {success_count}, 失败 {failed_count}")
 
+    # 构建子任务列表
+    subtasks = []
+    total = len(new_files)
+    for i, video_path in enumerate(video_paths):
+        result_item = None
+        for r in report.results:
+            if Path(r.get("video_path", "")).resolve() == video_path.resolve():
+                result_item = r
+                break
+        status = "completed" if result_item and result_item.get("success") else "failed"
+        error = result_item.get("error") if result_item else None
+        subtasks.append({
+            "title": video_path.stem,
+            "status": status,
+            "error": error,
+        })
+
     return {
         "success_count": success_count,
-        "failed_count": failed_count
+        "failed_count": failed_count,
+        "total": total,
+        "subtasks": subtasks,
     }
 
 async def run_batch_pipeline(video_urls: list[str], update_progress_fn, delete_after: bool = True, task_id: str | None = None):
