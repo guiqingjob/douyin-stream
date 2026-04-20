@@ -1188,89 +1188,162 @@ def scan_directory(req: ScanDirectoryRequest):
 
 @router.post("/reconcile-transcripts")
 def reconcile_transcripts():
-    """从 transcripts 目录反向同步数据库记录
+    """从 transcripts 目录双向同步数据库记录
 
-    扫描所有子文件夹，为孤儿文稿创建或更新 media_assets 记录
+    1. 扫描 transcripts 目录下所有子文件夹
+    2. 为孤儿文稿创建或更新 media_assets 记录
+    3. 删除不存在的文件夹对应的本地创作者和素材
+    4. 清理空创作者（没有素材的）
+    5. 迁移「本地上传」到真实文件夹
     """
     # transcripts 目录在项目根目录
     from pathlib import Path
-    project_root = Path(__file__).parent.parent.parent.parent.parent  # 向上到项目根目录
+    project_root = Path(__file__).parent.parent.parent.parent.parent
     transcripts_dir = project_root / "transcripts"
 
     if not transcripts_dir.exists():
         return {"status": "error", "message": f"transcripts 目录不存在: {transcripts_dir}"}
 
-    results = {"creators_found": 0, "assets_created": 0, "assets_updated": 0}
+    results = {
+        "creators_found": 0,
+        "assets_created": 0,
+        "assets_updated": 0,
+        "creators_removed": 0,
+        "assets_removed": 0,
+    }
     now = datetime.now().isoformat()
+
+    # 获取实际存在的文件夹（排除隐藏文件夹和空文件夹）
+    # 使用 list() 避免 iterdir() 在遍历中被修改的问题
+    actual_folders = set()
+    try:
+        for folder in list(transcripts_dir.iterdir()):
+            if folder.is_dir() and not folder.name.startswith('.'):
+                # 检查是否有 .md 文件
+                md_files = list(folder.glob("*.md"))
+                if md_files:
+                    actual_folders.add(folder.name)
+    except FileNotFoundError:
+        logger.warning(f"transcripts 目录在遍历时被删除: {transcripts_dir}")
+        return {"status": "error", "message": "transcripts 目录不存在"}
 
     with get_db_connection() as conn:
         conn.row_factory = sqlite3.Row
 
-        # 获取所有创作者映射 {nickname: uid}
-        creators = conn.execute("SELECT uid, nickname FROM creators WHERE platform != 'local'").fetchall()
+        # 1. 删除不存在的本地创作者及其素材
+        # 额外校验 uid 以 "local:" 开头，防止误删平台创作者
+        local_creators = conn.execute(
+            "SELECT uid, nickname FROM creators WHERE platform='local' AND uid LIKE 'local:%'"
+        ).fetchall()
+        for creator in local_creators:
+            nickname = creator['nickname']
+            uid = creator['uid']
+            # 如果这个创作者对应的文件夹不存在，删除它
+            # 保留 "本地上传" 这个特殊创作者名称
+            if nickname not in actual_folders and nickname != "本地上传":
+                # 删除该创作者的所有素材
+                deleted = conn.execute("DELETE FROM media_assets WHERE creator_uid = ?", (uid,))
+                # 删除创作者
+                conn.execute("DELETE FROM creators WHERE uid = ?", (uid,))
+                results['creators_removed'] += 1
+                results['assets_removed'] += deleted.rowcount
+                logger.info(f"Removed local creator '{nickname}' and {deleted.rowcount} assets")
+
+        # 2. 处理「本地上传」的素材 - 迁移到真实文件夹
+        legacy_uid = "local:upload"
+        legacy_assets = conn.execute(
+            "SELECT asset_id, title, transcript_path, folder_path FROM media_assets WHERE creator_uid = ?",
+            (legacy_uid,)
+        ).fetchall()
+
+        # 重新获取创作者映射
+        creators = conn.execute("SELECT uid, nickname FROM creators").fetchall()
         creator_map = {row['nickname']: row['uid'] for row in creators}
 
-        # 遍历 transcripts 目录下的每个文件夹
-        for folder in transcripts_dir.iterdir():
-            if not folder.is_dir():
-                continue
+        for asset in legacy_assets:
+            # 根据现有 folder_path 或 transcript_path 推断目标文件夹
+            folder_name = asset['folder_path'] or ''
+            if not folder_name and asset['transcript_path']:
+                # transcript_path 格式: "文件夹名/文件名.md"
+                if '/' in asset['transcript_path']:
+                    folder_name = asset['transcript_path'].split('/')[0]
 
-            folder_name = folder.name
-            # 跳过隐藏文件夹
-            if folder_name.startswith('.'):
-                continue
+            if not folder_name:
+                continue  # 无法推断，跳过
 
-            # 尝试匹配创作者
+            # 确保目标创作者存在
+            target_uid = creator_map.get(folder_name)
+            if not target_uid:
+                target_uid = f"local:{hashlib.sha1(folder_name.encode()).hexdigest()[:16]}"
+                conn.execute(
+                    "INSERT OR IGNORE INTO creators (uid, nickname, platform, sync_status, last_fetch_time) VALUES (?, ?, 'local', 'active', ?)",
+                    (target_uid, folder_name, now)
+                )
+                creator_map[folder_name] = target_uid
+                results['creators_found'] += 1
+
+            # 迁移素材
+            conn.execute(
+                "UPDATE media_assets SET creator_uid = ?, folder_path = ? WHERE asset_id = ?",
+                (target_uid, folder_name, asset['asset_id'])
+            )
+            results['assets_updated'] += 1
+
+        # 删除「本地上传」创作者（如果还存在）
+        conn.execute("DELETE FROM creators WHERE uid = ?", (legacy_uid,))
+
+        # 3. 同步实际存在的文件夹
+        for folder_name in actual_folders:
+            folder_path = transcripts_dir / folder_name
             creator_uid = creator_map.get(folder_name)
 
-            # 如果没有匹配到创作者，创建一个新的本地创作者记录
             if not creator_uid:
                 creator_uid = f"local:{hashlib.sha1(folder_name.encode()).hexdigest()[:16]}"
                 conn.execute(
-                    """
-                    INSERT OR IGNORE INTO creators (uid, nickname, platform, sync_status, last_fetch_time)
-                    VALUES (?, ?, 'local', 'active', ?)
-                    """,
+                    "INSERT OR IGNORE INTO creators (uid, nickname, platform, sync_status, last_fetch_time) VALUES (?, ?, 'local', 'active', ?)",
                     (creator_uid, folder_name, now)
                 )
+                creator_map[folder_name] = creator_uid
                 results['creators_found'] += 1
 
-            # 遍历文件夹下的所有 .md 文件
-            for md_file in folder.glob("*.md"):
+            # 更新 folder_path 并创建/更新素材（分批处理避免长事务）
+            batch_count = 0
+            for md_file in folder_path.glob("*.md"):
                 title = md_file.stem
                 asset_id = f"local:{hashlib.sha1(str(md_file.resolve()).encode()).hexdigest()[:24]}"
                 relative_path = f"{folder_name}/{md_file.name}"
 
-                # 检查是否已存在
                 existing = conn.execute(
                     "SELECT asset_id FROM media_assets WHERE asset_id = ?",
                     (asset_id,)
                 ).fetchone()
 
                 if existing:
-                    # 更新 transcript_status 为 completed
                     conn.execute(
-                        """
-                        UPDATE media_assets SET
-                            transcript_status = 'completed',
-                            transcript_path = ?,
-                            update_time = ?
-                        WHERE asset_id = ?
-                        """,
-                        (relative_path, now, asset_id)
+                        "UPDATE media_assets SET transcript_status='completed', transcript_path=?, folder_path=?, update_time=? WHERE asset_id=?",
+                        (relative_path, folder_name, now, asset_id)
                     )
                     results['assets_updated'] += 1
                 else:
-                    # 创建新记录
                     conn.execute(
-                        """
-                        INSERT INTO media_assets
-                        (asset_id, creator_uid, title, video_status, transcript_status, transcript_path, folder_path, create_time, update_time)
-                        VALUES (?, ?, ?, 'downloaded', 'completed', ?, ?, ?, ?)
-                        """,
-                        (asset_id, creator_uid, title, folder_name, relative_path, now, now)
+                        "INSERT INTO media_assets (asset_id, creator_uid, title, video_status, transcript_status, transcript_path, folder_path, create_time, update_time) VALUES (?, ?, ?, 'downloaded', 'completed', ?, ?, ?, ?)",
+                        (asset_id, creator_uid, title, relative_path, folder_name, now, now)
                     )
                     results['assets_created'] += 1
+
+                # 每 100 条提交一次，避免长事务
+                batch_count += 1
+                if batch_count >= 100:
+                    conn.commit()
+                    batch_count = 0
+
+        # 4. 删除空创作者
+        empty = conn.execute(
+            "SELECT c.uid FROM creators c LEFT JOIN media_assets m ON c.uid=m.creator_uid WHERE c.platform='local' AND m.asset_id IS NULL"
+        ).fetchall()
+        for row in empty:
+            conn.execute("DELETE FROM creators WHERE uid = ?", (row['uid'],))
+            results['creators_removed'] += 1
 
         conn.commit()
 
