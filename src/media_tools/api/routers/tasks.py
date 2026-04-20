@@ -133,10 +133,11 @@ class ConnectionManager:
         dead_connections = []
         for conn in self.active_connections:
             try:
-                # 检查连接是否仍然打开
+            # 检查连接是否仍然打开
                 if not hasattr(conn, 'closed') or conn.closed:
                     dead_connections.append(conn)
-            except Exception:
+            except (AttributeError, RuntimeError):
+                # 连接对象状态异常，标记为死亡
                 dead_connections.append(conn)
 
         for conn in dead_connections:
@@ -194,7 +195,7 @@ async def _handle_auto_retry(task_id: str):
         # 检查当前重试次数
         try:
             original_params = json.loads(payload_str) if payload_str else {}
-        except Exception:
+        except json.JSONDecodeError:
             original_params = {}
 
         retry_count = original_params.get("_retry_count", 0)
@@ -283,6 +284,8 @@ async def websocket_endpoint(websocket: WebSocket):
                 logger.debug(f"WebSocket received: {data[:50]}...")
     except WebSocketDisconnect:
         manager.disconnect(websocket)
+    except Exception as e:
+        logger.exception(f"WebSocket unexpected error: {e}")
     finally:
         heartbeat_task.cancel()
         try:
@@ -326,7 +329,7 @@ def _merge_task_payload(
             parsed = json.loads(existing_payload)
             if isinstance(parsed, dict):
                 base_payload = parsed
-        except Exception:
+        except json.JSONDecodeError:
             base_payload = {}
     base_payload["msg"] = msg
     if result_summary:
@@ -351,7 +354,7 @@ def _merge_payload_from_db(
         cursor = conn.execute("SELECT payload FROM task_queue WHERE task_id = ?", (task_id,))
         row = cursor.fetchone()
         existing = row["payload"] if row else None
-    except Exception:
+    except sqlite3.Error:
         existing = None
     return _merge_task_payload(existing, msg, result_summary, subtasks)
 
@@ -368,7 +371,7 @@ def _compute_folder_path(file_path: Path, directory_root: str | None) -> str:
         # 这样即使文件在根目录下，也能正确分组
         parent_name = p.parent.name
         return parent_name if parent_name else "根目录"
-    except Exception:
+    except (OSError, ValueError):
         return "(其他)"
 
 def _register_local_assets(file_paths: list[str], delete_after: bool, directory_root: str | None = None) -> None:
@@ -552,8 +555,9 @@ def get_active_tasks():
         with get_db_connection() as conn:
             cursor = conn.execute("SELECT * FROM task_queue WHERE status IN ('PENDING', 'RUNNING')")
             return [dict(row) for row in cursor.fetchall()]
-    except Exception:
+    except sqlite3.Error:
         logger.exception("get_active_tasks failed")
+        return []
         return []
 
 @router.get("/history")
@@ -562,7 +566,7 @@ def get_task_history():
         with get_db_connection() as conn:
             cursor = conn.execute("SELECT * FROM task_queue ORDER BY update_time DESC LIMIT 50")
             return [dict(row) for row in cursor.fetchall()]
-    except Exception:
+    except sqlite3.Error:
         logger.exception("get_task_history failed")
         return []
 
@@ -590,7 +594,7 @@ def get_task_status(task_id: str):
             if row:
                 return dict(row)
             return {"status": "NOT_FOUND"}
-    except Exception:
+    except sqlite3.Error:
         logger.exception("get_task_status failed")
         return {"status": "ERROR"}
 
@@ -726,7 +730,7 @@ async def rerun_task(task_id: str):
         # 解析参数
         try:
             original_params = json.loads(payload_str) if payload_str else {}
-        except Exception:
+        except json.JSONDecodeError:
             original_params = {}
         original_params.pop("msg", None)
 
@@ -811,7 +815,7 @@ async def retry_task(task_id: str, background_tasks: BackgroundTasks):
         # Parse original parameters from payload
         try:
             original_params = json.loads(payload_str) if payload_str else {}
-        except Exception:
+        except json.JSONDecodeError:
             original_params = {}
 
         # Remove internal fields
