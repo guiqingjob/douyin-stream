@@ -226,7 +226,7 @@ async def get_qwen_status():
                                 )
                                 conn.commit()
                             resolved_auth_state_path = str(resolved_path)
-                        except Exception:
+                        except (OSError, sqlite3.Error):
                             status = "invalid"
                     else:
                         status = "invalid"

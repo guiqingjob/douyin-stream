@@ -110,14 +110,14 @@ def managed_temp_file(mode: str = 'w', suffix: str = '.txt', dir: str | None = N
     finally:
         try:
             f.close()
-        except Exception:
+        except OSError:
             pass
         # 显式删除（即使 delete=True 也双重保险）
         try:
             if os.path.exists(path_str):
                 os.unlink(path_str)
                 _unregister_temp_file(path_str)
-        except Exception as e:
+        except OSError as e:
             logger.warning(f"Failed to cleanup temp file {path_str}: {e}")
 
 # 扩展进度回调：支持详细进度信息
@@ -127,7 +127,7 @@ LegacyProgressCallback = Callable[[float, str], Any]
 
 try:
     from yt_dlp import YoutubeDL
-except Exception:
+except ImportError:
     YoutubeDL = None
 
 
@@ -480,7 +480,7 @@ def download_by_url(
             try:
                 import os
                 os.unlink(ydl_opts["cookiefile"])
-            except Exception:
+            except OSError:
                 pass
 
     # 收集下载的文件
@@ -675,7 +675,7 @@ def download_by_url_pausable(
                     if not line:
                         break
                     stdout_queue.put(line)
-            except Exception:
+            except (IOError, OSError, ValueError):
                 pass
             finally:
                 stdout_queue.put(None)  # 发送结束信号
@@ -689,7 +689,7 @@ def download_by_url_pausable(
                         break
                     with stderr_lock:
                         stderr_lines.append(line)
-            except Exception:
+            except (IOError, OSError, ValueError):
                 pass
 
         # 启动 reader 线程
@@ -780,7 +780,7 @@ def download_by_url_pausable(
             try:
                 import os
                 os.unlink(cookie_file.name)
-            except Exception:
+            except OSError:
                 pass
         unregister_pause_controller(task_id)
 

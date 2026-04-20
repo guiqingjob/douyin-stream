@@ -98,13 +98,13 @@ def managed_temp_file(mode: str = 'w', suffix: str = '.txt', dir: str | None = N
     finally:
         try:
             f.close()
-        except Exception:
+        except OSError:
             pass
         try:
             if os.path.exists(path_str):
                 os.unlink(path_str)
                 _unregister_temp_file(path_str)
-        except Exception as e:
+        except OSError as e:
             logger.warning(f"Failed to cleanup temp file {path_str}: {e}")
 
 # 扩展进度回调：支持详细进度信息
@@ -115,7 +115,7 @@ LegacyProgressCallback = Callable[[float, str], Any]
 
 try:
     from yt_dlp import YoutubeDL
-except Exception:
+except ImportError:
     YoutubeDL = None
 
 

@@ -61,7 +61,7 @@ def _get_db_video_count(uid):
         )
         count = cursor.fetchone()[0]
         return count
-    except Exception:
+    except sqlite3.Error:
         return 0
     finally:
         if conn:
@@ -131,7 +131,7 @@ async def _get_remote_video_count(sec_user_id):
             if devnull is not None:
                 os.close(devnull)
             logging.disable(logging.NOTSET)
-        except Exception:
+        except OSError:
             pass
 
 
@@ -224,7 +224,7 @@ async def _check_single_user(user):
             if devnull is not None:
                 os.close(devnull)
             logging.disable(logging.NOTSET)
-        except Exception:
+        except OSError:
             pass
 
 
@@ -272,7 +272,7 @@ def check_all_updates():
                 # 异步调用获取远程视频数量
                 import asyncio
                 remote_count = asyncio.run(_get_remote_video_count(sec_user_id))
-            except Exception:
+            except (OSError, RuntimeError, asyncio.CancelledError):
                 # 如果远程检查失败，降级使用数据库记录
                 remote_count = db_count
         else:

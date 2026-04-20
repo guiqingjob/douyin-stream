@@ -17,7 +17,7 @@ def _disable_f2_bark_notifications() -> None:
         from f2.apps.bark.utils import ClientConfManager as BarkClientConfManager
 
         BarkClientConfManager.enable_bark = classmethod(lambda cls: False)
-    except Exception:
+    except (ImportError, ModuleNotFoundError, AttributeError):
         pass
 
 
@@ -53,7 +53,7 @@ def _get_active_douyin_cookie_from_pool(db_path) -> str:
                 conn.commit()
                 return row[1]
             return ""
-    except Exception:
+    except sqlite3.Error:
         return ""
 
 
@@ -99,7 +99,7 @@ def get_f2_kwargs() -> dict:
         main_conf_manager = ConfigManager(f2.F2_CONFIG_FILE_PATH)
         all_conf = main_conf_manager.config
         main_conf = all_conf.get("douyin", {}) if all_conf else {}
-    except Exception:
+    except (OSError, KeyError, TypeError):
         main_conf = {}
 
     # 自定义配置

@@ -30,7 +30,7 @@ def _resolve_safe_path(base_dir: Path, relative_path: str | None) -> Path | None
             logger.warning(f"Path traversal blocked: {relative_path} -> {target}")
             return None
         return target
-    except Exception:
+    except (OSError, ValueError):
         return None
 
 from .ui import (
@@ -425,7 +425,7 @@ def _reorganize_files(nickname: str, uid: str) -> str | None:
     if old_path.exists():
         try:
             shutil.rmtree(old_path)
-        except Exception:
+        except OSError:
             pass
 
     if moved_count > 0:
@@ -1062,7 +1062,7 @@ def _trigger_auto_transcribe(uid, nickname):
                         if r.video_path.exists():
                             r.video_path.unlink()
                             deleted_count += 1
-                    except Exception:
+                    except OSError:
                         pass
             else:
                 fail_count += 1
