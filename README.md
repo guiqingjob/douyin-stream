@@ -7,7 +7,7 @@
 ![Python](https://img.shields.io/badge/Python-3.11%2B-brightgreen?logo=python&logoColor=white)
 [![License](https://img.shields.io/badge/license-MIT-blue.svg)](LICENSE)
 
-Media Tools 是一个本地化的 Web 工作台，帮助你从抖音批量抓取视频、通过通义千问云端转写为文字稿，并在浏览器中沉浸式阅读和管理。前后端分离架构，macOS 风格界面，支持深色/浅色主题。
+Media Tools 是一个本地化的 Web 工作台，帮助你从抖音/B站批量抓取视频、通过通义千问云端转写为文字稿，并在浏览器中沉浸式阅读和管理。前后端分离架构，Apple 风格界面，支持深色/浅色主题。
 
 ---
 
@@ -15,9 +15,9 @@ Media Tools 是一个本地化的 Web 工作台，帮助你从抖音批量抓取
 
 ### Creators — 创作者管理
 
-- 添加抖音博主，自动拉取头像、简介等信息
+- 添加抖音/B站博主，自动拉取头像、简介等信息
 - 支持增量同步和全量重拉两种模式
-- 定时自动同步（APScheduler cron 表达式，如每日凌晨 2 点）
+- 定时自动同步（APScheduler cron 表达式）
 - 一键删除创作者及其所有关联视频、文稿和数据库记录
 
 ### Discover — 发现与选取
@@ -28,22 +28,23 @@ Media Tools 是一个本地化的 Web 工作台，帮助你从抖音批量抓取
 
 ### Inbox — 收件箱与阅读
 
-- 左侧创作者列表 + 右侧视频/文稿网格，双栏布局
-- 抽屉式长文本阅读器，转写完成后无需离开页面即可阅读
-- 虚拟滚动渲染大量资产，性能无忧
+- **三栏布局**：创作者列表 + 素材列表 + 即时预览面板（Apple Mail Pro 风格）
+- 本地素材按文件夹分组显示，支持展开/折叠
+- 进入页面自动同步文件系统与数据库
+- 沉浸式阅读，支持字号/主题切换
 
 ### Settings — 全局配置
 
-- 抖音 Cookie 池管理，动态添加/移除账号
-- 通义千问认证配置
+- 抖音/B站 Cookie 池管理，动态添加/移除账号
+- 通义千问认证配置（支持多账号轮换）
 - 全局开关：并发数、转写后自动删除源视频、下载后自动触发转写
 
 ### 任务系统
 
 - 后台异步执行，WebSocket 实时推送进度到前端
-- 失败自动重试（指数退避）+ 错误分类（网络/配额/认证/超时等）
-- 断点续传：状态持久化到本地 JSON，中断后可继续
-- 全局任务监控面板，查看运行中/失败/已完成的所有任务
+- 失败自动重试（指数退避）+ 错误分类
+- 子任务详情：展示每个视频的成功/失败状态
+- 全局任务监控面板，实时查看进度
 
 ---
 
@@ -53,7 +54,7 @@ Media Tools 是一个本地化的 Web 工作台，帮助你从抖音批量抓取
 |----|------|
 | 前端 | React 19 + Vite + TypeScript + Tailwind CSS + shadcn/ui + Zustand |
 | 后端 | Python 3.11+ + FastAPI + SQLite (WAL) + APScheduler |
-| 核心 | f2（抖音 API）、Playwright（云端转写交互）、FFmpeg（音视频处理） |
+| 核心 | f2（抖音）、yt-dlp（B站）、Playwright（云端转写）、FFmpeg（音视频处理） |
 
 ---
 
@@ -117,7 +118,8 @@ media-tools/
 ├── src/media_tools/
 │   ├── api/                   # FastAPI 应用
 │   │   └── routers/           # 路由：creators, assets, tasks, settings, douyin, scheduler
-│   ├── douyin/                # 抖音集成：下载、关注管理、Cookie 认证、视频压缩
+│   ├── douyin/                # 抖音集成：下载、关注管理、Cookie 认证
+│   ├── bilibili/              # B站集成：下载、UP主管理
 │   ├── transcribe/            # 通义千问转写引擎：OSS 上传、轮询、导出、配额追踪
 │   ├── pipeline/              # 流水线编排：下载→转写→导出，含重试和断点续传
 │   └── db/                    # SQLite 数据库初始化与迁移
