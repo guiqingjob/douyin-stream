@@ -77,6 +77,30 @@ def cleanup_stale_tasks(conn: sqlite3.Connection):
         "DELETE FROM task_queue WHERE status IN ('COMPLETED', 'FAILED', 'CANCELLED') AND update_time < ?",
         (delete_cutoff,),
     )
+
+    # Clean up media_assets:
+    # 1. Delete assets where video_status='deleted' (file was removed)
+    deleted_assets = conn.execute("SELECT asset_id FROM media_assets WHERE video_status='deleted'").fetchall()
+    if deleted_assets:
+        deleted_ids = [row[0] for row in deleted_assets]
+        placeholders = ",".join("?" * len(deleted_ids))
+        conn.execute(f"DELETE FROM assets_fts WHERE asset_id IN ({placeholders})", deleted_ids)
+        conn.execute(f"DELETE FROM media_assets WHERE asset_id IN ({placeholders})", deleted_ids)
+        logger.info(f"Cleaned up {len(deleted_ids)} deleted media assets")
+
+    # 2. Delete assets where transcript_status='pending' for more than 30 days (stuck)
+    stale_pending_cutoff = (datetime.now() - timedelta(days=30)).isoformat()
+    stale_assets = conn.execute(
+        "SELECT asset_id FROM media_assets WHERE transcript_status='pending' AND create_time < ?",
+        (stale_pending_cutoff,)
+    ).fetchall()
+    if stale_assets:
+        stale_ids = [row[0] for row in stale_assets]
+        placeholders = ",".join("?" * len(stale_ids))
+        conn.execute(f"DELETE FROM assets_fts WHERE asset_id IN ({placeholders})", stale_ids)
+        conn.execute(f"DELETE FROM media_assets WHERE asset_id IN ({placeholders})", stale_ids)
+        logger.info(f"Cleaned up {len(stale_ids)} stale pending media assets")
+
     conn.commit()
 
 # --- WebSocket for task monitoring ---
@@ -302,14 +326,13 @@ def _local_asset_id(file_path: str) -> str:
     return f"local:{digest}"
 
 def _compute_folder_path(file_path: Path, directory_root: str | None) -> str:
-    if not directory_root:
-        return ""
+    """计算文件所属的文件夹路径，用于前端分组显示"""
     try:
-        root = Path(directory_root).resolve()
         p = file_path.resolve()
-        rel = p.parent.relative_to(root)
-        rel_str = rel.as_posix()
-        return "" if rel_str == "." else rel_str
+        # 始终使用文件所在目录名作为 folder_path
+        # 这样即使文件在根目录下，也能正确分组
+        parent_name = p.parent.name
+        return parent_name if parent_name else "根目录"
     except Exception:
         return "(其他)"
 
