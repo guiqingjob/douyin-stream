@@ -170,13 +170,32 @@ async def run_pipeline_for_user(url: str, max_counts: int, update_progress_fn, d
     # 1. Download - 使用 router（会自动选择 yt-dlp 或回退到 F2）
     platform = resolve_platform(url)
 
-    if platform == "bilibili":
-        # B站使用 yt-dlp
-        from media_tools.bilibili.core.downloader import download_up_by_url as bilibili_download
-        dl_result = await asyncio.to_thread(bilibili_download, url, max_counts, True, None)
-    else:
-        # 抖音使用 download_router（会自动选择 yt-dlp 视频或回退到 F2 用户主页）
-        dl_result = await asyncio.to_thread(download_router, url, max_counts, False, True)
+    try:
+        if platform == "bilibili":
+            # B站使用 yt-dlp
+            from media_tools.bilibili.core.downloader import download_up_by_url as bilibili_download
+            dl_result = await asyncio.wait_for(
+                asyncio.to_thread(bilibili_download, url, max_counts, True, None, task_id),
+                timeout=600,
+            )
+        else:
+            # 抖音使用 download_router（会自动选择 yt-dlp 视频或回退到 F2 用户主页）
+            dl_result = await asyncio.wait_for(
+                asyncio.to_thread(download_router, url, max_counts, False, True, task_id),
+                timeout=600,
+            )
+    except asyncio.TimeoutError:
+        logger.error(f"下载超时 (task_id={task_id}): {url}")
+        await _call_progress(update_progress_fn, 1.0, "下载超时，请检查网络或链接是否可用")
+        return {"success_count": 0, "failed_count": 0, "error": "下载超时"}
+    except asyncio.CancelledError:
+        logger.info(f"下载任务被取消 (task_id={task_id})")
+        raise
+
+    # 检查是否被取消（下载完成后）
+    if isinstance(dl_result, dict) and dl_result.get("cancelled"):
+        await _call_progress(update_progress_fn, 1.0, "任务已取消")
+        return {"success_count": 0, "failed_count": 0, "cancelled": True}
 
     new_files = dl_result.get('new_files', []) if isinstance(dl_result, dict) else []
 
@@ -273,7 +292,14 @@ async def run_batch_pipeline(video_urls: list[str], update_progress_fn, delete_a
     # Download phase
     for i, url in enumerate(video_urls):
         await _call_progress(update_progress_fn, 0.4 * (i / total), f"正在下载 ({i+1}/{total})")
-        dl_result = await asyncio.to_thread(download_router, url, 1, False, True)
+        try:
+            dl_result = await asyncio.wait_for(
+                asyncio.to_thread(download_router, url, 1, False, True),
+                timeout=300,
+            )
+        except asyncio.TimeoutError:
+            logger.error(f"批量下载超时: {url}")
+            continue
         if isinstance(dl_result, dict) and dl_result.get('new_files'):
             new_files.extend(dl_result['new_files'])
 
@@ -337,11 +363,17 @@ async def run_download_only(video_urls: list[str], update_progress_fn, task_id: 
     for i, url in enumerate(video_urls):
         await _call_progress(update_progress_fn, i / total, f"正在下载 ({i+1}/{total})")
         try:
-            result = await asyncio.to_thread(download_router, url, 1, False, True)
+            result = await asyncio.wait_for(
+                asyncio.to_thread(download_router, url, 1, False, True),
+                timeout=300,
+            )
             if isinstance(result, dict) and result.get("success"):
                 success_count += 1
             else:
                 failed_count += 1
+        except asyncio.TimeoutError:
+            logger.error(f"下载超时 {url}")
+            failed_count += 1
         except Exception as exc:
             logger.error(f"下载失败 {url}: {exc}")
             failed_count += 1

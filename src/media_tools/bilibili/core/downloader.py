@@ -123,6 +123,32 @@ except ImportError:
 _pause_controllers: dict[str, "PauseController"] = {}
 _pause_lock = threading.Lock()
 
+# 全局取消标志（用于库内调用的 yt-dlp，无法通过 subprocess 信号中断）
+_cancel_flags: dict[str, threading.Event] = {}
+_cancel_flags_lock = threading.Lock()
+
+
+def register_cancel_flag(task_id: str) -> threading.Event:
+    """为 task_id 注册一个线程安全的取消标志"""
+    event = threading.Event()
+    with _cancel_flags_lock:
+        _cancel_flags[task_id] = event
+    return event
+
+
+def cancel_download(task_id: str) -> None:
+    """标记 task_id 对应的下载为取消"""
+    with _cancel_flags_lock:
+        flag = _cancel_flags.get(task_id)
+        if flag:
+            flag.set()
+
+
+def unregister_cancel_flag(task_id: str) -> None:
+    """清理取消标志"""
+    with _cancel_flags_lock:
+        _cancel_flags.pop(task_id, None)
+
 
 class PauseController:
     """暂停控制器，支持暂停/恢复下载"""
@@ -253,6 +279,7 @@ def download_up_by_url(
     max_counts: int | None = None,
     skip_existing: bool = True,
     progress_cb: ProgressCallback | None = None,
+    task_id: str | None = None,
 ) -> dict:
     if YoutubeDL is None:
         raise RuntimeError("yt-dlp not installed")
@@ -263,9 +290,15 @@ def download_up_by_url(
     cookie = get_bilibili_cookie_string()
 
     uploader_info: UploaderInfo | None = None
+    cancel_flag = register_cancel_flag(task_id) if task_id else None
 
     def hook(d: dict):
         nonlocal uploader_info
+
+        # 检查是否被取消（线程安全）
+        if cancel_flag and cancel_flag.is_set():
+            raise RuntimeError(f"下载已取消: task_id={task_id}")
+
         if not progress_cb:
             return
 
@@ -337,7 +370,7 @@ def download_up_by_url(
         "continuedl": True,
         "consoletitle": False,
         "outtmpl": _build_output_template(downloads_path, "bilibili", "全部投稿"),
-        "format": "bestvideo[height<=1080]+bestaudio/best[height<=1080]/best",
+        "format": "best/bestvideo+bestaudio",
         "merge_output_format": "mp4",
         "retries": 5,
         "extractor_retries": 5,
@@ -354,6 +387,7 @@ def download_up_by_url(
     ydl_opts["proxy"] = proxy if proxy else ""
 
     # Cookie 配置 - 转换为 Netscape 格式文件
+    # expires 使用 2038-01-01 (2145888000) 避免 session cookie 立即过期
     cookie_content: str | None = None
     if cookie:
         cookie_lines = ["# Netscape HTTP Cookie File"]
@@ -361,7 +395,7 @@ def download_up_by_url(
             part = part.strip()
             if "=" in part:
                 key, value = part.split("=", 1)
-                cookie_lines.append(f".bilibili.com	TRUE	/	FALSE	0	{key}	{value}")
+                cookie_lines.append(f".bilibili.com	TRUE	/	FALSE	2145888000	{key}	{value}")
         cookie_content = "\n".join(cookie_lines)
 
     headers: dict[str, str] = {
@@ -405,6 +439,21 @@ def download_up_by_url(
 
     if not new_files:
         logger.warning("No files downloaded")
+
+    # 下载完成后检查是否被取消
+    if cancel_flag and cancel_flag.is_set():
+        logger.info(f"下载被取消，清理已下载文件: task_id={task_id}")
+        for f in new_files:
+            try:
+                Path(f).unlink()
+            except OSError:
+                pass
+        if task_id:
+            unregister_cancel_flag(task_id)
+        return {"success": False, "new_files": [], "cancelled": True}
+
+    if task_id:
+        unregister_cancel_flag(task_id)
 
     result = {"success": True, "new_files": new_files}
     if uploader_info:

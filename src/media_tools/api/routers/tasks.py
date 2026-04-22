@@ -173,6 +173,25 @@ _background_tasks: "set[asyncio.Task[Any]]" = set()  # type: ignore[type-arg]
 MAX_AUTO_RETRY = 2  # 最大自动重试次数
 
 
+async def _task_heartbeat(task_id: str, interval: int = 30):
+    """定期更新任务 update_time，防止被 cleanup_stale_tasks 误判为卡住。
+
+    此心跳独立于主 worker 的同步阻塞调用（asyncio.to_thread），
+    即使下载/转写卡住，事件循环仍能驱动心跳保持 update_time 新鲜。
+    """
+    while True:
+        await asyncio.sleep(interval)
+        try:
+            with get_db_connection() as conn:
+                conn.execute(
+                    "UPDATE task_queue SET update_time = ? WHERE task_id = ? AND status IN ('PENDING', 'RUNNING')",
+                    (datetime.now().isoformat(), task_id),
+                )
+        except Exception:
+            # 心跳失败不阻断主任务
+            pass
+
+
 async def _handle_auto_retry(task_id: str):
     """处理失败任务的自动重试"""
     try:
@@ -483,6 +502,7 @@ async def _background_pipeline_worker(task_id: str, req: PipelineRequest):
     async def _progress_fn(p, m):
         await update_task_progress(task_id, p, m, "pipeline")
 
+    heartbeat = asyncio.create_task(_task_heartbeat(task_id))
     try:
         result = await run_pipeline_for_user(
             url=req.url,
@@ -531,17 +551,24 @@ async def _background_pipeline_worker(task_id: str, req: PipelineRequest):
         with get_db_connection() as conn:
             conn.execute("UPDATE task_queue SET status='FAILED', error_msg=? WHERE task_id=?", (str(e), task_id))
         await notify_task_update(task_id, 0.0, str(e), "FAILED", "pipeline")
+    finally:
+        heartbeat.cancel()
+        try:
+            await heartbeat
+        except asyncio.CancelledError:
+            pass
 
 async def _create_task(task_id: str, task_type: str, request_params: dict):
     """Create a task with original request parameters stored in payload for retry."""
-    payload_str = json.dumps({**request_params, "msg": "Initializing..."}, ensure_ascii=False)
+    msg = "任务已启动，准备执行..."
+    payload_str = json.dumps({**request_params, "msg": msg}, ensure_ascii=False)
     now = datetime.now().isoformat()
     with get_db_connection() as conn:
         conn.execute(
             "INSERT INTO task_queue (task_id, task_type, status, progress, payload, create_time, update_time) VALUES (?, ?, 'RUNNING', 0.0, ?, ?, ?)",
             (task_id, task_type, payload_str, now, now)
         )
-    await notify_task_update(task_id, 0.0, "Initializing...", "RUNNING", task_type)
+    await notify_task_update(task_id, 0.0, msg, "RUNNING", task_type)
 
 
 @router.post("/pipeline")
@@ -589,6 +616,37 @@ def clear_task_history():
         logger.exception("clear_task_history failed")
         return {"status": "error", "message": str(e)}
 
+
+@router.delete("/{task_id}")
+async def delete_task(task_id: str):
+    """删除单个任务记录。
+
+    允许删除任意状态的任务（包括 RUNNING），如果任务仍在运行，
+    先尝试取消 asyncio 任务，再删除数据库记录。
+    """
+    try:
+        # 1. 如果任务还在运行，先取消
+        if task_id in _active_tasks:
+            _active_tasks[task_id].cancel()
+            try:
+                await _active_tasks[task_id]
+            except asyncio.CancelledError:
+                pass
+
+        # 2. 删除数据库记录
+        with get_db_connection() as conn:
+            cursor = conn.execute("DELETE FROM task_queue WHERE task_id = ?", (task_id,))
+            if cursor.rowcount == 0:
+                raise HTTPException(status_code=404, detail="Task not found")
+
+        return {"status": "success", "message": "任务已删除"}
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.exception(f"delete_task failed for {task_id}")
+        return {"status": "error", "message": str(e)}
+
+
 @router.get("/{task_id}")
 def get_task_status(task_id: str):
     try:
@@ -615,6 +673,13 @@ async def cancel_task(task_id: str):
             if row["status"] in ("COMPLETED", "FAILED", "CANCELLED"):
                 return {"status": "error", "message": f"Task already {row['status']}"}
             task_type = row["task_type"]
+
+        # 设置 bilibili 下载取消标志（让 yt-dlp 的 hook 能检测到）
+        try:
+            from media_tools.bilibili.core.downloader import cancel_download
+            cancel_download(task_id)
+        except Exception:
+            pass
 
         # Cancel the asyncio task if running
         if task_id in _active_tasks:
@@ -657,21 +722,9 @@ async def pause_task(task_id: str):
                 return {"status": "error", "message": f"Task is not running (current: {row['status']})"}
             task_type = row["task_type"]
 
-        # 抖音下载使用 F2，不支持暂停；B站可以暂停
-        if task_type in ("pipeline", "download", "sync"):
-            try:
-                from media_tools.bilibili.core.downloader import pause_task as pause_bilibili_download
-                pause_bilibili_download(task_id)
-
-                with get_db_connection() as conn:
-                    conn.execute("UPDATE task_queue SET status = 'PAUSED', update_time = ? WHERE task_id = ?",
-                               (datetime.now().isoformat(), task_id))
-                    conn.commit()
-                return {"status": "success", "message": "Task paused"}
-            except Exception:
-                pass
-
-        return {"status": "error", "message": "当前下载器不支持暂停"}
+        # 当前架构下，yt-dlp 是库内调用（非子进程），PauseController 的 SIGSTOP 无效
+        # 因此暂停功能实际上不可用。建议用户使用"取消"来停止任务。
+        return {"status": "error", "message": "当前下载器不支持暂停，请使用取消功能"}
 
     except Exception as e:
         logger.exception(f"pause_task failed for {task_id}")
@@ -692,20 +745,7 @@ async def resume_task(task_id: str):
                 return {"status": "error", "message": f"Task is not paused (current: {row['status']})"}
             task_type = row["task_type"]
 
-        # 抖音下载使用 F2，不支持恢复；B站可以恢复
-        if task_type in ("pipeline", "download", "sync"):
-            try:
-                from media_tools.bilibili.core.downloader import resume_task as resume_bilibili_download
-                resume_bilibili_download(task_id)
-
-                with get_db_connection() as conn:
-                    conn.execute("UPDATE task_queue SET status = 'RUNNING', update_time = ? WHERE task_id = ?",
-                               (datetime.now().isoformat(), task_id))
-                    conn.commit()
-                return {"status": "success", "message": "Task resumed"}
-            except Exception:
-                pass
-
+        # 当前架构下暂停功能不可用，因此恢复也无意义
         return {"status": "error", "message": "当前下载器不支持恢复"}
 
     except Exception as e:
@@ -940,6 +980,7 @@ async def _background_batch_worker(task_id: str, req: BatchPipelineRequest):
     async def _progress_fn(p, m):
         await update_task_progress(task_id, p, m, "pipeline")
 
+    heartbeat = asyncio.create_task(_task_heartbeat(task_id))
     try:
         result = await run_batch_pipeline(
             video_urls=req.video_urls,
@@ -956,6 +997,12 @@ async def _background_batch_worker(task_id: str, req: BatchPipelineRequest):
             await _complete_task(task_id, "pipeline", f"批量处理完成：成功 {success_count} 个，失败 {failed_count} 个")
     except Exception as e:
         await _fail_task(task_id, "pipeline", str(e))
+    finally:
+        heartbeat.cancel()
+        try:
+            await heartbeat
+        except asyncio.CancelledError:
+            pass
 
 @router.post("/pipeline/batch")
 async def trigger_batch_pipeline(req: BatchPipelineRequest, background_tasks: BackgroundTasks):
@@ -968,6 +1015,7 @@ async def _background_download_worker(task_id: str, req: DownloadBatchRequest):
     async def _progress_fn(p, m):
         await update_task_progress(task_id, p, m, "download")
 
+    heartbeat = asyncio.create_task(_task_heartbeat(task_id))
     try:
         result = await run_download_only(
             video_urls=req.video_urls,
@@ -980,6 +1028,12 @@ async def _background_download_worker(task_id: str, req: DownloadBatchRequest):
         )
     except Exception as e:
         await _fail_task(task_id, "download", str(e))
+    finally:
+        heartbeat.cancel()
+        try:
+            await heartbeat
+        except asyncio.CancelledError:
+            pass
 
 @router.post("/download/batch")
 async def trigger_download_batch(req: DownloadBatchRequest, background_tasks: BackgroundTasks):
@@ -992,6 +1046,7 @@ async def _background_creator_download_worker(task_id: str, uid: str, mode: str 
     async def _progress_fn(p, m):
         await update_task_progress(task_id, p, m, f"creator_sync_{mode}")
 
+    heartbeat = asyncio.create_task(_task_heartbeat(task_id))
     try:
         with get_db_connection() as conn:
             cursor = conn.execute(
@@ -1031,7 +1086,7 @@ async def _background_creator_download_worker(task_id: str, uid: str, mode: str 
                 url = f"https://space.bilibili.com/{mid}"
                 # 分批下载：每次下载 batch_size 个，跳过已下载的
                 try:
-                    result = await asyncio.to_thread(download_up_by_url, url, current_batch_size, skip_existing)
+                    result = await asyncio.to_thread(download_up_by_url, url, current_batch_size, skip_existing, None, task_id)
                 except Exception as e:
                     error_msg = str(e)
                     if "412" in error_msg or "blocked" in error_msg.lower():
@@ -1120,6 +1175,12 @@ async def _background_creator_download_worker(task_id: str, uid: str, mode: str 
         with get_db_connection() as conn:
             conn.execute("UPDATE task_queue SET status='FAILED', error_msg=? WHERE task_id=?", (str(e), task_id))
         await notify_task_update(task_id, 0.0, str(e), "FAILED", f"creator_sync_{mode}")
+    finally:
+        heartbeat.cancel()
+        try:
+            await heartbeat
+        except asyncio.CancelledError:
+            pass
 
 
 async def _transcribe_files(task_id: str, _progress_fn, new_files: list, display_name: str, config):
@@ -1160,6 +1221,7 @@ async def _background_full_sync_worker(task_id: str, mode: str = "incremental"):
     async def _progress_fn(p, m):
         await update_task_progress(task_id, p, m, f"full_sync_{mode}")
 
+    heartbeat = asyncio.create_task(_task_heartbeat(task_id))
     try:
         from media_tools.douyin.core.following_mgr import list_users
         from media_tools.douyin.core.downloader import download_by_uid
@@ -1207,6 +1269,12 @@ async def _background_full_sync_worker(task_id: str, mode: str = "incremental"):
         with get_db_connection() as conn:
             conn.execute("UPDATE task_queue SET status='FAILED', error_msg=? WHERE task_id=?", (str(e), task_id))
         await notify_task_update(task_id, 0.0, str(e), "FAILED", f"full_sync_{mode}")
+    finally:
+        heartbeat.cancel()
+        try:
+            await heartbeat
+        except asyncio.CancelledError:
+            pass
 
 @router.post("/download/full-sync")
 async def trigger_full_sync(req: FullSyncRequest, background_tasks: BackgroundTasks):
@@ -1230,6 +1298,7 @@ async def _background_local_transcribe_worker(task_id: str, req: LocalTranscribe
     async def _progress_fn(p, m):
         await update_task_progress(task_id, p, m, "local_transcribe")
 
+    heartbeat = asyncio.create_task(_task_heartbeat(task_id))
     try:
         from media_tools.pipeline.worker import run_local_transcribe
         result = await run_local_transcribe(
@@ -1245,6 +1314,12 @@ async def _background_local_transcribe_worker(task_id: str, req: LocalTranscribe
     except Exception as e:
         logger.error(f"Local transcribe worker failed: {e}")
         await _fail_task(task_id, "local_transcribe", str(e))
+    finally:
+        heartbeat.cancel()
+        try:
+            await heartbeat
+        except asyncio.CancelledError:
+            pass
 
 @router.post("/transcribe/local")
 async def trigger_local_transcribe(req: LocalTranscribeRequest, background_tasks: BackgroundTasks):
