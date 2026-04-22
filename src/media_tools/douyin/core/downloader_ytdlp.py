@@ -429,22 +429,26 @@ def download_by_url(
         ydl_opts["download_archive"] = str(archive_path)
 
     # Cookie 配置 - 转换为 Netscape 格式
-    cookie_file = None
+    cookie_path: str | None = None
     if cookie:
-        import tempfile
         # 转换为 Netscape 格式
         cookie_lines = ["# Netscape HTTP Cookie File"]
-        # 解析 cookie 字符串并转换为 Netscape 格式
         for part in cookie.split(";"):
             part = part.strip()
             if "=" in part:
                 key, value = part.split("=", 1)
-                # domain, flag, path, secure, expiration, name, value
                 cookie_lines.append(f".douyin.com\tTRUE\t/\tFALSE\t0\t{key}\t{value}")
         cookie_content = "\n".join(cookie_lines)
-        # 使用安全的临时文件管理器
-        with managed_temp_file(mode='w', suffix='.txt') as (f, cookie_path):
-            f.write(cookie_content)
+        # 写入临时文件（delete=False），由 finally 块负责清理
+        fd, cookie_path = tempfile.mkstemp(suffix='.txt')
+        os.chmod(cookie_path, 0o600)
+        _register_temp_file(cookie_path)
+        try:
+            with os.fdopen(fd, 'w') as f:
+                f.write(cookie_content)
+        except OSError:
+            _unregister_temp_file(cookie_path)
+            raise
         ydl_opts["cookiefile"] = cookie_path
 
     # 用户主页下载数量限制
@@ -456,6 +460,12 @@ def download_by_url(
         "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/137.0.0.0 Safari/537.36",
         "Referer": "https://www.douyin.com/",
     }
+
+    # 记录下载前已存在的文件，用于后续筛选新增文件
+    output_dir = Path(output_template).parent
+    existing_files: set[str] = set()
+    if output_dir.exists():
+        existing_files = {str(f) for f in output_dir.glob("*.mp4")}
 
     try:
         with YoutubeDL(ydl_opts) as ydl:
@@ -476,10 +486,10 @@ def download_by_url(
 
     finally:
         # 清理临时 cookie 文件
-        if cookie and "cookiefile" in ydl_opts:
+        if cookie_path and os.path.exists(cookie_path):
             try:
-                import os
-                os.unlink(ydl_opts["cookiefile"])
+                os.unlink(cookie_path)
+                _unregister_temp_file(cookie_path)
             except OSError:
                 pass
 
@@ -496,12 +506,12 @@ def download_by_url(
             if fp and Path(fp).exists():
                 new_files.append(str(Path(fp)))
 
-    # 也扫描输出目录获取新文件
-    output_dir = Path(output_template).parent
+    # 也扫描输出目录获取新增文件（排除下载前已存在的）
     if output_dir.exists():
         for video_file in output_dir.glob("*.mp4"):
-            if str(video_file) not in new_files:
-                new_files.append(str(video_file))
+            video_str = str(video_file)
+            if video_str not in existing_files and video_str not in new_files:
+                new_files.append(video_str)
 
     # 将下载记录写入 archive（用于增量下载）
     if skip_existing and new_files:
@@ -617,9 +627,8 @@ def download_by_url_pausable(
     cmd.append(url)
 
     # 处理 cookie - 转换为 Netscape 格式
-    cookie_path = None
+    cookie_path: str | None = None
     if cookie:
-        import tempfile
         # 转换为 Netscape 格式
         cookie_lines = ["# Netscape HTTP Cookie File"]
         for part in cookie.split(";"):
@@ -628,9 +637,16 @@ def download_by_url_pausable(
                 key, value = part.split("=", 1)
                 cookie_lines.append(f".douyin.com\tTRUE\t/\tFALSE\t0\t{key}\t{value}")
         cookie_content = "\n".join(cookie_lines)
-        # 使用安全的临时文件管理器
-        with managed_temp_file(mode='w', suffix='.txt') as (f, cookie_path):
-            f.write(cookie_content)
+        # 写入临时文件（delete=False），由 finally 块负责清理
+        fd, cookie_path = tempfile.mkstemp(suffix='.txt')
+        os.chmod(cookie_path, 0o600)
+        _register_temp_file(cookie_path)
+        try:
+            with os.fdopen(fd, 'w') as f:
+                f.write(cookie_content)
+        except OSError:
+            _unregister_temp_file(cookie_path)
+            raise
         cmd.insert(1, "--cookiefile")
         cmd.insert(2, cookie_path)
 
@@ -647,6 +663,12 @@ def download_by_url_pausable(
 
     uploader_info: DouyinUploaderInfo | None = None
     new_files: list[str] = []
+
+    # 记录下载前已存在的文件，用于后续筛选新增文件
+    output_dir = Path(output_template).parent
+    existing_files: set[str] = set()
+    if output_dir.exists():
+        existing_files = {str(f) for f in output_dir.glob("*.mp4")}
 
     # 用于线程间通信的队列，避免管道死锁
     import queue
@@ -776,20 +798,21 @@ def download_by_url_pausable(
 
     finally:
         # 清理
-        if cookie_file:
+        if cookie_path and os.path.exists(cookie_path):
             try:
-                import os
-                os.unlink(cookie_file.name)
+                os.unlink(cookie_path)
+                _unregister_temp_file(cookie_path)
             except OSError:
                 pass
         unregister_pause_controller(task_id)
 
-    # 收集下载的文件
+    # 收集新增文件（排除下载前已存在的）
     output_dir = Path(output_template).parent
     if output_dir.exists():
         for f in output_dir.glob("*.mp4"):
-            if str(f) not in new_files:
-                new_files.append(str(f))
+            f_str = str(f)
+            if f_str not in existing_files and f_str not in new_files:
+                new_files.append(f_str)
 
     # 写入 archive
     if skip_existing and new_files:

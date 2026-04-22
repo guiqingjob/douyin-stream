@@ -12,20 +12,22 @@ class PipelineConfig:
     """Pipeline 流程配置"""
     # 转写设置
     export_format: str = "md"  # md 或 docx
-    output_dir: str = str(get_config().project_root / "transcripts")
+    output_dir: str = ""  # 空字符串表示延迟初始化，由 load_pipeline_config() 或 output_path property 设置
     delete_after_export: bool = True  # 默认为 True：导出后立即删除云端记录以节省额度
     account_id: str = ""
-    
+
     # 清理设置
     remove_video: bool = False
     keep_original: bool = True
-    
+
     # 并发设置
     concurrency: int = 5
-    
+
     @property
     def output_path(self) -> Path:
-        return Path(self.output_dir).resolve()
+        if self.output_dir:
+            return Path(self.output_dir).resolve()
+        return get_config().project_root / "transcripts"
 
 
 def load_pipeline_config() -> PipelineConfig:

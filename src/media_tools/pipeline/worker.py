@@ -1,11 +1,11 @@
 import asyncio
 import inspect
-import hashlib
 import sqlite3
 from pathlib import Path
 from typing import Any
 from media_tools.logger import get_logger
 from media_tools.pipeline.media_extensions import MEDIA_EXTENSIONS
+from media_tools.db.core import local_asset_id
 
 logger = get_logger('pipeline')
 # 跟踪所有后台任务，防止 GC 导致静默失败
@@ -47,12 +47,6 @@ def filter_supported_media_paths(file_paths: list[str]) -> list[Path]:
         if path.exists() and path.suffix.lower() in MEDIA_EXTENSIONS:
             valid_paths.append(path)
     return valid_paths
-
-
-def _local_asset_id(file_path: Path) -> str:
-    resolved = str(file_path.resolve())
-    digest = hashlib.sha1(resolved.encode("utf-8")).hexdigest()[:24]
-    return f"local:{digest}"
 
 
 async def run_local_transcribe(file_paths: list[str], update_progress_fn=None, delete_after: bool = False):
@@ -109,7 +103,7 @@ async def run_local_transcribe(file_paths: list[str], update_progress_fn=None, d
                         SET transcript_path = ?, transcript_status = 'completed', transcript_preview = ?, transcript_text = ?, update_time = CURRENT_TIMESTAMP
                         WHERE asset_id = ?
                         """,
-                        (transcript_name, preview, full_text, _local_asset_id(video_path)),
+                        (transcript_name, preview, full_text, local_asset_id(video_path)),
                     )
                     conn.commit()
                     # Keep FTS5 index in sync
@@ -117,10 +111,10 @@ async def run_local_transcribe(file_paths: list[str], update_progress_fn=None, d
                         from media_tools.db.core import update_fts_for_asset
                         title_row = conn.execute(
                             "SELECT title FROM media_assets WHERE asset_id = ?",
-                            (_local_asset_id(video_path),),
+                            (local_asset_id(video_path),),
                         ).fetchone()
                         update_fts_for_asset(
-                            _local_asset_id(video_path),
+                            local_asset_id(video_path),
                             title_row["title"] if title_row else "",
                             full_text,
                         )
@@ -239,15 +233,17 @@ async def run_pipeline_for_user(url: str, max_counts: int, update_progress_fn, d
 
     await _call_progress(update_progress_fn, 1.0, f"流水线完成: 成功 {success_count}, 失败 {failed_count}")
 
-    # 构建子任务列表
+    # 构建子任务列表（O(N) Map 查找替代 O(N*M) 双重循环）
     subtasks = []
     total = len(new_files)
-    for i, video_path in enumerate(video_paths):
-        result_item = None
-        for r in report.results:
-            if Path(r.get("video_path", "")).resolve() == video_path.resolve():
-                result_item = r
-                break
+    result_by_path: dict[str, dict] = {}
+    for r in report.results:
+        vp = r.get("video_path", "")
+        if vp:
+            result_by_path[str(Path(vp).resolve())] = r
+
+    for video_path in video_paths:
+        result_item = result_by_path.get(str(video_path.resolve()))
         status = "completed" if result_item and result_item.get("success") else "failed"
         error = result_item.get("error") if result_item else None
         subtasks.append({
@@ -269,6 +265,9 @@ async def run_batch_pipeline(video_urls: list[str], update_progress_fn, delete_a
     from media_tools.pipeline.orchestrator_v2 import create_orchestrator
 
     total = len(video_urls)
+    if total == 0:
+        return {"success_count": 0, "failed_count": 0}
+
     new_files = []
 
     # Download phase
@@ -329,11 +328,14 @@ async def run_download_only(video_urls: list[str], update_progress_fn, task_id: 
     from media_tools.pipeline.download_router import download_by_url as download_router
 
     total = len(video_urls)
+    if total == 0:
+        return {"success_count": 0, "failed_count": 0}
+
     success_count = 0
     failed_count = 0
 
     for i, url in enumerate(video_urls):
-        await update_progress_fn(i / total, f"正在下载 ({i+1}/{total})")
+        await _call_progress(update_progress_fn, i / total, f"正在下载 ({i+1}/{total})")
         try:
             result = await asyncio.to_thread(download_router, url, 1, False, True)
             if isinstance(result, dict) and result.get("success"):

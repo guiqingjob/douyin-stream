@@ -11,7 +11,7 @@ class PipelineWorkerRoutingTests(unittest.IsolatedAsyncioTestCase):
     async def test_pipeline_download_uses_router(self) -> None:
         update_progress = AsyncMock()
         download_mock = object()
-        orchestrator = SimpleNamespace(transcribe_batch=AsyncMock(return_value=SimpleNamespace(success=1, failed=0)))
+        orchestrator = SimpleNamespace(transcribe_batch=AsyncMock(return_value=SimpleNamespace(success=1, failed=0, results=[])))
         fake_config = SimpleNamespace()
 
         with patch("media_tools.bilibili.core.downloader.download_up_by_url", download_mock), patch(
@@ -31,7 +31,8 @@ class PipelineWorkerRoutingTests(unittest.IsolatedAsyncioTestCase):
                 delete_after=False,
             )
 
-        self.assertEqual(result, {"success_count": 1, "failed_count": 0})
+        self.assertEqual(result["success_count"], 1)
+        self.assertEqual(result["failed_count"], 0)
         mocked_to_thread.assert_awaited_once()
         self.assertIs(mocked_to_thread.await_args.args[0], download_mock)
         self.assertEqual(

@@ -129,7 +129,7 @@ class AuthHandler(http.server.SimpleHTTPRequestHandler):
 
 
 if __name__ == "__main__":
-    with socketserver.TCPServer(("", PORT), AuthHandler) as httpd:
+    with socketserver.TCPServer(("127.0.0.1", PORT), AuthHandler) as httpd:
         logger.info(f"认证可视化服务器已启动: http://localhost:{PORT}")
         logger.info("按 Ctrl+C 停止服务")
         try:

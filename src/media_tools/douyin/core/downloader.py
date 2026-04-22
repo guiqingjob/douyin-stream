@@ -15,23 +15,9 @@ from pathlib import Path
 
 from .f2_helper import get_f2_kwargs as _build_f2_kwargs
 from media_tools.logger import get_logger
+from media_tools.db.core import resolve_safe_path
 
 logger = get_logger('downloader')
-
-
-def _resolve_safe_path(base_dir: Path, relative_path: str | None) -> Path | None:
-    """Resolve a path and ensure it stays within base_dir."""
-    if not relative_path:
-        return None
-    try:
-        base = base_dir.resolve()
-        target = (base / relative_path).resolve()
-        if not str(target).startswith(str(base) + os.sep) and str(target) != str(base):
-            logger.warning(f"Path traversal blocked: {relative_path} -> {target}")
-            return None
-        return target
-    except (OSError, ValueError):
-        return None
 
 from .ui import (
     error,
@@ -74,43 +60,46 @@ def _create_video_metadata_table():
     """确保视频元数据表存在"""
     config = get_config()
     db_path = config.get_db_path()
-    conn = sqlite3.connect(str(db_path), timeout=15.0)
-    conn.execute("PRAGMA journal_mode=WAL;")
-    conn.execute("PRAGMA journal_mode=WAL;")
-    cursor = conn.cursor()
-
-    cursor.execute(
-        """
-        CREATE TABLE IF NOT EXISTS video_metadata (
-            aweme_id TEXT PRIMARY KEY,
-            uid TEXT NOT NULL,
-            nickname TEXT,
-            desc TEXT,
-            create_time INTEGER,
-            duration INTEGER,
-            digg_count INTEGER DEFAULT 0,
-            comment_count INTEGER DEFAULT 0,
-            collect_count INTEGER DEFAULT 0,
-            share_count INTEGER DEFAULT 0,
-            play_count INTEGER DEFAULT 0,
-            local_filename TEXT,
-            file_size INTEGER,
-            fetch_time INTEGER
-        )
-    """
-    )
-
-    cursor.execute(
-        "CREATE INDEX IF NOT EXISTS idx_video_uid ON video_metadata(uid)"
-    )
-
+    conn = None
     try:
-        cursor.execute("ALTER TABLE video_metadata ADD COLUMN nickname TEXT")
-    except sqlite3.OperationalError:
-        pass
+        conn = sqlite3.connect(str(db_path), timeout=15.0)
+        conn.execute("PRAGMA journal_mode=WAL;")
+        cursor = conn.cursor()
 
-    conn.commit()
-    conn.close()
+        cursor.execute(
+            """
+            CREATE TABLE IF NOT EXISTS video_metadata (
+                aweme_id TEXT PRIMARY KEY,
+                uid TEXT NOT NULL,
+                nickname TEXT,
+                desc TEXT,
+                create_time INTEGER,
+                duration INTEGER,
+                digg_count INTEGER DEFAULT 0,
+                comment_count INTEGER DEFAULT 0,
+                collect_count INTEGER DEFAULT 0,
+                share_count INTEGER DEFAULT 0,
+                play_count INTEGER DEFAULT 0,
+                local_filename TEXT,
+                file_size INTEGER,
+                fetch_time INTEGER
+            )
+        """
+        )
+
+        cursor.execute(
+            "CREATE INDEX IF NOT EXISTS idx_video_uid ON video_metadata(uid)"
+        )
+
+        try:
+            cursor.execute("ALTER TABLE video_metadata ADD COLUMN nickname TEXT")
+        except sqlite3.OperationalError:
+            pass
+
+        conn.commit()
+    finally:
+        if conn:
+            conn.close()
 
 
 def _save_video_metadata_from_raw(raw_data: dict, nickname: str = ""):
@@ -121,50 +110,54 @@ def _save_video_metadata_from_raw(raw_data: dict, nickname: str = ""):
 
     config = get_config()
     db_path = config.get_db_path()
-    conn = sqlite3.connect(str(db_path), timeout=15.0)
-    conn.execute("PRAGMA journal_mode=WAL;")
-    cursor = conn.cursor()
+    conn = None
+    try:
+        conn = sqlite3.connect(str(db_path), timeout=15.0)
+        conn.execute("PRAGMA journal_mode=WAL;")
+        cursor = conn.cursor()
 
-    fetch_time = int(datetime.now().timestamp())
-    saved_count = 0
+        fetch_time = int(datetime.now().timestamp())
+        saved_count = 0
 
-    for video in aweme_list:
-        aweme_id = video.get("aweme_id", "")
-        if not aweme_id:
-            continue
+        for video in aweme_list:
+            aweme_id = video.get("aweme_id", "")
+            if not aweme_id:
+                continue
 
-        stats = video.get("statistics", {}) or {}
-        author = video.get("author", {}) or {}
-        video_nickname = author.get("nickname", nickname)
+            stats = video.get("statistics", {}) or {}
+            author = video.get("author", {}) or {}
+            video_nickname = author.get("nickname", nickname)
 
-        cursor.execute(
-            """
-            INSERT OR REPLACE INTO video_metadata
-            (aweme_id, uid, nickname, desc, create_time, duration,
-             digg_count, comment_count, collect_count, share_count, play_count,
-             fetch_time)
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-        """,
-            (
-                aweme_id,
-                author.get("uid", ""),
-                video_nickname,
-                video.get("desc", ""),
-                video.get("create_time", 0),
-                video.get("video", {}).get("duration", 0) if video.get("video") else 0,
-                stats.get("digg_count", 0),
-                stats.get("comment_count", 0),
-                stats.get("collect_count", 0),
-                stats.get("share_count", 0),
-                stats.get("play_count", 0),
-                fetch_time,
-            ),
-        )
-        saved_count += 1
+            cursor.execute(
+                """
+                INSERT OR REPLACE INTO video_metadata
+                (aweme_id, uid, nickname, desc, create_time, duration,
+                 digg_count, comment_count, collect_count, share_count, play_count,
+                 fetch_time)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            """,
+                (
+                    aweme_id,
+                    author.get("uid", ""),
+                    video_nickname,
+                    video.get("desc", ""),
+                    video.get("create_time", 0),
+                    video.get("video", {}).get("duration", 0) if video.get("video") else 0,
+                    stats.get("digg_count", 0),
+                    stats.get("comment_count", 0),
+                    stats.get("collect_count", 0),
+                    stats.get("share_count", 0),
+                    stats.get("play_count", 0),
+                    fetch_time,
+                ),
+            )
+            saved_count += 1
 
-    conn.commit()
-    conn.close()
-    return saved_count
+        conn.commit()
+        return saved_count
+    finally:
+        if conn:
+            conn.close()
 
 
 def _save_single_video_metadata(video: dict, nickname: str = "") -> int:
@@ -178,50 +171,54 @@ def _save_single_video_metadata(video: dict, nickname: str = "") -> int:
 
     config = get_config()
     db_path = config.get_db_path()
-    conn = sqlite3.connect(str(db_path), timeout=15.0)
-    conn.execute("PRAGMA journal_mode=WAL;")
-    cursor = conn.cursor()
+    conn = None
+    try:
+        conn = sqlite3.connect(str(db_path), timeout=15.0)
+        conn.execute("PRAGMA journal_mode=WAL;")
+        cursor = conn.cursor()
 
-    stats = video.get("statistics", {}) or {}
-    author = video.get("author", {}) or {}
-    video_nickname = (
-        video.get("nickname")
-        or author.get("nickname")
-        or nickname
-    )
-    uid = (
-        video.get("uid")
-        or author.get("uid")
-        or video.get("sec_user_id", "")
-    )
+        stats = video.get("statistics", {}) or {}
+        author = video.get("author", {}) or {}
+        video_nickname = (
+            video.get("nickname")
+            or author.get("nickname")
+            or nickname
+        )
+        uid = (
+            video.get("uid")
+            or author.get("uid")
+            or video.get("sec_user_id", "")
+        )
 
-    cursor.execute(
-        """
-        INSERT OR REPLACE INTO video_metadata
-        (aweme_id, uid, nickname, desc, create_time, duration,
-         digg_count, comment_count, collect_count, share_count, play_count,
-         fetch_time)
-        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-    """,
-        (
-            aweme_id,
-            uid,
-            video_nickname,
-            video.get("desc", ""),
-            video.get("create_time", 0),
-            video.get("video", {}).get("duration", 0) if video.get("video") else 0,
-            stats.get("digg_count", 0),
-            stats.get("comment_count", 0),
-            stats.get("collect_count", 0),
-            stats.get("share_count", 0),
-            stats.get("play_count", 0),
-            int(datetime.now().timestamp()),
-        ),
-    )
+        cursor.execute(
+            """
+            INSERT OR REPLACE INTO video_metadata
+            (aweme_id, uid, nickname, desc, create_time, duration,
+             digg_count, comment_count, collect_count, share_count, play_count,
+             fetch_time)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        """,
+            (
+                aweme_id,
+                uid,
+                video_nickname,
+                video.get("desc", ""),
+                video.get("create_time", 0),
+                video.get("video", {}).get("duration", 0) if video.get("video") else 0,
+                stats.get("digg_count", 0),
+                stats.get("comment_count", 0),
+                stats.get("collect_count", 0),
+                stats.get("share_count", 0),
+                stats.get("play_count", 0),
+                int(datetime.now().timestamp()),
+            ),
+        )
 
-    conn.commit()
-    conn.close()
-    return 1
+        conn.commit()
+        return 1
+    finally:
+        if conn:
+            conn.close()
 
 
 def _clean_video_title(raw_title: str) -> str:
@@ -269,10 +266,10 @@ def _rename_videos_in_downloads(nickname: str, uid: str, downloads_path: Path) -
 
     # 博主文件夹
     folder_name = nickname or uid
-    user_dir = _resolve_safe_path(downloads_path, folder_name)
+    user_dir = resolve_safe_path(downloads_path, folder_name)
     if not user_dir:
         logger.warning(f"Path traversal blocked for folder: {folder_name}")
-        user_dir = _resolve_safe_path(downloads_path, uid) or downloads_path
+        user_dir = resolve_safe_path(downloads_path, uid) or downloads_path
     user_dir.mkdir(parents=True, exist_ok=True)
 
     # 连接数据库获取该博主最近的视频标题
@@ -297,6 +294,7 @@ def _rename_videos_in_downloads(nickname: str, uid: str, downloads_path: Path) -
 
         renamed_count = 0
         processed_count = 0
+        db_updated = False
 
         # 递归查找下载目录下的所有视频文件
         for f in downloads_path.rglob("*.mp4"):
@@ -354,6 +352,12 @@ def _rename_videos_in_downloads(nickname: str, uid: str, downloads_path: Path) -
 
                 # 如果文件名已经是清洗后的（与新名相同），跳过
                 if f.name == new_name and f.parent == user_dir:
+                    # 更新数据库中的 local_filename
+                    cursor.execute(
+                        "UPDATE video_metadata SET local_filename = ? WHERE aweme_id = ?",
+                        (new_name, aweme_id)
+                    )
+                    db_updated = True
                     continue
 
                 if not dest.exists():
@@ -370,6 +374,13 @@ def _rename_videos_in_downloads(nickname: str, uid: str, downloads_path: Path) -
                     shutil.move(str(f), str(dest))
                     processed_count += 1
                     renamed_count += 1
+
+                # 更新数据库中的 local_filename
+                cursor.execute(
+                    "UPDATE video_metadata SET local_filename = ? WHERE aweme_id = ?",
+                    (new_name, aweme_id)
+                )
+                db_updated = True
             else:
                 # 无法匹配，直接移动到目标目录
                 if f.parent != user_dir:
@@ -381,13 +392,8 @@ def _rename_videos_in_downloads(nickname: str, uid: str, downloads_path: Path) -
         if processed_count > 0:
             logger.info(info(f"  [整理] 已处理 {processed_count} 个文件到 {folder_name}/（{renamed_count} 个已重命名）"))
 
-            # 更新数据库中的 local_filename 字段
-            cursor.execute(
-                "UPDATE video_metadata SET local_filename = ? WHERE uid = ?",
-                (folder_name, uid)
-            )
+        if db_updated:
             conn.commit()
-            logger.info(info(f"  [更新] 已更新 {folder_name} 的 local_filename"))
     finally:
         if conn:
             conn.close()
@@ -399,17 +405,17 @@ def _reorganize_files(nickname: str, uid: str) -> str | None:
     """整理文件到下载目录/{博主昵称}/"""
     config = get_config()
     downloads_path = config.get_download_path()
-    old_path = _resolve_safe_path(downloads_path, f"douyin/post/{nickname}")
+    old_path = resolve_safe_path(downloads_path, f"douyin/post/{nickname}")
 
     if not old_path or not old_path.exists():
         return None
 
     # 使用博主昵称作为文件夹名
     folder_name = nickname or uid
-    new_path = _resolve_safe_path(downloads_path, folder_name)
+    new_path = resolve_safe_path(downloads_path, folder_name)
     if not new_path:
         logger.warning(f"Path traversal blocked for folder: {folder_name}")
-        new_path = _resolve_safe_path(downloads_path, uid) or downloads_path
+        new_path = resolve_safe_path(downloads_path, uid) or downloads_path
     new_path.mkdir(parents=True, exist_ok=True)
 
     # 移动文件（文件名已经在下载时清洗过，无需重命名）
@@ -453,10 +459,10 @@ def _sync_media_assets(uid: str, nickname: str, folder_name: str):
         
         # 修复：优化文件查找算法，从O(N*M)降到O(N+M)
         # 先扫描一次所有文件，构建查找表
-        user_dir = _resolve_safe_path(downloads_path, folder_name)
+        user_dir = resolve_safe_path(downloads_path, folder_name)
         if not user_dir:
             logger.warning(f"Path traversal blocked for folder: {folder_name}")
-            user_dir = _resolve_safe_path(downloads_path, uid) or downloads_path
+            user_dir = resolve_safe_path(downloads_path, uid) or downloads_path
         file_lookup = {}  # {aweme_id: filename}
         keyword_lookup = {}  # {keyword: filename}
 
@@ -606,28 +612,37 @@ async def _download_with_stats(url: str, max_counts: int | None = None, skip_exi
     async with AsyncUserDB(str(config.get_db_path())) as db:
         user_path = await handler.get_or_add_user_data(kwargs, sec_user_id, db)
 
-    # 从数据库获取用户信息（通过 sec_user_id 查找）
+    # 从数据库获取用户信息（通过 sec_user_id 精确匹配）
     db_path = config.get_db_path()
-    conn = sqlite3.connect(str(db_path), timeout=15.0)
-    conn.execute("PRAGMA journal_mode=WAL;")
-    cursor = conn.cursor()
-    cursor.execute(
-        "SELECT uid, nickname FROM user_info_web WHERE sec_user_id LIKE ? LIMIT 1",
-        (f"{sec_user_id[:20]}%",)
-    )
-    user_info = cursor.fetchone()
-    conn.close()
-    
-    # 如果没找到，使用最新记录（向后兼容）
-    if not user_info:
+    user_info = None
+    conn = None
+    try:
         conn = sqlite3.connect(str(db_path), timeout=15.0)
         conn.execute("PRAGMA journal_mode=WAL;")
         cursor = conn.cursor()
         cursor.execute(
-            "SELECT uid, nickname FROM user_info_web ORDER BY ROWID DESC LIMIT 1"
+            "SELECT uid, nickname FROM user_info_web WHERE sec_user_id = ? LIMIT 1",
+            (sec_user_id,)
         )
         user_info = cursor.fetchone()
-        conn.close()
+    finally:
+        if conn:
+            conn.close()
+
+    # 如果没找到，使用最新记录（向后兼容）
+    if not user_info:
+        conn = None
+        try:
+            conn = sqlite3.connect(str(db_path), timeout=15.0)
+            conn.execute("PRAGMA journal_mode=WAL;")
+            cursor = conn.cursor()
+            cursor.execute(
+                "SELECT uid, nickname FROM user_info_web ORDER BY ROWID DESC LIMIT 1"
+            )
+            user_info = cursor.fetchone()
+        finally:
+            if conn:
+                conn.close()
 
     uid = user_info[0] if user_info else ""
     nickname = user_info[1] if user_info else ""
@@ -645,6 +660,7 @@ async def _download_with_stats(url: str, max_counts: int | None = None, skip_exi
                 logger.info(info(f"[本地] 已有 {len(existing_videos)} 个视频文件，将跳过已下载的"))
 
         # 同时从数据库获取已下载的视频 ID（防止文件被删除后重复下载）
+        conn = None
         try:
             conn = sqlite3.connect(str(db_path), timeout=15.0)
             conn.execute("PRAGMA journal_mode=WAL;")
@@ -654,8 +670,7 @@ async def _download_with_stats(url: str, max_counts: int | None = None, skip_exi
                 (uid,)
             )
             db_videos = {row[0] for row in cursor.fetchall() if row[0]}
-            conn.close()
-            
+
             if db_videos:
                 # 合并本地文件和数据库记录
                 new_from_db = db_videos - existing_videos
@@ -664,6 +679,9 @@ async def _download_with_stats(url: str, max_counts: int | None = None, skip_exi
                 existing_videos.update(db_videos)
         except Exception as e:
             logger.warning(f"查询数据库失败: {e}")
+        finally:
+            if conn:
+                conn.close()
     else:
         logger.info(info("[模式] 全量重拉：不跳过已存在视频"))
 
@@ -761,6 +779,7 @@ async def _download_with_stats(url: str, max_counts: int | None = None, skip_exi
 
     new_files = []
     if new_aweme_ids and folder_name:
+        conn = None
         try:
             conn = sqlite3.connect(str(db_path), timeout=15.0)
             conn.execute("PRAGMA journal_mode=WAL;")
@@ -772,9 +791,11 @@ async def _download_with_stats(url: str, max_counts: int | None = None, skip_exi
                     full_path = downloads_path / row[0]
                     if full_path.exists():
                         new_files.append(str(full_path))
-            conn.close()
         except Exception as e:
             logger.error(f"查询新文件路径失败: {e}")
+        finally:
+            if conn:
+                conn.close()
 
     logger.info(f"下载完成: 共 {total_downloaded} 个视频")
     logger.info(success(f"\n[完成] 共下载 {total_downloaded} 个视频"))
@@ -1010,11 +1031,11 @@ def _trigger_auto_transcribe(uid, nickname):
     try:
         # 查找博主文件夹
         downloads_path = config.get_download_path()
-        user_dir = _resolve_safe_path(downloads_path, nickname)
+        user_dir = resolve_safe_path(downloads_path, nickname)
 
         # 如果昵称目录不存在，尝试用 UID
         if not user_dir or not user_dir.exists():
-            user_dir = _resolve_safe_path(downloads_path, uid)
+            user_dir = resolve_safe_path(downloads_path, uid)
         
         if not user_dir or not user_dir.exists():
             logger.info("⚠️  未找到下载目录，跳过自动转写")

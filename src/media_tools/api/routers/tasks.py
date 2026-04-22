@@ -5,7 +5,7 @@ import logging
 import hashlib
 from datetime import datetime, timedelta
 from fastapi import APIRouter, BackgroundTasks, HTTPException, WebSocket, WebSocketDisconnect
-from pydantic import BaseModel
+from pydantic import BaseModel, field_validator
 from typing import Any, List, Set
 import uuid
 from pathlib import Path
@@ -14,7 +14,7 @@ import os
 from media_tools.pipeline.worker import run_pipeline_for_user, run_batch_pipeline, run_download_only
 from media_tools.pipeline.media_extensions import MEDIA_EXTENSIONS
 from media_tools.douyin.core.config_mgr import get_config
-from media_tools.db.core import get_db_connection
+from media_tools.db.core import get_db_connection, local_asset_id
 
 router = APIRouter(prefix="/api/v1/tasks", tags=["tasks"])
 logger = logging.getLogger(__name__)
@@ -28,8 +28,8 @@ def _is_allowed_scan_path(dir_path: Path) -> bool:
     resolved = dir_path.resolve()
     dir_str = str(resolved)
 
-    # Block traversal attempts explicitly
-    if ".." in str(dir_path):
+    # Block traversal attempts explicitly (check for ".." as a path component, not substring)
+    if any(part == ".." for part in dir_path.parts):
         return False
 
     home = Path.home().resolve()
@@ -212,7 +212,6 @@ async def _handle_auto_retry(task_id: str):
                 "UPDATE task_queue SET status='RUNNING', progress=0.0, auto_retry=1, payload=? WHERE task_id=?",
                 (payload_str, task_id)
             )
-            conn.commit()
 
         # 重新启动任务
         logger.info(f"任务 {task_id} 失败，自动重试 ({retry_count + 1}/{MAX_AUTO_RETRY})...")
@@ -358,11 +357,6 @@ def _merge_payload_from_db(
         existing = None
     return _merge_task_payload(existing, msg, result_summary, subtasks)
 
-def _local_asset_id(file_path: str) -> str:
-    resolved = str(Path(file_path).resolve())
-    digest = hashlib.sha1(resolved.encode("utf-8")).hexdigest()[:24]
-    return f"local:{digest}"
-
 def _compute_folder_path(file_path: Path, directory_root: str | None) -> str:
     """计算文件所属的文件夹路径，用于前端分组显示"""
     try:
@@ -389,7 +383,7 @@ def _register_local_assets(file_paths: list[str], delete_after: bool, directory_
             path = Path(raw_path)
             if not path.exists():
                 continue
-            asset_id = _local_asset_id(str(path))
+            asset_id = local_asset_id(str(path))
             folder_path = _compute_folder_path(path, directory_root)
             conn.execute(
                 """
@@ -460,22 +454,28 @@ async def _complete_task(
     subtasks: list | None = None,
 ) -> None:
     """Update task row to completed status and broadcast WebSocket notification."""
-    with get_db_connection() as conn:
-        payload_str = _merge_payload_from_db(conn, task_id, msg, result_summary, subtasks)
-        conn.execute(
-            "UPDATE task_queue SET status=?, progress=1.0, payload=?, error_msg=? WHERE task_id=?",
-            (status, payload_str, error_msg, task_id),
-        )
+    try:
+        with get_db_connection() as conn:
+            payload_str = _merge_payload_from_db(conn, task_id, msg, result_summary, subtasks)
+            conn.execute(
+                "UPDATE task_queue SET status=?, progress=1.0, payload=?, error_msg=? WHERE task_id=?",
+                (status, payload_str, error_msg, task_id),
+            )
+    except Exception as e:
+        logger.error(f"Failed to complete task {task_id} in DB: {e}")
     await notify_task_update(task_id, 1.0, msg, status, task_type, result_summary, subtasks)
 
 
 async def _fail_task(task_id: str, task_type: str, error: str) -> None:
     """Update task row to failed status and broadcast WebSocket notification."""
-    with get_db_connection() as conn:
-        conn.execute(
-            "UPDATE task_queue SET status='FAILED', error_msg=? WHERE task_id=?",
-            (str(error), task_id),
-        )
+    try:
+        with get_db_connection() as conn:
+            conn.execute(
+                "UPDATE task_queue SET status='FAILED', error_msg=? WHERE task_id=?",
+                (str(error), task_id),
+            )
+    except Exception as e:
+        logger.error(f"Failed to fail task {task_id} in DB: {e}")
     await notify_task_update(task_id, 0.0, str(error), "FAILED", task_type)
 
 
@@ -525,6 +525,8 @@ async def _background_pipeline_worker(task_id: str, req: PipelineRequest):
                 (status, payload_str, error_msg, task_id)
             )
         await notify_task_update(task_id, 1.0, msg, status, "pipeline", result_summary, subtasks)
+    except asyncio.CancelledError:
+        raise
     except Exception as e:
         with get_db_connection() as conn:
             conn.execute("UPDATE task_queue SET status='FAILED', error_msg=? WHERE task_id=?", (str(e), task_id))
@@ -558,7 +560,6 @@ def get_active_tasks():
     except sqlite3.Error:
         logger.exception("get_active_tasks failed")
         return []
-        return []
 
 @router.get("/history")
 def get_task_history():
@@ -573,9 +574,12 @@ def get_task_history():
 
 @router.delete("/history")
 def clear_task_history():
-    """清除已完成/失败/取消的历史任务"""
+    """清除历史任务（含过期未更新的 RUNNING/PENDING）"""
     try:
         with get_db_connection() as conn:
+            # 先标记过期的 RUNNING/PENDING 为 FAILED，确保它们也能被清理
+            cleanup_stale_tasks(conn)
+            # 再删除所有终态任务
             conn.execute(
                 "DELETE FROM task_queue WHERE status IN ('COMPLETED', 'FAILED', 'CANCELLED')"
             )
@@ -905,8 +909,22 @@ class BatchPipelineRequest(BaseModel):
     video_urls: List[str]
     auto_delete: bool = True
 
+    @field_validator("video_urls")
+    @classmethod
+    def limit_batch_size(cls, v):
+        if len(v) > 200:
+            raise ValueError("单次批量操作最多 200 条")
+        return v
+
 class DownloadBatchRequest(BaseModel):
     video_urls: List[str]
+
+    @field_validator("video_urls")
+    @classmethod
+    def limit_batch_size(cls, v):
+        if len(v) > 200:
+            raise ValueError("单次批量操作最多 200 条")
+        return v
 
 class CreatorDownloadRequest(BaseModel):
     uid: str
@@ -1095,6 +1113,8 @@ async def _background_creator_download_worker(task_id: str, uid: str, mode: str 
             payload_str = _merge_payload_from_db(conn, task_id, msg)
             conn.execute("UPDATE task_queue SET status='COMPLETED', progress=1.0, payload=? WHERE task_id=?", (payload_str, task_id))
         await notify_task_update(task_id, 1.0, msg, "COMPLETED", f"creator_sync_{mode}")
+    except asyncio.CancelledError:
+        raise
     except Exception as e:
         logger.exception(f"creator_download_worker failed for {uid}")
         with get_db_connection() as conn:
@@ -1181,6 +1201,8 @@ async def _background_full_sync_worker(task_id: str, mode: str = "incremental"):
             payload_str = _merge_payload_from_db(conn, task_id, msg)
             conn.execute("UPDATE task_queue SET status='COMPLETED', progress=1.0, payload=? WHERE task_id=?", (payload_str, task_id))
         await notify_task_update(task_id, 1.0, msg, "COMPLETED", f"full_sync_{mode}")
+    except asyncio.CancelledError:
+        raise
     except Exception as e:
         with get_db_connection() as conn:
             conn.execute("UPDATE task_queue SET status='FAILED', error_msg=? WHERE task_id=?", (str(e), task_id))

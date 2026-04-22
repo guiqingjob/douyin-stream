@@ -12,7 +12,7 @@ from .config_mgr import get_config
 
 
 @contextmanager
-def get_db_connection(db_path=None):
+def get_douyin_db_connection(db_path=None):
     """
     获取数据库连接的上下文管理器
 

@@ -202,6 +202,9 @@ async def get_qwen_status():
             ).fetchall()
 
         rows: list[dict[str, Any]] = []
+        # 收集批量 DB 更新，在循环结束后统一执行（避免 N+1）
+        path_updates: list[tuple[str, str]] = []  # (auth_state_path, account_id)
+        status_updates: list[tuple[str, str]] = []  # (status, account_id)
 
         for account in db_rows:
             account_id = str(account["account_id"])
@@ -219,12 +222,7 @@ async def get_qwen_status():
                         resolved_path = build_qwen_auth_state_path_for_account(account_id)
                         try:
                             save_qwen_cookie_string(cookie_data, resolved_path, sync_db=False)
-                            with get_db_connection() as conn:
-                                conn.execute(
-                                    "UPDATE Accounts_Pool SET auth_state_path=? WHERE account_id=? AND platform='qwen'",
-                                    (str(resolved_path), account_id),
-                                )
-                                conn.commit()
+                            path_updates.append((str(resolved_path), account_id))
                             resolved_auth_state_path = str(resolved_path)
                         except (OSError, sqlite3.Error):
                             status = "invalid"
@@ -235,15 +233,13 @@ async def get_qwen_status():
                 try:
                     snapshot = await get_quota_snapshot(auth_state_path=Path(resolved_auth_state_path))
                     remaining_hours = remaining_hours_from_snapshot(snapshot)
-                except Exception:
+                except Exception as e:
+                    logger.warning(f"获取 Qwen 额度失败: account_id={account_id}, error={e}")
                     remaining_hours = 0
                     status = "invalid"
-                    with get_db_connection() as conn:
-                        conn.execute(
-                            "UPDATE Accounts_Pool SET status=? WHERE account_id=? AND platform='qwen'",
-                            (status, account_id),
-                        )
-                        conn.commit()
+
+            if status != str(account["status"] or "active"):
+                status_updates.append((status, account_id))
 
             rows.append(
                 {
@@ -253,6 +249,21 @@ async def get_qwen_status():
                     "status": status,
                 }
             )
+
+        # 批量执行所有 DB 更新
+        if path_updates or status_updates:
+            with get_db_connection() as conn:
+                for auth_path, acc_id in path_updates:
+                    conn.execute(
+                        "UPDATE Accounts_Pool SET auth_state_path=? WHERE account_id=? AND platform='qwen'",
+                        (auth_path, acc_id),
+                    )
+                for new_status, acc_id in status_updates:
+                    conn.execute(
+                        "UPDATE Accounts_Pool SET status=? WHERE account_id=? AND platform='qwen'",
+                        (new_status, acc_id),
+                    )
+                conn.commit()
 
         return {"status": "success", "accounts": rows}
     except Exception as e:

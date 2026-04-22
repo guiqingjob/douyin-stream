@@ -1,6 +1,8 @@
+import hashlib
 import re
 import sqlite3
 import os
+import threading
 from pathlib import Path
 from typing import Generator
 from media_tools.logger import get_logger
@@ -14,7 +16,8 @@ _IDENTIFIER_RE = re.compile(r'^[a-zA-Z_][a-zA-Z0-9_]*$')
 # 硬编码的表名白名单（内部可信来源）
 _VALID_TABLES = frozenset({
     'creators', 'media_assets', 'task_queue', 'auth_credentials',
-    'Accounts_Pool', 'SystemSettings', 'scheduled_tasks', 'assets_fts'
+    'Accounts_Pool', 'SystemSettings', 'scheduled_tasks', 'assets_fts',
+    'video_metadata', 'user_info_web'
 })
 
 
@@ -72,12 +75,17 @@ def _set_wal_mode(conn: sqlite3.Connection) -> None:
 
 
 def get_db() -> Generator[sqlite3.Connection, None, None]:
-    """FastAPI dependency – yields a connection, always closes on exit."""
+    """FastAPI dependency – yields a connection with explicit transaction, always closes on exit."""
     conn = sqlite3.connect(get_db_path(), timeout=15.0)
     _set_wal_mode(conn)
     conn.row_factory = sqlite3.Row
+    conn.execute("BEGIN")
     try:
         yield conn
+        conn.commit()
+    except Exception:
+        conn.rollback()
+        raise
     finally:
         conn.close()
 
@@ -86,6 +94,7 @@ class DBConnection:
     """SQLite 连接封装，自动管理 WAL 模式和关闭"""
 
     _open_count = 0  # 打开的连接数（用于监控）
+    _open_count_lock = threading.Lock()
     _max_connections_warning = 20  # 超过此阈值警告
 
     def __init__(self, keep_open: bool = False):
@@ -98,16 +107,18 @@ class DBConnection:
         self._conn.row_factory = sqlite3.Row
 
         # 监控连接数
-        DBConnection._open_count += 1
-        if DBConnection._open_count > DBConnection._max_connections_warning:
-            logger.warning(f"DB connection count high: {DBConnection._open_count}")
+        with DBConnection._open_count_lock:
+            DBConnection._open_count += 1
+            if DBConnection._open_count > DBConnection._max_connections_warning:
+                logger.warning(f"DB connection count high: {DBConnection._open_count}")
 
     def __enter__(self) -> sqlite3.Connection:
         return self._conn
 
     def __exit__(self, exc_type, exc_val, exc_tb) -> None:
         """自动 commit/rollback + close"""
-        DBConnection._open_count -= 1
+        with DBConnection._open_count_lock:
+            DBConnection._open_count -= 1
 
         try:
             if exc_type is None and not self._committed:
@@ -350,6 +361,37 @@ def init_db(db_path: str | Path):
         )
         """)
 
+        # 8. 视频元数据 (Video Metadata) — 由 douyin downloader 管理
+        cursor.execute("""
+        CREATE TABLE IF NOT EXISTS video_metadata (
+            aweme_id TEXT PRIMARY KEY,
+            uid TEXT NOT NULL,
+            nickname TEXT,
+            desc TEXT,
+            create_time INTEGER,
+            duration INTEGER,
+            digg_count INTEGER DEFAULT 0,
+            comment_count INTEGER DEFAULT 0,
+            collect_count INTEGER DEFAULT 0,
+            share_count INTEGER DEFAULT 0,
+            play_count INTEGER DEFAULT 0,
+            local_filename TEXT,
+            file_size INTEGER,
+            fetch_time INTEGER
+        )
+        """)
+        cursor.execute("CREATE INDEX IF NOT EXISTS idx_video_uid ON video_metadata(uid)")
+
+        # 9. 用户信息缓存 (User Info Cache) — 由 F2 库管理
+        cursor.execute("""
+        CREATE TABLE IF NOT EXISTS user_info_web (
+            uid TEXT PRIMARY KEY,
+            sec_user_id TEXT,
+            nickname TEXT,
+            avatar TEXT
+        )
+        """)
+
         # 创建索引优化查询
         cursor.execute("CREATE INDEX IF NOT EXISTS idx_media_assets_creator ON media_assets(creator_uid)")
         cursor.execute("CREATE INDEX IF NOT EXISTS idx_media_assets_video_status ON media_assets(video_status)")
@@ -379,7 +421,7 @@ def init_db(db_path: str | Path):
         _ensure_fts_table(conn)
 
         conn.commit()
-        logger.info("数据库初始化完成（含全部 7 张表）")
+        logger.info("数据库初始化完成（含全部 9 张表）")
     except Exception as e:
         logger.error(f"初始化数据库失败: {e}")
         if conn:
@@ -388,6 +430,38 @@ def init_db(db_path: str | Path):
     finally:
         if conn:
             conn.close()
+
+
+# --- Path helpers (shared across routers & downloader) ---
+
+def resolve_safe_path(base_dir: Path, relative_path: str | None) -> Path | None:
+    """Resolve a path and ensure it stays within base_dir."""
+    if not relative_path:
+        return None
+    try:
+        base = base_dir.resolve()
+        target = (base / relative_path).resolve()
+        if not str(target).startswith(str(base) + os.sep) and str(target) != str(base):
+            logger.warning(f"Path traversal blocked: {relative_path} -> {target}")
+            return None
+        return target
+    except (OSError, ValueError):
+        return None
+
+
+def resolve_query_value(val, default):
+    """Convert FastAPI Query object to actual value."""
+    if hasattr(val, 'default'):
+        return val.default if val.default is not None else default
+    return val if val is not None else default
+
+
+def local_asset_id(file_path: str | Path) -> str:
+    """Generate a stable local asset ID from a file path."""
+    resolved = str(Path(file_path).resolve())
+    digest = hashlib.sha1(resolved.encode("utf-8")).hexdigest()[:24]
+    return f"local:{digest}"
+
 
 if __name__ == "__main__":
     db_path = "media_tools.db"

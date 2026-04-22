@@ -1,7 +1,7 @@
 from typing import Optional
 from fastapi import APIRouter, HTTPException, Query
 from media_tools.douyin.core.config_mgr import get_config
-from media_tools.db.core import get_db_connection
+from media_tools.db.core import get_db_connection, resolve_safe_path, resolve_query_value
 import asyncio
 import os
 import sqlite3
@@ -61,35 +61,16 @@ async def _fetch_bilibili_nickname(mid: str, retries: int = 3) -> str:
     return mid  # 所有重试失败，使用 mid 作为后备
 
 
-def _resolve_safe_path(base_dir: Path, relative_path: str | None) -> Path | None:
-    """Resolve a path and ensure it stays within base_dir."""
-    if not relative_path:
-        return None
-    try:
-        base = base_dir.resolve()
-        target = (base / relative_path).resolve()
-        if not str(target).startswith(str(base) + os.sep) and str(target) != str(base):
-            logger.warning(f"Path traversal blocked: {relative_path} -> {target}")
-            return None
-        return target
-    except (OSError, ValueError):
-        return None
-
-
 class CreatorCreateRequest(BaseModel):
     url: str
 
-def _resolve_query_value(val, default):
-    """Convert Query object to actual value."""
-    if hasattr(val, 'default'):
-        return val.default if val.default is not None else default
-    return val if val is not None else default
-
 
 def _get_table_columns(conn: sqlite3.Connection, table: str) -> set[str]:
+    from media_tools.db.core import validate_identifier
+    safe_table = validate_identifier(table, "table_name")
     return {
         row["name"] if isinstance(row, sqlite3.Row) else row[1]
-        for row in conn.execute(f"PRAGMA table_info({table})").fetchall()
+        for row in conn.execute(f"PRAGMA table_info({safe_table})").fetchall()
     }
 
 
@@ -98,8 +79,8 @@ def list_creators(
     limit: Optional[int] = Query(default=None, ge=1, le=500),
     offset: Optional[int] = Query(default=None, ge=0),
 ):
-    limit = _resolve_query_value(limit, 100)
-    offset = _resolve_query_value(offset, 0)
+    limit = resolve_query_value(limit, 100)
+    offset = resolve_query_value(offset, 0)
     try:
         with get_db_connection() as conn:
             conn.row_factory = sqlite3.Row
@@ -271,7 +252,7 @@ def delete_creator(uid: str):
 
                 # Delete video file
                 if video_path:
-                    full_video_path = _resolve_safe_path(config.get_download_path(), video_path)
+                    full_video_path = resolve_safe_path(config.get_download_path(), video_path)
                     if full_video_path and full_video_path.exists():
                         try:
                             full_video_path.unlink()
@@ -281,7 +262,7 @@ def delete_creator(uid: str):
 
                 # Delete transcript file
                 if transcript_name:
-                    full_transcript_path = _resolve_safe_path(config.project_root / "transcripts", transcript_name)
+                    full_transcript_path = resolve_safe_path(config.project_root / "transcripts", transcript_name)
                     if full_transcript_path and full_transcript_path.exists():
                         try:
                             full_transcript_path.unlink()
@@ -293,7 +274,7 @@ def delete_creator(uid: str):
             download_base = config.get_download_path().resolve()
             for folder_name in [nickname, uid]:
                 if folder_name:
-                    creator_dir = _resolve_safe_path(download_base, folder_name)
+                    creator_dir = resolve_safe_path(download_base, folder_name)
                     if creator_dir and creator_dir.exists() and creator_dir.is_dir():
                         try:
                             shutil.rmtree(creator_dir)

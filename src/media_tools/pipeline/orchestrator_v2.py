@@ -194,37 +194,24 @@ class AccountPool:
         self._current = 0
         self._lock = asyncio.Lock()
 
-        # 计算权重：余额越高，被选中的概率越大
-        total = sum(self._balances)
-        if total > 0:
-            # 权重 = 该账号余额 / 总余额
-            self._weights = [b / total for b in self._balances]
-        else:
-            # 如果没有余额信息，平均分配
-            self._weights = [1.0 / len(accounts)] * len(accounts) if accounts else []
-
-        logger.info(f"初始化加权账号池，共 {len(accounts)} 个账号，总余额 {total}")
+        logger.info(f"初始化加权账号池，共 {len(accounts)} 个账号，总余额 {sum(self._balances)}")
 
     def get_account(self) -> dict[str, Any] | None:
         """按权重分配账号（余额多的分配更多）"""
+        import random
+
         if not self._accounts:
             return None
 
-        # 使用简单的顺序+权重逻辑：每取到当前账号时，根据权重决定是否返回
-        # 余额高的账号会被多次"保留"，从而获得更多分配机会
-        account = self._accounts[self._current]
-        balance = self._balances[self._current] if self._current < len(self._balances) else 0
+        total = sum(self._balances)
+        if total > 0:
+            selected = random.choices(self._accounts, weights=self._balances, k=1)[0]
+        else:
+            account = self._accounts[self._current]
+            self._current = (self._current + 1) % len(self._accounts)
+            selected = account
 
-        # 移动到下一个
-        self._current = (self._current + 1) % len(self._accounts)
-
-        return account
-
-    def get_balance(self) -> int:
-        """获取当前账号的余额（用于日志）"""
-        if self._current == 0:
-            return self._balances[-1] if self._balances else 0
-        return self._balances[self._current - 1] if self._current - 1 < len(self._balances) else 0
+        return selected
 
     async def acquire(self) -> dict[str, Any] | None:
         """异步获取一个账号（线程安全）"""
@@ -659,6 +646,23 @@ class OrchestratorV2:
         except sqlite3.Error:
             return
 
+    async def _mark_qwen_account_status_async(self, account_id: str, status: str) -> None:
+        if not account_id:
+            return
+        try:
+            from media_tools.db.core import get_db_connection
+
+            def _do_update():
+                with get_db_connection() as conn:
+                    conn.execute(
+                        "UPDATE Accounts_Pool SET status=? WHERE platform='qwen' AND account_id=?",
+                        (status, account_id),
+                    )
+
+            await asyncio.to_thread(_do_update)
+        except sqlite3.Error:
+            return
+
     def _mark_qwen_account_used(self, account_id: str) -> None:
         if not account_id:
             return
@@ -670,7 +674,23 @@ class OrchestratorV2:
                     "UPDATE Accounts_Pool SET last_used=CURRENT_TIMESTAMP WHERE platform='qwen' AND account_id=?",
                     (account_id,),
                 )
-                conn.commit()
+        except sqlite3.Error:
+            return
+
+    async def _mark_qwen_account_used_async(self, account_id: str) -> None:
+        if not account_id:
+            return
+        try:
+            from media_tools.db.core import get_db_connection
+
+            def _do_update():
+                with get_db_connection() as conn:
+                    conn.execute(
+                        "UPDATE Accounts_Pool SET last_used=CURRENT_TIMESTAMP WHERE platform='qwen' AND account_id=?",
+                        (account_id,),
+                    )
+
+            await asyncio.to_thread(_do_update)
         except sqlite3.Error:
             return
 
@@ -754,7 +774,7 @@ class OrchestratorV2:
                         account_id=account_id,
                         title=video_title,
                     )
-                    self._mark_qwen_account_used(account_id)
+                    await self._mark_qwen_account_used_async(account_id)
 
                     if self.config.remove_video and not self.config.keep_original:
                         video_path.unlink()
@@ -771,7 +791,7 @@ class OrchestratorV2:
                     last_error = e
                     last_error_type = classify_error(e)
                     if last_error_type == ErrorType.AUTH and account_id:
-                        self._mark_qwen_account_status(account_id, "expired")
+                        await self._mark_qwen_account_status_async(account_id, "expired")
                         logger.warning(f"账号 {account_id} 认证过期，尝试下一个账号")
                         continue
                     # 其他错误，记录并继续尝试下一个账号
@@ -871,31 +891,29 @@ class OrchestratorV2:
                 try:
                     from media_tools.douyin.core.config_mgr import get_config
                     from media_tools.pipeline.preview import extract_transcript_preview, extract_transcript_text
+                    from media_tools.db.core import get_db_connection, update_fts_for_asset
                     import sqlite3
                     import re
-                    db_path = get_config().get_db_path()
-                    with sqlite3.connect(db_path, timeout=15.0) as conn:
-                        conn.execute("PRAGMA journal_mode=WAL;")
-                        cursor = conn.cursor()
 
-                        if result.transcript_path:
-                            try:
-                                transcript_name = str(result.transcript_path.relative_to(Path(self.config.output_dir).resolve()))
-                            except ValueError:
-                                transcript_name = str(result.transcript_path.name)
-                        else:
-                            transcript_name = ""
-                        if result.transcript_path:
-                            preview = extract_transcript_preview(result.transcript_path)
-                            full_text = extract_transcript_text(result.transcript_path)
-                        else:
-                            preview = ""
-                            full_text = ""
-                        aweme_matches = re.findall(r'\d{15,}', video_path.name)
+                    if result.transcript_path:
+                        try:
+                            transcript_name = str(result.transcript_path.relative_to(Path(self.config.output_dir).resolve()))
+                        except ValueError:
+                            transcript_name = str(result.transcript_path.name)
+                    else:
+                        transcript_name = ""
+                    if result.transcript_path:
+                        preview = extract_transcript_preview(result.transcript_path)
+                        full_text = extract_transcript_text(result.transcript_path)
+                    else:
+                        preview = ""
+                        full_text = ""
+                    aweme_matches = re.findall(r'\d{15,}', video_path.name)
 
+                    with get_db_connection() as conn:
                         if aweme_matches:
                             asset_id = aweme_matches[0]
-                            cursor.execute("""
+                            conn.execute("""
                                 UPDATE media_assets
                                 SET transcript_path = ?, transcript_status = 'completed', transcript_preview = ?, transcript_text = ?, update_time = CURRENT_TIMESTAMP
                                 WHERE asset_id = ?
@@ -906,7 +924,7 @@ class OrchestratorV2:
                                 asset_id
                             ))
                         else:
-                            cursor.execute("""
+                            conn.execute("""
                                 UPDATE media_assets
                                 SET transcript_path = ?, transcript_status = 'completed', transcript_preview = ?, transcript_text = ?, update_time = CURRENT_TIMESTAMP
                                 WHERE video_path LIKE ? OR title LIKE ?
@@ -917,11 +935,9 @@ class OrchestratorV2:
                                 f"%{video_path.name}%",
                                 f"%{video_path.stem}%"
                             ))
-                        conn.commit()
                         # Sync to FTS5 index for the asset we just updated
                         if aweme_matches:
                             try:
-                                from media_tools.db.core import update_fts_for_asset
                                 title_row = conn.execute(
                                     "SELECT title FROM media_assets WHERE asset_id = ?", (asset_id,)
                                 ).fetchone()
@@ -1238,8 +1254,20 @@ def run_pipeline_batch(
     """同步包装器：批量转写（兼容原 orchestrator.py V1 接口）
 
     downloader.py 通过此函数在同步上下文中调用异步流水线。
+    若当前已有运行中的事件循环，则在新线程中运行以避免 RuntimeError。
     """
-    report = asyncio.run(run_enhanced_pipeline(video_paths, config=config, auth_state_path=auth_state_path))
+    coro = run_enhanced_pipeline(video_paths, config=config, auth_state_path=auth_state_path)
+    try:
+        loop = asyncio.get_running_loop()
+    except RuntimeError:
+        loop = None
+
+    if loop is not None and loop.is_running():
+        import concurrent.futures
+        with concurrent.futures.ThreadPoolExecutor(max_workers=1) as executor:
+            report = executor.submit(asyncio.run, coro).result()
+    else:
+        report = asyncio.run(coro)
 
     class _Compat:
         """Lightweight shim: r.success / r.video_path / r.transcript_path / r.error"""

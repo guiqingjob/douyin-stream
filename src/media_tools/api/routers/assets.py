@@ -1,8 +1,8 @@
 from fastapi import APIRouter, Query, HTTPException
 from fastapi.responses import StreamingResponse
-from pydantic import BaseModel
+from pydantic import BaseModel, field_validator
 from media_tools.douyin.core.config_mgr import get_config
-from media_tools.db.core import get_db_connection
+from media_tools.db.core import get_db_connection, resolve_safe_path, resolve_query_value
 from typing import Optional
 import sqlite3
 import logging
@@ -16,22 +16,6 @@ logger = logging.getLogger(__name__)
 LOCAL_CREATOR_UID = "local:upload"
 
 
-def _resolve_safe_path(base_dir: Path, relative_path: str | None) -> Path | None:
-    """Resolve a path and ensure it stays within base_dir."""
-    if not relative_path:
-        return None
-    try:
-        base = base_dir.resolve()
-        target = (base / relative_path).resolve()
-        if not str(target).startswith(str(base) + os.sep) and str(target) != str(base):
-            logger.warning(f"Path traversal blocked: {relative_path} -> {target}")
-            return None
-        return target
-    except (OSError, ValueError):
-        # 路径解析失败（文件不存在、权限问题、无效路径等）
-        return None
-
-
 def _resolve_asset_video_file(
     *,
     creator_uid: str | None,
@@ -41,10 +25,21 @@ def _resolve_asset_video_file(
 ) -> Path | None:
     if creator_uid == LOCAL_CREATOR_UID and source_url:
         try:
-            return Path(source_url).resolve()
+            target = Path(source_url).resolve()
+            home = Path.home().resolve()
+            allowed_roots = [home, Path("/tmp").resolve()]
+            if sys.platform == "darwin":
+                allowed_roots.append(Path("/Volumes").resolve())
+            dir_str = str(target)
+            for root in allowed_roots:
+                root_str = str(root)
+                if dir_str.startswith(root_str + os.sep) or dir_str == root_str:
+                    return target
+            logger.warning(f"Local asset path traversal blocked: {source_url}")
+            return None
         except (OSError, ValueError):
             return None
-    return _resolve_safe_path(download_dir, video_path)
+    return resolve_safe_path(download_dir, video_path)
 
 
 def _get_table_columns(conn: sqlite3.Connection, table: str) -> set[str]:
@@ -52,13 +47,6 @@ def _get_table_columns(conn: sqlite3.Connection, table: str) -> set[str]:
         row["name"] if isinstance(row, sqlite3.Row) else row[1]
         for row in conn.execute(f"PRAGMA table_info({table})").fetchall()
     }
-
-def _resolve_query_value(val, default):
-    """Convert Query object to actual value."""
-    if hasattr(val, 'default'):
-        return val.default if val.default is not None else default
-    return val if val is not None else default
-
 
 @router.get("/")
 def list_assets(
@@ -75,8 +63,8 @@ def list_assets(
     """
     import sqlite3
 
-    limit = _resolve_query_value(limit, 100)
-    offset = _resolve_query_value(offset, 0)
+    limit = resolve_query_value(limit, 100)
+    offset = resolve_query_value(offset, 0)
 
     try:
         with get_db_connection() as conn:
@@ -185,7 +173,7 @@ def export_transcripts(asset_ids: list[str]):
                 asset_ids
             )
             for row in cursor.fetchall():
-                transcript_file = _resolve_safe_path(transcripts_dir, row['transcript_path'])
+                transcript_file = resolve_safe_path(transcripts_dir, row['transcript_path'])
                 if transcript_file and transcript_file.exists():
                     suffix = transcript_file.suffix or ".md"
                     stem = f"{row['title'] or row['asset_id']}"
@@ -219,11 +207,14 @@ def get_transcript(asset_id: str):
         transcript_name = row["transcript_path"]
         config = get_config()
         transcripts_dir = config.project_root / "transcripts"
-        transcript_file = _resolve_safe_path(transcripts_dir, transcript_name)
+        transcript_file = resolve_safe_path(transcripts_dir, transcript_name)
 
         if not transcript_file or not transcript_file.exists():
             with get_db_connection() as conn:
-                conn.execute("DELETE FROM media_assets WHERE asset_id = ?", (asset_id,))
+                conn.execute(
+                    "UPDATE media_assets SET transcript_status = 'missing' WHERE asset_id = ?",
+                    (asset_id,),
+                )
                 conn.commit()
             raise HTTPException(status_code=404, detail="Transcript file not found on disk")
 
@@ -283,7 +274,7 @@ def delete_asset(asset_id: str):
 
             # Phase 2: Delete transcript file
             if transcript_name:
-                full_transcript_path = _resolve_safe_path(config.project_root / "transcripts", transcript_name)
+                full_transcript_path = resolve_safe_path(config.project_root / "transcripts", transcript_name)
                 if full_transcript_path and full_transcript_path.exists():
                     try:
                         full_transcript_path.unlink()
@@ -338,6 +329,13 @@ class BulkAssetMarkRequest(BaseModel):
     is_read: Optional[bool] = None
     is_starred: Optional[bool] = None
 
+    @field_validator("ids")
+    @classmethod
+    def limit_batch_size(cls, v):
+        if len(v) > 500:
+            raise ValueError("单次批量操作最多 500 条")
+        return v
+
 
 @router.post("/bulk_mark")
 def bulk_mark_assets(req: BulkAssetMarkRequest):
@@ -371,6 +369,13 @@ def bulk_mark_assets(req: BulkAssetMarkRequest):
 
 class BulkAssetDeleteRequest(BaseModel):
     ids: list[str]
+
+    @field_validator("ids")
+    @classmethod
+    def limit_batch_size(cls, v):
+        if len(v) > 200:
+            raise ValueError("单次批量操作最多 200 条")
+        return v
 
 
 @router.post("/bulk_delete")
@@ -421,7 +426,7 @@ def bulk_delete_assets(req: BulkAssetDeleteRequest):
                             except OSError:
                                 failed_deletions.append(f"video:{full_video_path}")
                     if transcript_name:
-                        full_transcript_path = _resolve_safe_path(transcripts_dir, transcript_name)
+                        full_transcript_path = resolve_safe_path(transcripts_dir, transcript_name)
                         if full_transcript_path and full_transcript_path.exists():
                             try:
                                 full_transcript_path.unlink()
@@ -487,7 +492,7 @@ def cleanup_missing_assets():
 
             # 检查转写文件是否存在
             if transcript_name:
-                full_transcript_path = _resolve_safe_path(transcripts_dir, transcript_name)
+                full_transcript_path = resolve_safe_path(transcripts_dir, transcript_name)
                 if full_transcript_path and full_transcript_path.exists():
                     transcript_exists = True
 
