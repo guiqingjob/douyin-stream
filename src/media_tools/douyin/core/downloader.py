@@ -62,41 +62,41 @@ def _create_video_metadata_table():
     db_path = config.get_db_path()
     conn = None
     try:
-        conn = sqlite3.connect(str(db_path), timeout=15.0)
-        conn.execute("PRAGMA journal_mode=WAL;")
-        cursor = conn.cursor()
+        from media_tools.db.core import get_db_connection
+        with get_db_connection() as conn:
+            cursor = conn.cursor()
 
-        cursor.execute(
+            cursor.execute(
+                """
+                CREATE TABLE IF NOT EXISTS video_metadata (
+                    aweme_id TEXT PRIMARY KEY,
+                    uid TEXT NOT NULL,
+                    nickname TEXT,
+                    desc TEXT,
+                    create_time INTEGER,
+                    duration INTEGER,
+                    digg_count INTEGER DEFAULT 0,
+                    comment_count INTEGER DEFAULT 0,
+                    collect_count INTEGER DEFAULT 0,
+                    share_count INTEGER DEFAULT 0,
+                    play_count INTEGER DEFAULT 0,
+                    local_filename TEXT,
+                    file_size INTEGER,
+                    fetch_time INTEGER
+                )
             """
-            CREATE TABLE IF NOT EXISTS video_metadata (
-                aweme_id TEXT PRIMARY KEY,
-                uid TEXT NOT NULL,
-                nickname TEXT,
-                desc TEXT,
-                create_time INTEGER,
-                duration INTEGER,
-                digg_count INTEGER DEFAULT 0,
-                comment_count INTEGER DEFAULT 0,
-                collect_count INTEGER DEFAULT 0,
-                share_count INTEGER DEFAULT 0,
-                play_count INTEGER DEFAULT 0,
-                local_filename TEXT,
-                file_size INTEGER,
-                fetch_time INTEGER
             )
-        """
-        )
 
-        cursor.execute(
-            "CREATE INDEX IF NOT EXISTS idx_video_uid ON video_metadata(uid)"
-        )
+            cursor.execute(
+                "CREATE INDEX IF NOT EXISTS idx_video_uid ON video_metadata(uid)"
+            )
 
-        try:
-            cursor.execute("ALTER TABLE video_metadata ADD COLUMN nickname TEXT")
-        except sqlite3.OperationalError:
-            pass
+            try:
+                cursor.execute("ALTER TABLE video_metadata ADD COLUMN nickname TEXT")
+            except sqlite3.OperationalError:
+                pass
 
-        conn.commit()
+            conn.commit()
     finally:
         if conn:
             conn.close()
@@ -112,49 +112,49 @@ def _save_video_metadata_from_raw(raw_data: dict, nickname: str = ""):
     db_path = config.get_db_path()
     conn = None
     try:
-        conn = sqlite3.connect(str(db_path), timeout=15.0)
-        conn.execute("PRAGMA journal_mode=WAL;")
-        cursor = conn.cursor()
+        from media_tools.db.core import get_db_connection
+        with get_db_connection() as conn:
+            cursor = conn.cursor()
 
-        fetch_time = int(datetime.now().timestamp())
-        saved_count = 0
+            fetch_time = int(datetime.now().timestamp())
+            saved_count = 0
 
-        for video in aweme_list:
-            aweme_id = video.get("aweme_id", "")
-            if not aweme_id:
-                continue
+            for video in aweme_list:
+                aweme_id = video.get("aweme_id", "")
+                if not aweme_id:
+                    continue
 
-            stats = video.get("statistics", {}) or {}
-            author = video.get("author", {}) or {}
-            video_nickname = author.get("nickname", nickname)
+                stats = video.get("statistics", {}) or {}
+                author = video.get("author", {}) or {}
+                video_nickname = author.get("nickname", nickname)
 
-            cursor.execute(
-                """
-                INSERT OR REPLACE INTO video_metadata
-                (aweme_id, uid, nickname, desc, create_time, duration,
-                 digg_count, comment_count, collect_count, share_count, play_count,
-                 fetch_time)
-                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-            """,
-                (
-                    aweme_id,
-                    author.get("uid", ""),
-                    video_nickname,
-                    video.get("desc", ""),
-                    video.get("create_time", 0),
-                    video.get("video", {}).get("duration", 0) if video.get("video") else 0,
-                    stats.get("digg_count", 0),
-                    stats.get("comment_count", 0),
-                    stats.get("collect_count", 0),
-                    stats.get("share_count", 0),
-                    stats.get("play_count", 0),
-                    fetch_time,
-                ),
-            )
-            saved_count += 1
+                cursor.execute(
+                    """
+                    INSERT OR REPLACE INTO video_metadata
+                    (aweme_id, uid, nickname, desc, create_time, duration,
+                     digg_count, comment_count, collect_count, share_count, play_count,
+                     fetch_time)
+                    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                """,
+                    (
+                        aweme_id,
+                        author.get("uid", ""),
+                        video_nickname,
+                        video.get("desc", ""),
+                        video.get("create_time", 0),
+                        video.get("video", {}).get("duration", 0) if video.get("video") else 0,
+                        stats.get("digg_count", 0),
+                        stats.get("comment_count", 0),
+                        stats.get("collect_count", 0),
+                        stats.get("share_count", 0),
+                        stats.get("play_count", 0),
+                        fetch_time,
+                    ),
+                )
+                saved_count += 1
 
-        conn.commit()
-        return saved_count
+            conn.commit()
+            return saved_count
     finally:
         if conn:
             conn.close()
@@ -173,49 +173,49 @@ def _save_single_video_metadata(video: dict, nickname: str = "") -> int:
     db_path = config.get_db_path()
     conn = None
     try:
-        conn = sqlite3.connect(str(db_path), timeout=15.0)
-        conn.execute("PRAGMA journal_mode=WAL;")
-        cursor = conn.cursor()
+        from media_tools.db.core import get_db_connection
+        with get_db_connection() as conn:
+            cursor = conn.cursor()
 
-        stats = video.get("statistics", {}) or {}
-        author = video.get("author", {}) or {}
-        video_nickname = (
-            video.get("nickname")
-            or author.get("nickname")
-            or nickname
-        )
-        uid = (
-            video.get("uid")
-            or author.get("uid")
-            or video.get("sec_user_id", "")
-        )
+            stats = video.get("statistics", {}) or {}
+            author = video.get("author", {}) or {}
+            video_nickname = (
+                video.get("nickname")
+                or author.get("nickname")
+                or nickname
+            )
+            uid = (
+                video.get("uid")
+                or author.get("uid")
+                or video.get("sec_user_id", "")
+            )
 
-        cursor.execute(
-            """
-            INSERT OR REPLACE INTO video_metadata
-            (aweme_id, uid, nickname, desc, create_time, duration,
-             digg_count, comment_count, collect_count, share_count, play_count,
-             fetch_time)
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-        """,
-            (
-                aweme_id,
-                uid,
-                video_nickname,
-                video.get("desc", ""),
-                video.get("create_time", 0),
-                video.get("video", {}).get("duration", 0) if video.get("video") else 0,
-                stats.get("digg_count", 0),
-                stats.get("comment_count", 0),
-                stats.get("collect_count", 0),
-                stats.get("share_count", 0),
-                stats.get("play_count", 0),
-                int(datetime.now().timestamp()),
-            ),
-        )
+            cursor.execute(
+                """
+                INSERT OR REPLACE INTO video_metadata
+                (aweme_id, uid, nickname, desc, create_time, duration,
+                 digg_count, comment_count, collect_count, share_count, play_count,
+                 fetch_time)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            """,
+                (
+                    aweme_id,
+                    uid,
+                    video_nickname,
+                    video.get("desc", ""),
+                    video.get("create_time", 0),
+                    video.get("video", {}).get("duration", 0) if video.get("video") else 0,
+                    stats.get("digg_count", 0),
+                    stats.get("comment_count", 0),
+                    stats.get("collect_count", 0),
+                    stats.get("share_count", 0),
+                    stats.get("play_count", 0),
+                    int(datetime.now().timestamp()),
+                ),
+            )
 
-        conn.commit()
-        return 1
+            conn.commit()
+            return 1
     finally:
         if conn:
             conn.close()
@@ -273,130 +273,125 @@ def _rename_videos_in_downloads(nickname: str, uid: str, downloads_path: Path) -
     user_dir.mkdir(parents=True, exist_ok=True)
 
     # 连接数据库获取该博主最近的视频标题
-    conn = None
     try:
-        conn = sqlite3.connect(str(db_path), timeout=15.0)
-        conn.execute("PRAGMA journal_mode=WAL;")
-        cursor = conn.cursor()
+        from media_tools.db.core import get_db_connection
+        with get_db_connection() as conn:
+            cursor = conn.cursor()
 
-        # 查询该博主所有视频标题（不限数量，确保批量下载时全部能匹配）
-        cursor.execute(
-            "SELECT aweme_id, desc FROM video_metadata WHERE uid = ? ORDER BY fetch_time DESC",
-            (uid,)
-        )
-        recent_videos = cursor.fetchall()
+            # 查询该博主所有视频标题（不限数量，确保批量下载时全部能匹配）
+            cursor.execute(
+                "SELECT aweme_id, desc FROM video_metadata WHERE uid = ? ORDER BY fetch_time DESC",
+                (uid,)
+            )
+            recent_videos = cursor.fetchall()
 
-        if not recent_videos:
-            return None
+            if not recent_videos:
+                return None
 
-        # 构建 aweme_id -> 标题 映射
-        title_map = {row[0]: row[1] for row in recent_videos}
+            # 构建 aweme_id -> 标题 映射
+            title_map = {row[0]: row[1] for row in recent_videos}
 
-        renamed_count = 0
-        processed_count = 0
-        db_updated = False
+            renamed_count = 0
+            processed_count = 0
+            db_updated = False
 
-        # 递归查找下载目录下的所有视频文件
-        for f in downloads_path.rglob("*.mp4"):
-            # 跳过 douyin/post 临时目录
-            if "/douyin/post/" in str(f):
-                continue
+            # 递归查找下载目录下的所有视频文件
+            for f in downloads_path.rglob("*.mp4"):
+                # 跳过 douyin/post 临时目录
+                if "/douyin/post/" in str(f):
+                    continue
 
-            stem = f.stem
+                stem = f.stem
 
-            # 方法0：直接从文件名提取 aweme_id（处理 F2 原始格式如 7620767195682364133_video.mp4）
-            aweme_id = None
-            aweme_match = re.match(r'^(\d{15,})(?:_video)?$', stem)
-            if aweme_match:
-                candidate = aweme_match.group(1)
-                if candidate in title_map:
-                    aweme_id = candidate
-                else:
-                    # 不在 title_map 里，直接查 DB
-                    cursor.execute("SELECT desc FROM video_metadata WHERE aweme_id = ?", (candidate,))
-                    row = cursor.fetchone()
-                    if row and row[0]:
-                        title_map[candidate] = row[0]
+                # 方法0：直接从文件名提取 aweme_id（处理 F2 原始格式如 7620767195682364133_video.mp4）
+                aweme_id = None
+                aweme_match = re.match(r'^(\d{15,})(?:_video)?$', stem)
+                if aweme_match:
+                    candidate = aweme_match.group(1)
+                    if candidate in title_map:
                         aweme_id = candidate
+                    else:
+                        # 不在 title_map 里，直接查 DB
+                        cursor.execute("SELECT desc FROM video_metadata WHERE aweme_id = ?", (candidate,))
+                        row = cursor.fetchone()
+                        if row and row[0]:
+                            title_map[candidate] = row[0]
+                            aweme_id = candidate
 
-            # 方法1：尝试从文件名匹配 title_map 中的 aweme_id
-            if not aweme_id:
-                for vid in title_map.keys():
-                    if vid in stem:
-                        aweme_id = vid
-                        break
-
-            # 方法2：如果文件名不包含 aweme_id，使用标题关键词匹配
-            if not aweme_id:
-                for vid, title in title_map.items():
-                    # 提取标题中的中文关键词
-                    clean_title = _clean_video_title(title)
-                    # 检查标题中的连续中文是否出现在文件名中
-                    chinese_words = re.findall(r'[\u4e00-\u9fa5]{2,}', clean_title)
-                    for word in chinese_words[:3]:  # 取前3个关键词
-                        if word in stem:
+                # 方法1：尝试从文件名匹配 title_map 中的 aweme_id
+                if not aweme_id:
+                    for vid in title_map.keys():
+                        if vid in stem:
                             aweme_id = vid
                             break
-                    if aweme_id:
-                        break
 
-            if aweme_id and aweme_id in title_map:
-                title = title_map[aweme_id]
-                clean_title = _clean_video_title(title)
-                clean_title = re.sub(r'[<>:"/\\|?*]', '', clean_title).strip()
-                if len(clean_title) > 60:
-                    clean_title = clean_title[:60]
+                # 方法2：如果文件名不包含 aweme_id，使用标题关键词匹配
+                if not aweme_id:
+                    for vid, title in title_map.items():
+                        # 提取标题中的中文关键词
+                        clean_title = _clean_video_title(title)
+                        # 检查标题中的连续中文是否出现在文件名中
+                        chinese_words = re.findall(r'[\u4e00-\u9fa5]{2,}', clean_title)
+                        for word in chinese_words[:3]:  # 取前3个关键词
+                            if word in stem:
+                                aweme_id = vid
+                                break
+                        if aweme_id:
+                            break
 
-                new_name = f"{clean_title}{f.suffix}"
-                dest = user_dir / new_name
+                if aweme_id and aweme_id in title_map:
+                    title = title_map[aweme_id]
+                    clean_title = _clean_video_title(title)
+                    clean_title = re.sub(r'[<>:"/\\|?*]', '', clean_title).strip()
+                    if len(clean_title) > 60:
+                        clean_title = clean_title[:60]
 
-                # 如果文件名已经是清洗后的（与新名相同），跳过
-                if f.name == new_name and f.parent == user_dir:
+                    new_name = f"{clean_title}{f.suffix}"
+                    dest = user_dir / new_name
+
+                    # 如果文件名已经是清洗后的（与新名相同），跳过
+                    if f.name == new_name and f.parent == user_dir:
+                        # 更新数据库中的 local_filename
+                        cursor.execute(
+                            "UPDATE video_metadata SET local_filename = ? WHERE aweme_id = ?",
+                            (new_name, aweme_id)
+                        )
+                        db_updated = True
+                        continue
+
+                    if not dest.exists():
+                        shutil.move(str(f), str(dest))
+                        processed_count += 1
+                        renamed_count += 1
+                        logger.info(info(f"  [重命名] {f.name[:40]}... -> {new_name[:40]}..."))
+                    else:
+                        counter = 1
+                        while dest.exists():
+                            new_name = f"{clean_title}_{counter}{f.suffix}"
+                            dest = user_dir / new_name
+                            counter += 1
+                        shutil.move(str(f), str(dest))
+                        processed_count += 1
+                        renamed_count += 1
+
                     # 更新数据库中的 local_filename
                     cursor.execute(
                         "UPDATE video_metadata SET local_filename = ? WHERE aweme_id = ?",
                         (new_name, aweme_id)
                     )
                     db_updated = True
-                    continue
-
-                if not dest.exists():
-                    shutil.move(str(f), str(dest))
-                    processed_count += 1
-                    renamed_count += 1
-                    logger.info(info(f"  [重命名] {f.name[:40]}... → {new_name[:40]}..."))
                 else:
-                    counter = 1
-                    while dest.exists():
-                        new_name = f"{clean_title}_{counter}{f.suffix}"
-                        dest = user_dir / new_name
-                        counter += 1
-                    shutil.move(str(f), str(dest))
-                    processed_count += 1
-                    renamed_count += 1
+                    # 无法匹配，直接移动到目标目录
+                    if f.parent != user_dir:
+                        dest = user_dir / f.name
+                        if not dest.exists():
+                            shutil.move(str(f), str(dest))
+                            processed_count += 1
 
-                # 更新数据库中的 local_filename
-                cursor.execute(
-                    "UPDATE video_metadata SET local_filename = ? WHERE aweme_id = ?",
-                    (new_name, aweme_id)
-                )
-                db_updated = True
-            else:
-                # 无法匹配，直接移动到目标目录
-                if f.parent != user_dir:
-                    dest = user_dir / f.name
-                    if not dest.exists():
-                        shutil.move(str(f), str(dest))
-                        processed_count += 1
-
-        if processed_count > 0:
-            logger.info(info(f"  [整理] 已处理 {processed_count} 个文件到 {folder_name}/（{renamed_count} 个已重命名）"))
-
-        if db_updated:
-            conn.commit()
-    finally:
-        if conn:
-            conn.close()
+            if processed_count > 0:
+                logger.info(info(f"  [整理] 已处理 {processed_count} 个文件到 {folder_name}/（{renamed_count} 个已重命名）"))
+    except (sqlite3.Error, OSError):
+        pass
 
     return folder_name
 
@@ -449,97 +444,95 @@ def _sync_media_assets(uid: str, nickname: str, folder_name: str):
     downloads_path = config.get_download_path()
 
     try:
-        conn = sqlite3.connect(str(db_path), timeout=15.0)
-        conn.execute("PRAGMA journal_mode=WAL;")
-        cursor = conn.cursor()
+        from media_tools.db.core import get_db_connection
+        with get_db_connection() as conn:
+            cursor = conn.cursor()
 
-        # 获取该用户的所有视频元数据
-        cursor.execute("SELECT aweme_id, desc, duration FROM video_metadata WHERE uid = ?", (uid,))
-        videos = cursor.fetchall()
-        
-        # 修复：优化文件查找算法，从O(N*M)降到O(N+M)
-        # 先扫描一次所有文件，构建查找表
-        user_dir = resolve_safe_path(downloads_path, folder_name)
-        if not user_dir:
-            logger.warning(f"Path traversal blocked for folder: {folder_name}")
-            user_dir = resolve_safe_path(downloads_path, uid) or downloads_path
-        file_lookup = {}  # {aweme_id: filename}
-        keyword_lookup = {}  # {keyword: filename}
+            # 获取该用户的所有视频元数据
+            cursor.execute("SELECT aweme_id, desc, duration FROM video_metadata WHERE uid = ?", (uid,))
+            videos = cursor.fetchall()
 
-        if user_dir and user_dir.exists():
-            # 一次性获取所有mp4文件
-            all_files = list(user_dir.glob("*.mp4"))
-            
-            # 构建aweme_id查找表
-            for f in all_files:
-                # 尝试从文件名提取aweme_id（15位及以上数字）
-                aweme_matches = re.findall(r'\d{15,}', f.stem)
-                for aweme_id in aweme_matches:
-                    file_lookup[aweme_id] = f"{folder_name}/{f.name}"
-                
-                # 构建关键词查找表
-                clean_stem = f.stem.lower()
-                chinese_words = re.findall(r'[\u4e00-\u9fa5]{2,}', clean_stem)
-                for word in chinese_words:
-                    if word not in keyword_lookup:
-                        keyword_lookup[word] = f"{folder_name}/{f.name}"
+            # 修复：优化文件查找算法，从O(N*M)降到O(N+M)
+            # 先扫描一次所有文件，构建查找表
+            user_dir = resolve_safe_path(downloads_path, folder_name)
+            if not user_dir:
+                logger.warning(f"Path traversal blocked for folder: {folder_name}")
+                user_dir = resolve_safe_path(downloads_path, uid) or downloads_path
+            file_lookup = {}  # {aweme_id: filename}
+            keyword_lookup = {}  # {keyword: filename}
 
-        now = datetime.now().isoformat()
+            if user_dir and user_dir.exists():
+                # 一次性获取所有mp4文件
+                all_files = list(user_dir.glob("*.mp4"))
 
-        for aweme_id, desc, duration in videos:
-            # 尝试在查找表中寻找该视频文件
-            video_path = ""
-            video_status = "pending"
-            
-            # 方法1：通过aweme_id匹配
-            if aweme_id in file_lookup:
-                video_path = file_lookup[aweme_id]
-                video_status = "downloaded"
-            else:
-                # 方法2：通过中文关键词匹配
-                clean_title = _clean_video_title(desc)
-                chinese_words = re.findall(r'[\u4e00-\u9fa5]{2,}', clean_title)
-                for word in chinese_words[:3]:  # 取前3个关键词
-                    if word in keyword_lookup:
-                        video_path = keyword_lookup[word]
-                        video_status = "downloaded"
-                        break
+                # 构建aweme_id查找表
+                for f in all_files:
+                    # 尝试从文件名提取aweme_id（15位及以上数字）
+                    aweme_matches = re.findall(r'\d{15,}', f.stem)
+                    for aweme_id in aweme_matches:
+                        file_lookup[aweme_id] = f"{folder_name}/{f.name}"
 
-            # 插入或更新 media_assets 表
-            cursor.execute("""
-                INSERT OR IGNORE INTO media_assets
-                (asset_id, creator_uid, title, duration, video_path, video_status, create_time, update_time)
-                VALUES (?, ?, ?, ?, ?, ?, ?, ?)
-            """, (
-                aweme_id, uid, desc, duration, video_path, video_status, now, now
-            ))
+                    # 构建关键词查找表
+                    clean_stem = f.stem.lower()
+                    chinese_words = re.findall(r'[\u4e00-\u9fa5]{2,}', clean_stem)
+                    for word in chinese_words:
+                        if word not in keyword_lookup:
+                            keyword_lookup[word] = f"{folder_name}/{f.name}"
 
-            # 如果已经存在，则更新状态
-            cursor.execute("""
-                UPDATE media_assets
-                SET video_path = ?, video_status = ?, update_time = ?
-                WHERE asset_id = ? AND video_status != 'downloaded'
-            """, (video_path, video_status, now, aweme_id))
+            now = datetime.now().isoformat()
 
-        conn.commit()
-    except Exception as e:
+            for aweme_id, desc, duration in videos:
+                # 尝试在查找表中寻找该视频文件
+                video_path = ""
+                video_status = "pending"
+
+                # 方法1：通过aweme_id匹配
+                if aweme_id in file_lookup:
+                    video_path = file_lookup[aweme_id]
+                    video_status = "downloaded"
+                else:
+                    # 方法2：通过中文关键词匹配
+                    clean_title = _clean_video_title(desc)
+                    chinese_words = re.findall(r'[\u4e00-\u9fa5]{2,}', clean_title)
+                    for word in chinese_words[:3]:  # 取前3个关键词
+                        if word in keyword_lookup:
+                            video_path = keyword_lookup[word]
+                            video_status = "downloaded"
+                            break
+
+                # 插入或更新 media_assets 表
+                cursor.execute("""
+                    INSERT OR IGNORE INTO media_assets
+                    (asset_id, creator_uid, title, duration, video_path, video_status, create_time, update_time)
+                    VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+                """, (
+                    aweme_id, uid, desc, duration, video_path, video_status, now, now
+                ))
+
+                # 如果已经存在，则更新状态
+                cursor.execute("""
+                    UPDATE media_assets
+                    SET video_path = ?, video_status = ?, update_time = ?
+                    WHERE asset_id = ? AND video_status != 'downloaded'
+                """, (video_path, video_status, now, aweme_id)
+                )
+    except (sqlite3.Error, OSError) as e:
         logger.error(f"同步 media_assets 失败: {e}")
-    finally:
-        if conn:
-            conn.close()
 
 def _update_last_fetch_time(uid: str, nickname: str = ""):
     """更新 SQLite 中的 last_fetch_time"""
     try:
-        config = get_config()
-        db_path = config.get_db_path()
-        with sqlite3.connect(str(db_path)) as conn:
+        from media_tools.db.core import get_db_connection
+        with get_db_connection() as conn:
             cursor = conn.cursor()
             cursor.execute(
                 "UPDATE creators SET last_fetch_time = ? WHERE uid = ?",
                 (datetime.now().isoformat(), uid)
             )
             conn.commit()
+        logger.info(info(f"  [更新] last_fetch_time for {nickname or uid}"))
+    except (sqlite3.Error, OSError) as e:
+        logger.error(f"更新 last_fetch_time 失败: {e}")
         logger.info(info(f"  [更新] last_fetch_time for {nickname or uid}"))
     except Exception as e:
         logger.error(f"更新 last_fetch_time 失败: {e}")
@@ -615,34 +608,30 @@ async def _download_with_stats(url: str, max_counts: int | None = None, skip_exi
     # 从数据库获取用户信息（通过 sec_user_id 精确匹配）
     db_path = config.get_db_path()
     user_info = None
-    conn = None
     try:
-        conn = sqlite3.connect(str(db_path), timeout=15.0)
-        conn.execute("PRAGMA journal_mode=WAL;")
-        cursor = conn.cursor()
-        cursor.execute(
-            "SELECT uid, nickname FROM user_info_web WHERE sec_user_id = ? LIMIT 1",
-            (sec_user_id,)
-        )
-        user_info = cursor.fetchone()
-    finally:
-        if conn:
-            conn.close()
+        from media_tools.db.core import get_db_connection
+        with get_db_connection() as conn:
+            cursor = conn.cursor()
+            cursor.execute(
+                "SELECT uid, nickname FROM user_info_web WHERE sec_user_id = ? LIMIT 1",
+                (sec_user_id,)
+            )
+            user_info = cursor.fetchone()
+    except (sqlite3.Error, OSError):
+        pass
 
     # 如果没找到，使用最新记录（向后兼容）
     if not user_info:
-        conn = None
         try:
-            conn = sqlite3.connect(str(db_path), timeout=15.0)
-            conn.execute("PRAGMA journal_mode=WAL;")
-            cursor = conn.cursor()
-            cursor.execute(
-                "SELECT uid, nickname FROM user_info_web ORDER BY ROWID DESC LIMIT 1"
-            )
-            user_info = cursor.fetchone()
-        finally:
-            if conn:
-                conn.close()
+            from media_tools.db.core import get_db_connection
+            with get_db_connection() as conn:
+                cursor = conn.cursor()
+                cursor.execute(
+                    "SELECT uid, nickname FROM user_info_web ORDER BY ROWID DESC LIMIT 1"
+                )
+                user_info = cursor.fetchone()
+        except (sqlite3.Error, OSError):
+            pass
 
     uid = user_info[0] if user_info else ""
     nickname = user_info[1] if user_info else ""
@@ -660,28 +649,24 @@ async def _download_with_stats(url: str, max_counts: int | None = None, skip_exi
                 logger.info(info(f"[本地] 已有 {len(existing_videos)} 个视频文件，将跳过已下载的"))
 
         # 同时从数据库获取已下载的视频 ID（防止文件被删除后重复下载）
-        conn = None
         try:
-            conn = sqlite3.connect(str(db_path), timeout=15.0)
-            conn.execute("PRAGMA journal_mode=WAL;")
-            cursor = conn.cursor()
-            cursor.execute(
-                "SELECT aweme_id FROM video_metadata WHERE uid = ? AND aweme_id != ''",
-                (uid,)
-            )
-            db_videos = {row[0] for row in cursor.fetchall() if row[0]}
+            from media_tools.db.core import get_db_connection
+            with get_db_connection() as conn:
+                cursor = conn.cursor()
+                cursor.execute(
+                    "SELECT aweme_id FROM video_metadata WHERE uid = ? AND aweme_id != ''",
+                    (uid,)
+                )
+                db_videos = {row[0] for row in cursor.fetchall() if row[0]}
 
-            if db_videos:
-                # 合并本地文件和数据库记录
-                new_from_db = db_videos - existing_videos
-                if new_from_db:
-                    logger.info(info(f"[数据库] 发现 {len(new_from_db)} 条历史记录（文件可能已删除）"))
-                existing_videos.update(db_videos)
-        except Exception as e:
+                if db_videos:
+                    # 合并本地文件和数据库记录
+                    new_from_db = db_videos - existing_videos
+                    if new_from_db:
+                        logger.info(info(f"[数据库] 发现 {len(new_from_db)} 条历史记录（文件可能已删除）"))
+                    existing_videos.update(db_videos)
+        except (sqlite3.Error, OSError) as e:
             logger.warning(f"查询数据库失败: {e}")
-        finally:
-            if conn:
-                conn.close()
     else:
         logger.info(info("[模式] 全量重拉：不跳过已存在视频"))
 
@@ -779,23 +764,19 @@ async def _download_with_stats(url: str, max_counts: int | None = None, skip_exi
 
     new_files = []
     if new_aweme_ids and folder_name:
-        conn = None
         try:
-            conn = sqlite3.connect(str(db_path), timeout=15.0)
-            conn.execute("PRAGMA journal_mode=WAL;")
-            cursor = conn.cursor()
-            placeholders = ','.join(['?'] * len(new_aweme_ids))
-            cursor.execute(f"SELECT video_path FROM media_assets WHERE asset_id IN ({placeholders})", new_aweme_ids)
-            for row in cursor.fetchall():
-                if row[0]:
-                    full_path = downloads_path / row[0]
-                    if full_path.exists():
-                        new_files.append(str(full_path))
-        except Exception as e:
+            from media_tools.db.core import get_db_connection
+            with get_db_connection() as conn:
+                cursor = conn.cursor()
+                placeholders = ','.join(['?'] * len(new_aweme_ids))
+                cursor.execute(f"SELECT video_path FROM media_assets WHERE asset_id IN ({placeholders})", new_aweme_ids)
+                for row in cursor.fetchall():
+                    if row[0]:
+                        full_path = downloads_path / row[0]
+                        if full_path.exists():
+                            new_files.append(str(full_path))
+        except (sqlite3.Error, OSError) as e:
             logger.error(f"查询新文件路径失败: {e}")
-        finally:
-            if conn:
-                conn.close()
 
     logger.info(f"下载完成: 共 {total_downloaded} 个视频")
     logger.info(success(f"\n[完成] 共下载 {total_downloaded} 个视频"))
@@ -954,8 +935,8 @@ async def download_aweme_by_url(url: str):
                 new_files.append(str(file_path))
 
     try:
-        with sqlite3.connect(str(config.get_db_path()), timeout=15.0) as conn:
-            conn.execute("PRAGMA journal_mode=WAL;")
+        from media_tools.db.core import get_db_connection
+        with get_db_connection() as conn:
             cursor = conn.cursor()
             cursor.execute(
                 "SELECT video_path FROM media_assets WHERE asset_id = ?",

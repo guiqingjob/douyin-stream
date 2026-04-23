@@ -30,6 +30,13 @@ class PipelineConfig:
         return get_config().project_root / "transcripts"
 
 
+def _safe_int_env(key: str, default: int) -> int:
+    try:
+        return int(os.environ.get(key, str(default)))
+    except (TypeError, ValueError):
+        return default
+
+
 def load_pipeline_config() -> PipelineConfig:
     """从环境变量或默认值加载配置"""
     return PipelineConfig(
@@ -39,5 +46,5 @@ def load_pipeline_config() -> PipelineConfig:
         account_id=os.environ.get("PIPELINE_ACCOUNT_ID", "").strip(),
         remove_video=os.environ.get("PIPELINE_REMOVE_VIDEO", "false").lower() == "true",
         keep_original=os.environ.get("PIPELINE_KEEP_ORIGINAL", "true").lower() == "true",
-        concurrency=int(os.environ.get("PIPELINE_CONCURRENCY", "5")),
+        concurrency=_safe_int_env("PIPELINE_CONCURRENCY", 5),
     )

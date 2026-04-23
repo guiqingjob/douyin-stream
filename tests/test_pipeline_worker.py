@@ -1,20 +1,21 @@
 from __future__ import annotations
 
-import unittest
+import asyncio
 from types import SimpleNamespace
 from unittest.mock import AsyncMock, patch
+import unittest
 
 from media_tools.pipeline.worker import run_pipeline_for_user
 
 
-class PipelineWorkerRoutingTests(unittest.IsolatedAsyncioTestCase):
-    async def test_pipeline_download_uses_router(self) -> None:
+class PipelineWorkerTests(unittest.IsolatedAsyncioTestCase):
+    async def test_run_pipeline_for_user_uses_threaded_download_path(self) -> None:
         update_progress = AsyncMock()
         download_mock = object()
         orchestrator = SimpleNamespace(transcribe_batch=AsyncMock(return_value=SimpleNamespace(success=1, failed=0, results=[])))
         fake_config = SimpleNamespace()
 
-        with patch("media_tools.bilibili.core.downloader.download_up_by_url", download_mock), patch(
+        with patch("media_tools.pipeline.download_router.download_by_url", download_mock), patch(
             "media_tools.pipeline.worker.asyncio.to_thread",
             new=AsyncMock(return_value={"success": True, "new_files": ["/tmp/video.mp4"]}),
         ) as mocked_to_thread, patch(
@@ -25,7 +26,7 @@ class PipelineWorkerRoutingTests(unittest.IsolatedAsyncioTestCase):
             return_value=orchestrator,
         ):
             result = await run_pipeline_for_user(
-                url="https://space.bilibili.com/123",
+                url="https://www.douyin.com/user/test",
                 max_counts=1,
                 update_progress_fn=update_progress,
                 delete_after=False,
@@ -35,12 +36,12 @@ class PipelineWorkerRoutingTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(result["failed_count"], 0)
         mocked_to_thread.assert_awaited_once()
         self.assertIs(mocked_to_thread.await_args.args[0], download_mock)
-        self.assertEqual(
-            mocked_to_thread.await_args.args[1:],
-            ("https://space.bilibili.com/123", 1, True, None, None),
-        )
+        self.assertEqual(mocked_to_thread.await_args.args[1:], ("https://www.douyin.com/user/test", 1, False, True, None))
+        orchestrator.transcribe_batch.assert_awaited_once()
+        update_progress.assert_any_await(0.1, "正在下载视频...")
+        update_progress.assert_any_await(0.4, "下载完成，准备转写 1 个视频...")
+        update_progress.assert_any_await(1.0, "流水线完成: 成功 1, 失败 0")
 
 
 if __name__ == "__main__":
     unittest.main()
-

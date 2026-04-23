@@ -86,11 +86,12 @@ def list_users():
     
     users = []
     try:
-        with sqlite3.connect(str(db_path)) as conn:
+        from media_tools.db.core import get_db_connection
+        with get_db_connection() as conn:
             conn.row_factory = sqlite3.Row
             cursor = conn.cursor()
             cursor.execute("SELECT uid, sec_user_id, nickname, platform, sync_status, last_fetch_time FROM creators ORDER BY last_fetch_time DESC")
-            
+
             for row in cursor.fetchall():
                 users.append({
                     "uid": row["uid"],
@@ -101,9 +102,9 @@ def list_users():
                     "sync_status": row["sync_status"],
                     "last_fetch_time": row["last_fetch_time"]
                 })
-    except Exception as e:
+    except (sqlite3.Error, OSError) as e:
         logger.error(f"读取关注列表失败: {e}")
-        
+
     return users
 
 
@@ -111,7 +112,8 @@ def get_user(uid: str):
     config = get_config()
     db_path = config.get_db_path()
     try:
-        with sqlite3.connect(str(db_path)) as conn:
+        from media_tools.db.core import get_db_connection
+        with get_db_connection() as conn:
             conn.row_factory = sqlite3.Row
             cursor = conn.cursor()
             cursor.execute(
@@ -130,7 +132,7 @@ def get_user(uid: str):
                 "sync_status": row["sync_status"],
                 "last_fetch_time": row["last_fetch_time"],
             }
-    except Exception as e:
+    except (sqlite3.Error, OSError) as e:
         logger.error(f"读取用户失败: {e}")
         return None
 
@@ -158,7 +160,7 @@ def add_user(url):
     config = get_config()
     db_path = config.get_db_path()
     try:
-        with sqlite3.connect(str(db_path)) as conn:
+        with get_db_connection() as conn:
             cursor = conn.cursor()
             cursor.execute("SELECT uid, nickname FROM creators WHERE sec_user_id = ?", (sec_user_id,))
             row = cursor.fetchone()
@@ -182,7 +184,7 @@ def add_user(url):
     
     # 写入数据库 (代替旧版的 following.json)
     try:
-        with sqlite3.connect(str(db_path)) as conn:
+        with get_db_connection() as conn:
             cursor = conn.cursor()
             now = datetime.now().isoformat()
             
@@ -280,7 +282,7 @@ def remove_user(uid=None, delete_local=False):
     # 获取用户信息
     name = str(uid)
     try:
-        with sqlite3.connect(str(db_path)) as conn:
+        with get_db_connection() as conn:
             cursor = conn.cursor()
             cursor.execute("SELECT nickname FROM creators WHERE uid = ?", (uid,))
             row = cursor.fetchone()
@@ -316,7 +318,7 @@ def remove_user(uid=None, delete_local=False):
                 logger.info(success(f"已删除本地视频文件: {user_dir}"))
 
                 # 同步删除 media_assets 记录
-                with sqlite3.connect(str(db_path)) as conn:
+                with get_db_connection() as conn:
                     cursor = conn.cursor()
                     cursor.execute("DELETE FROM media_assets WHERE creator_uid = ?", (uid,))
                     conn.commit()

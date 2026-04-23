@@ -30,7 +30,7 @@ def _run_scan_all_following():
         from media_tools.douyin.core.downloader import download_all
         download_all(auto_confirm=True)
         logger.info("Scheduled task 'full sync all following' completed successfully.")
-    except Exception as e:
+    except (OSError, RuntimeError, ImportError) as e:
         logger.error(f"Scheduled task 'full sync all following' failed: {e}")
 
 
@@ -42,7 +42,7 @@ def _register_system_jobs() -> None:
         try:
             with get_db_connection() as conn:
                 cleanup_stale_tasks(conn)
-        except Exception as e:
+        except (sqlite3.Error, OSError) as e:
             logger.error(f"Stale task cleanup failed: {e}")
 
     scheduler.add_job(
@@ -51,6 +51,7 @@ def _register_system_jobs() -> None:
         minutes=10,
         id="__stale_task_cleanup__",
         replace_existing=True,
+        max_instances=1,
     )
 
     # Auto-claim Qwen daily quota at 08:05
@@ -66,9 +67,9 @@ def _register_system_jobs() -> None:
 
             targets = load_qwen_accounts_from_db()
 
-            loop = asyncio.new_event_loop()
-            asyncio.set_event_loop(loop)
             try:
+                loop = asyncio.new_event_loop()
+                asyncio.set_event_loop(loop)
                 for target in targets:
                     account_id = target.account_id
                     if target.status != "active":
@@ -98,6 +99,7 @@ def _register_system_jobs() -> None:
         trigger=CronTrigger(hour=8, minute=5),
         id="__auto_claim_qwen_quota__",
         replace_existing=True,
+        max_instances=1,
     )
 
 def _sync_scheduler():
@@ -121,7 +123,7 @@ def _sync_scheduler():
                     id=task_id,
                     replace_existing=True
                 )
-            except Exception as e:
+            except (ValueError, TypeError) as e:
                 logger.error(f"Failed to schedule task {task_id} with cron '{cron_expr}': {e}")
 
 def startup_scheduler():
@@ -157,7 +159,7 @@ def add_schedule(req: ScheduleRequest):
     task_id = str(uuid.uuid4())
     try:
         CronTrigger.from_crontab(req.cron_expr)
-    except Exception as e:
+    except (ValueError, TypeError) as e:
         raise HTTPException(status_code=400, detail=f"Invalid cron expression: {e}")
     with get_db_connection() as conn:
         try:
@@ -190,7 +192,7 @@ def toggle_schedule(task_id: str, req: ToggleRequest):
             conn.commit()
         except HTTPException:
             raise
-        except Exception as e:
+        except sqlite3.Error as e:
             raise HTTPException(status_code=400, detail=str(e))
     _sync_scheduler()
     return {"status": "success"}
@@ -205,7 +207,7 @@ def delete_schedule(task_id: str):
             conn.commit()
         except HTTPException:
             raise
-        except Exception as e:
+        except sqlite3.Error as e:
             raise HTTPException(status_code=400, detail=str(e))
     _sync_scheduler()
     return {"status": "success"}

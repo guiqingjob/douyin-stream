@@ -104,55 +104,52 @@ def _get_video_metadata(db_path):
     if not db_path.exists():
         return {}
 
-    conn = None
     try:
-        conn = sqlite3.connect(str(db_path))
-        cursor = conn.cursor()
+        from media_tools.db.core import get_db_connection
+        with get_db_connection() as conn:
+            cursor = conn.cursor()
 
-        cursor.execute(
-            "SELECT name FROM sqlite_master WHERE type='table' AND name='video_metadata'"
-        )
-        if not cursor.fetchone():
-            return {}
+            cursor.execute(
+                "SELECT name FROM sqlite_master WHERE type='table' AND name='video_metadata'"
+            )
+            if not cursor.fetchone():
+                return {}
 
-        cursor.execute(
+            cursor.execute(
+                """
+                SELECT
+                    aweme_id, uid, nickname, desc, create_time, duration,
+                    digg_count, comment_count, collect_count, share_count, play_count,
+                    local_filename, file_size, fetch_time
+                FROM video_metadata
             """
-            SELECT
-                aweme_id, uid, nickname, desc, create_time, duration,
-                digg_count, comment_count, collect_count, share_count, play_count,
-                local_filename, file_size, fetch_time
-            FROM video_metadata
-        """
-        )
-        rows = cursor.fetchall()
+            )
+            rows = cursor.fetchall()
 
-        metadata = {}
-        for row in rows:
-            aweme_id = row[0]
-            metadata[aweme_id] = {
-                "uid": row[1] or "",
-                "nickname": row[2] or "",
-                "desc": row[3] or "",
-                "create_time": row[4] or 0,
-                "duration": row[5] or 0,
-                "digg_count": row[6] or 0,
-                "comment_count": row[7] or 0,
-                "collect_count": row[8] or 0,
-                "share_count": row[9] or 0,
-                "play_count": row[10] or 0,
-                "local_filename": row[11] or "",
-                "file_size": row[12] or 0,
-                "fetch_time": row[13] or 0,
-            }
+            metadata = {}
+            for row in rows:
+                aweme_id = row[0]
+                metadata[aweme_id] = {
+                    "uid": row[1] or "",
+                    "nickname": row[2] or "",
+                    "desc": row[3] or "",
+                    "create_time": row[4] or 0,
+                    "duration": row[5] or 0,
+                    "digg_count": row[6] or 0,
+                    "comment_count": row[7] or 0,
+                    "collect_count": row[8] or 0,
+                    "share_count": row[9] or 0,
+                    "play_count": row[10] or 0,
+                    "local_filename": row[11] or "",
+                    "file_size": row[12] or 0,
+                    "fetch_time": row[13] or 0,
+                }
 
-        return metadata
+            return metadata
 
-    except Exception as e:
+    except (sqlite3.Error, OSError) as e:
         logger.info(warning(f"读取数据库时出错: {e}"))
         return {}
-    finally:
-        if conn:
-            conn.close()
 
 def _extract_aweme_id(filename):
     """从文件名提取 aweme_id"""

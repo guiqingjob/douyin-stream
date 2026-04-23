@@ -38,7 +38,7 @@ def _cleanup_temp_files() -> None:
                 if os.path.exists(path_str):
                     os.unlink(path_str)
                     logger.debug(f"Cleaned up temp file: {path_str}")
-            except Exception as e:
+            except (OSError, PermissionError) as e:
                 logger.warning(f"Failed to cleanup temp file {path_str}: {e}")
         _temp_files.clear()
 
@@ -64,7 +64,8 @@ def _cleanup_on_signal(signum, frame) -> None:
 
 # 注册进程退出清理
 atexit.register(_cleanup_temp_files)
-signal.signal(signal.SIGTERM, _cleanup_on_signal)
+if hasattr(signal, 'SIGTERM'):
+    signal.signal(signal.SIGTERM, _cleanup_on_signal)
 signal.signal(signal.SIGINT, _cleanup_on_signal)
 
 
@@ -168,7 +169,7 @@ class PauseController:
                 if hasattr(signal, 'SIGSTOP'):
                     self._process.send_signal(signal.SIGSTOP)
                 logger.info(f"Task {self.task_id} paused")
-            except Exception as e:
+            except (OSError, ProcessLookupError) as e:
                 logger.warning(f"Failed to pause task {self.task_id}: {e}")
 
     def resume(self):
@@ -179,7 +180,7 @@ class PauseController:
                 if hasattr(signal, 'SIGCONT'):
                     self._process.send_signal(signal.SIGCONT)
                 logger.info(f"Task {self.task_id} resumed")
-            except Exception as e:
+            except (OSError, ProcessLookupError) as e:
                 logger.warning(f"Failed to resume task {self.task_id}: {e}")
 
     def cancel(self):
@@ -190,7 +191,7 @@ class PauseController:
             try:
                 self._process.terminate()
                 logger.info(f"Task {self.task_id} cancelled")
-            except Exception as e:
+            except (OSError, ProcessLookupError) as e:
                 logger.warning(f"Failed to cancel task {self.task_id}: {e}")
 
     def is_cancelled(self) -> bool:

@@ -71,7 +71,7 @@ async def run_local_transcribe(file_paths: list[str], update_progress_fn=None, d
     await _call_progress(update_progress_fn, 0.0, f"准备转写 {total} 个文件（并发 {config.concurrency}）")
     try:
         report = await orchestrator.transcribe_batch(valid_paths, resume=True)
-    except Exception as exc:  # noqa: BLE001
+    except (OSError, asyncio.TimeoutError, RuntimeError) as exc:
         logger.error(f"批量本地转写失败: {exc}")
         failed_count = total
         return {"success_count": success_count, "failed_count": failed_count, "total": total}
@@ -374,7 +374,7 @@ async def run_download_only(video_urls: list[str], update_progress_fn, task_id: 
         except asyncio.TimeoutError:
             logger.error(f"下载超时 {url}")
             failed_count += 1
-        except Exception as exc:
+        except (OSError, RuntimeError, ValueError) as exc:
             logger.error(f"下载失败 {url}: {exc}")
             failed_count += 1
 

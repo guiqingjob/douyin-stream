@@ -56,10 +56,8 @@ def _lookup_video_title(video_path: Path) -> str | None:
 
     aweme_id = aweme_matches[0]
     try:
-        from media_tools.douyin.core.config_mgr import get_config as get_douyin_config
-        db_path = get_douyin_config().get_db_path()
-        with sqlite3.connect(str(db_path), timeout=15.0) as conn:
-            conn.execute("PRAGMA journal_mode=WAL;")
+        from media_tools.db.core import get_db_connection
+        with get_db_connection() as conn:
             cursor = conn.cursor()
             cursor.execute("SELECT desc FROM video_metadata WHERE aweme_id = ?", (aweme_id,))
             row = cursor.fetchone()
@@ -68,7 +66,7 @@ def _lookup_video_title(video_path: Path) -> str | None:
                 row = cursor.fetchone()
             if row and row[0]:
                 return _clean_title_for_export(row[0])
-    except Exception as e:
+    except (sqlite3.Error, OSError) as e:
         logger.warning(f"查询视频标题失败: {e}")
 
     return None
@@ -95,8 +93,7 @@ def _lookup_creator_folder(video_path: Path) -> str | None:
     try:
         from media_tools.douyin.core.config_mgr import get_config as get_douyin_config
         db_path = get_douyin_config().get_db_path()
-        with sqlite3.connect(str(db_path), timeout=15.0) as conn:
-            conn.execute("PRAGMA journal_mode=WAL;")
+        with get_db_connection() as conn:
             cursor = conn.cursor()
             # media_assets.creator_uid -> creators.nickname
             cursor.execute("""

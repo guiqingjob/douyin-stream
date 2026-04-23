@@ -223,7 +223,7 @@ async def visit_equity_page(auth_state_path: str | Path) -> None:
         # 修复：尝试使用Chrome，如果不可用则回退到默认浏览器
         try:
             browser = await playwright.chromium.launch(channel="chrome", headless=True)
-        except Exception:
+        except (RuntimeError, OSError):
             # Chrome不可用时回退到默认浏览器
             browser = await playwright.chromium.launch(headless=True)
         try:
@@ -232,7 +232,7 @@ async def visit_equity_page(auth_state_path: str | Path) -> None:
             await page.goto("https://www.qianwen.com/equity", wait_until="domcontentloaded")
             try:
                 await page.wait_for_load_state("networkidle", timeout=15000)
-            except Exception:
+            except RuntimeError:
                 pass
             await page.wait_for_timeout(3000)
             await context.close()

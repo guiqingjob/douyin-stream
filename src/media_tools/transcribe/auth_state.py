@@ -169,7 +169,8 @@ def load_qwen_storage_state_from_db(db_path: str | Path | None = None) -> dict[s
         return None
 
     try:
-        with sqlite3.connect(resolved_db_path) as conn:
+        from media_tools.db.core import get_db_connection
+        with get_db_connection() as conn:
             cursor = conn.cursor()
             cursor.execute(
                 "SELECT auth_data FROM auth_credentials WHERE platform = ?",
@@ -241,7 +242,8 @@ def persist_qwen_auth_state(
     if should_sync_db:
         db_path = Path(get_config().get_db_path()).expanduser().resolve()
         init_db(db_path)
-        with sqlite3.connect(db_path) as conn:
+        from media_tools.db.core import get_db_connection
+        with get_db_connection() as conn:
             cursor = conn.cursor()
             cursor.execute(
                 """

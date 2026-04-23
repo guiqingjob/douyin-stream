@@ -30,7 +30,8 @@ def _get_active_douyin_cookie_from_pool(db_path) -> str:
     取到后自动更新 last_used，实现 round-robin。
     """
     try:
-        with sqlite3.connect(str(db_path), timeout=15.0) as conn:
+        from media_tools.db.core import get_db_connection
+        with get_db_connection() as conn:
             cursor = conn.cursor()
             # 最久未使用的排前面（NULL 即从未使用，最优先）
             cursor.execute("""

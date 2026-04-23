@@ -148,7 +148,7 @@ class ConnectionManager:
             try:
                 await connection.send_json(message)
                 self._stats["broadcast_success"] += 1
-            except Exception as e:
+            except (ConnectionResetError, OSError, BrokenPipeError, RuntimeError) as e:
                 # 区分异常类型
                 from starlette.websockets import WebSocketClose
                 if isinstance(e, (WebSocketClose, ConnectionResetError, OSError, BrokenPipeError)):
@@ -187,7 +187,7 @@ async def _task_heartbeat(task_id: str, interval: int = 30):
                     "UPDATE task_queue SET update_time = ? WHERE task_id = ? AND status IN ('PENDING', 'RUNNING')",
                     (datetime.now().isoformat(), task_id),
                 )
-        except Exception:
+        except (sqlite3.Error, OSError):
             # 心跳失败不阻断主任务
             pass
 
@@ -236,7 +236,7 @@ async def _handle_auto_retry(task_id: str):
         logger.info(f"任务 {task_id} 失败，自动重试 ({retry_count + 1}/{MAX_AUTO_RETRY})...")
         await _start_task_worker(task_id, task_type, original_params)
 
-    except Exception:
+    except (sqlite3.Error, OSError, RuntimeError, asyncio.TimeoutError):
         # 自动重试失败必须记录堆栈，否则难以排查
         logger.exception(f"自动重试失败 task_id={task_id}")
 
@@ -260,7 +260,7 @@ def _register_background_task(task_id: str, coro) -> "asyncio.Task[Any]":  # typ
                     retry_task = asyncio.create_task(_handle_auto_retry(task_id))
                     _background_tasks.add(retry_task)
                     retry_task.add_done_callback(lambda t: _background_tasks.discard(t))
-            except Exception as e:
+            except (RuntimeError, TypeError) as e:
                 logger.exception(f"检查 task exception 失败 task_id={task_id}: {e}")
 
     task.add_done_callback(_on_done)
@@ -278,13 +278,13 @@ async def websocket_endpoint(websocket: WebSocket):
                 await asyncio.sleep(20)
                 try:
                     await websocket.send_json({"type": "ping"})
-                except Exception as e:
+                except (ConnectionResetError, OSError, BrokenPipeError) as e:
                     logger.warning(f"WebSocket ping failed: {e}")
                     break
         except asyncio.CancelledError:
             # 正常取消，不记录
             logger.debug("Heartbeat task cancelled")
-        except Exception:
+        except (RuntimeError, OSError):
             logger.exception("Heartbeat task unexpected error")
 
     # 跟踪所有后台任务，防止 GC 导致静默失败
@@ -439,7 +439,7 @@ async def update_task_progress(
                 (task_id, task_type, progress, payload_str, now, now)
             )
         await notify_task_update(task_id, progress, msg, "RUNNING", task_type, result_summary, subtasks)
-    except Exception as e:
+    except (sqlite3.Error, OSError, RuntimeError) as e:
         logger.error(f"Error updating task: {e}")
 
 
@@ -460,7 +460,7 @@ async def _mark_task_cancelled(task_id: str, task_type: str) -> None:
                 (payload_str, task_id),
             )
         await notify_task_update(task_id, 0.0, msg, "CANCELLED", task_type)
-    except Exception as e:
+    except (sqlite3.Error, OSError, RuntimeError) as e:
         logger.error(f"Failed to mark task {task_id} as cancelled: {e}")
 
 async def _complete_task(
@@ -493,7 +493,7 @@ async def _fail_task(task_id: str, task_type: str, error: str) -> None:
                 "UPDATE task_queue SET status='FAILED', error_msg=? WHERE task_id=?",
                 (str(error), task_id),
             )
-    except Exception as e:
+    except (sqlite3.Error, OSError) as e:
         logger.error(f"Failed to fail task {task_id} in DB: {e}")
     await notify_task_update(task_id, 0.0, str(error), "FAILED", task_type)
 
@@ -612,7 +612,7 @@ def clear_task_history():
             )
             conn.commit()
         return {"status": "success", "message": "历史任务已清除"}
-    except Exception as e:
+    except (sqlite3.Error, OSError) as e:
         logger.exception("clear_task_history failed")
         return {"status": "error", "message": str(e)}
 
@@ -642,7 +642,7 @@ async def delete_task(task_id: str):
         return {"status": "success", "message": "任务已删除"}
     except HTTPException:
         raise
-    except Exception as e:
+    except (sqlite3.Error, OSError) as e:
         logger.exception(f"delete_task failed for {task_id}")
         return {"status": "error", "message": str(e)}
 
@@ -678,7 +678,7 @@ async def cancel_task(task_id: str):
         try:
             from media_tools.bilibili.core.downloader import cancel_download
             cancel_download(task_id)
-        except Exception:
+        except (RuntimeError, OSError, ImportError):
             pass
 
         # Cancel the asyncio task if running

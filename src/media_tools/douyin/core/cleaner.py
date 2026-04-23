@@ -120,35 +120,32 @@ def get_db_video_records():
     if not db_path.exists():
         return {}
 
-    conn = None
     try:
-        conn = sqlite3.connect(str(db_path))
-        cursor = conn.cursor()
-        cursor.execute("SELECT aweme_id, uid, desc, local_filename FROM video_metadata")
-        rows = cursor.fetchall()
+        from media_tools.db.core import get_db_connection
+        with get_db_connection() as conn:
+            cursor = conn.cursor()
+            cursor.execute("SELECT aweme_id, uid, desc, local_filename FROM video_metadata")
+            rows = cursor.fetchall()
 
-        db_data = {}
-        for aweme_id, uid, desc, local_filename in rows:
-            if uid not in db_data:
-                db_data[uid] = {
-                    "aweme_ids": set(),
-                    "records": [],
-                }
-            db_data[uid]["aweme_ids"].add(aweme_id)
-            db_data[uid]["records"].append({
-                "aweme_id": aweme_id,
-                "desc": desc,
-                "local_filename": local_filename,
-            })
+            db_data = {}
+            for aweme_id, uid, desc, local_filename in rows:
+                if uid not in db_data:
+                    db_data[uid] = {
+                        "aweme_ids": set(),
+                        "records": [],
+                    }
+                db_data[uid]["aweme_ids"].add(aweme_id)
+                db_data[uid]["records"].append({
+                    "aweme_id": aweme_id,
+                    "desc": desc,
+                    "local_filename": local_filename,
+                })
 
-        return db_data
+            return db_data
 
-    except Exception as e:
+    except (sqlite3.Error, OSError) as e:
         logger.info(error(f"数据库读取失败: {e}"))
         return {}
-    finally:
-        if conn:
-            conn.close()
 
 
 def clean_deleted_videos(auto_confirm=False):
@@ -254,61 +251,58 @@ def _clean_user_videos(uid, count_to_remove, db_records, local_files):
     db_path = config.get_db_path()
 
     try:
-        conn = sqlite3.connect(str(db_path))
-        cursor = conn.cursor()
+        from media_tools.db.core import get_db_connection
+        with get_db_connection() as conn:
+            cursor = conn.cursor()
 
-        # 优先删除本地不存在的文件对应的记录
-        # 通过文件名匹配（假设local_filename字段存储了文件名）
-        deleted = 0
+            # 优先删除本地不存在的文件对应的记录
+            # 通过文件名匹配（假设local_filename字段存储了文件名）
+            deleted = 0
 
-        for record in db_records:
-            if deleted >= count_to_remove:
-                break
-
-            aweme_id = record["aweme_id"]
-            local_filename = record["local_filename"]
-
-            # 如果本地文件名不在本地文件集合中，说明该记录对应的文件已被删除
-            should_delete = False
-            if local_filename and local_filename not in local_files:
-                should_delete = True
-            elif not local_filename:
-                # 如果local_filename为空，我们也删除（无法判断对应文件）
-                should_delete = True
-
-            if should_delete:
-                cursor.execute(
-                    "DELETE FROM video_metadata WHERE aweme_id = ?",
-                    (aweme_id,),
-                )
-                deleted += 1
-
-        # 如果还是不够，继续删除剩余记录
-        if deleted < count_to_remove:
-            cursor.execute(
-                "SELECT aweme_id FROM video_metadata WHERE uid = ? LIMIT ?",
-                (uid, count_to_remove - deleted + 10),  # 多获取一些
-            )
-            remaining = [row[0] for row in cursor.fetchall()]
-
-            for aweme_id in remaining:
+            for record in db_records:
                 if deleted >= count_to_remove:
                     break
+
+                aweme_id = record["aweme_id"]
+                local_filename = record["local_filename"]
+
+                # 如果本地文件名不在本地文件集合中，说明该记录对应的文件已被删除
+                should_delete = False
+                if local_filename and local_filename not in local_files:
+                    should_delete = True
+                elif not local_filename:
+                    # 如果local_filename为空，我们也删除（无法判断对应文件）
+                    should_delete = True
+
+                if should_delete:
+                    cursor.execute(
+                        "DELETE FROM video_metadata WHERE aweme_id = ?",
+                        (aweme_id,),
+                    )
+                    deleted += 1
+
+            # 如果还是不够，继续删除剩余记录
+            if deleted < count_to_remove:
                 cursor.execute(
-                    "DELETE FROM video_metadata WHERE aweme_id = ?",
-                    (aweme_id,),
+                    "SELECT aweme_id FROM video_metadata WHERE uid = ? LIMIT ?",
+                    (uid, count_to_remove - deleted + 10),  # 多获取一些
                 )
-                deleted += 1
+                remaining = [row[0] for row in cursor.fetchall()]
 
-        conn.commit()
+                for aweme_id in remaining:
+                    if deleted >= count_to_remove:
+                        break
+                    cursor.execute(
+                        "DELETE FROM video_metadata WHERE aweme_id = ?",
+                        (aweme_id,),
+                    )
+                    deleted += 1
 
-        return deleted
+            return deleted
 
-    except Exception as e:
+    except (sqlite3.Error, OSError) as e:
         logger.info(error(f"   清理失败: {e}"))
         return 0
-    finally:
-        conn.close()
 
 
 def clean_all_user_data(uid, user_name):
@@ -330,29 +324,26 @@ def clean_all_user_data(uid, user_name):
         return False
 
     try:
-        conn = sqlite3.connect(str(db_path))
-        cursor = conn.cursor()
+        from media_tools.db.core import get_db_connection
+        with get_db_connection() as conn:
+            cursor = conn.cursor()
 
-        # 删除视频元数据
-        cursor.execute("DELETE FROM video_metadata WHERE uid = ?", (uid,))
-        video_deleted = cursor.rowcount
+            # 删除视频元数据
+            cursor.execute("DELETE FROM video_metadata WHERE uid = ?", (uid,))
+            video_deleted = cursor.rowcount
 
-        # 删除用户信息
-        cursor.execute("DELETE FROM user_info_web WHERE uid = ?", (uid,))
-        user_deleted = cursor.rowcount
+            # 删除用户信息
+            cursor.execute("DELETE FROM user_info_web WHERE uid = ?", (uid,))
+            user_deleted = cursor.rowcount
 
-        conn.commit()
+            logger.info(success(f"  ✓ 已清理 {user_name} 的数据库记录"))
+            logger.info(f"    视频记录: {video_deleted} 条 | 用户信息: {user_deleted} 条")
 
-        logger.info(success(f"  ✓ 已清理 {user_name} 的数据库记录"))
-        logger.info(f"    视频记录: {video_deleted} 条 | 用户信息: {user_deleted} 条")
+            return True
 
-        return True
-
-    except Exception as e:
+    except (sqlite3.Error, OSError) as e:
         logger.info(error(f"  清理失败: {e}"))
         return False
-    finally:
-        conn.close()
 
 
 def interactive_clean_menu():

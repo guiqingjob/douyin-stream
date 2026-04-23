@@ -51,21 +51,18 @@ def _get_db_video_count(uid):
     config = get_config()
     db_path = config.get_db_path()
 
-    conn = None
     try:
-        conn = sqlite3.connect(str(db_path))
-        cursor = conn.cursor()
-        cursor.execute(
-            "SELECT COUNT(*) FROM video_metadata WHERE uid = ?",
-            (uid,),
-        )
-        count = cursor.fetchone()[0]
-        return count
+        from media_tools.db.core import get_db_connection
+        with get_db_connection() as conn:
+            cursor = conn.cursor()
+            cursor.execute(
+                "SELECT COUNT(*) FROM video_metadata WHERE uid = ?",
+                (uid,),
+            )
+            count = cursor.fetchone()[0]
+            return count
     except sqlite3.Error:
         return 0
-    finally:
-        if conn:
-            conn.close()
 
 
 async def _get_remote_video_count(sec_user_id):

@@ -83,7 +83,7 @@ def get_db() -> Generator[sqlite3.Connection, None, None]:
     try:
         yield conn
         conn.commit()
-    except Exception:
+    except sqlite3.Error:
         conn.rollback()
         raise
     finally:
@@ -125,7 +125,7 @@ class DBConnection:
                 self._conn.commit()
             else:
                 self._conn.rollback()
-        except Exception:
+        except sqlite3.Error:
             self._conn.rollback()
         finally:
             if not self._keep_open:
@@ -250,7 +250,7 @@ def init_db(db_path: str | Path):
         try:
             logger.info(f"发现旧版数据库 {old_db_path.name}，正在迁移至 {db_path.name}...")
             os.rename(old_db_path, db_path)
-        except Exception as e:
+        except (OSError, PermissionError) as e:
             logger.error(f"重命名旧版数据库失败: {e}")
 
     # 确保父目录存在
@@ -422,7 +422,7 @@ def init_db(db_path: str | Path):
 
         conn.commit()
         logger.info("数据库初始化完成（含全部 9 张表）")
-    except Exception as e:
+    except (sqlite3.Error, OSError) as e:
         logger.error(f"初始化数据库失败: {e}")
         if conn:
             conn.rollback()
