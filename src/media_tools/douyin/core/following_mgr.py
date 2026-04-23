@@ -9,6 +9,7 @@ import re
 import sqlite3
 from datetime import datetime
 
+from media_tools.db.core import get_db_connection
 from media_tools.logger import get_logger
 
 from .config_mgr import get_config
@@ -42,6 +43,20 @@ def _resolve_safe_path(base_dir: Path, relative_path: str | None) -> Path | None
         return None
 
 
+def _run_async_coro(coro):
+    """在同步代码中安全运行异步协程，兼容已有事件循环的场景（如 FastAPI）。"""
+    try:
+        loop = asyncio.get_running_loop()
+        if loop.is_running():
+            import concurrent.futures
+
+            with concurrent.futures.ThreadPoolExecutor() as pool:
+                return pool.submit(asyncio.run, coro).result()
+    except RuntimeError:
+        pass
+    return asyncio.run(coro)
+
+
 def _resolve_sec_user_id(url: str) -> str | None:
     """将用户主页链接规范化为 canonical sec_user_id。"""
 
@@ -56,7 +71,7 @@ def _resolve_sec_user_id(url: str) -> str | None:
         return await SecUserIdFetcher.get_sec_user_id(url)
 
     try:
-        resolved = asyncio.run(_fetch())
+        resolved = _run_async_coro(_fetch())
         if resolved and resolved.startswith('MS4w'):
             return resolved
     except Exception as exc:
@@ -86,7 +101,6 @@ def list_users():
     
     users = []
     try:
-        from media_tools.db.core import get_db_connection
         with get_db_connection() as conn:
             conn.row_factory = sqlite3.Row
             cursor = conn.cursor()
@@ -224,7 +238,7 @@ def _fetch_user_info_via_f2(url, sec_user_id):
         return profile._to_dict()
 
     try:
-        profile_data = asyncio.run(_fetch_profile())
+        profile_data = _run_async_coro(_fetch_profile())
     except Exception as exc:
         logger.info(error(f"获取用户 profile 失败: {exc}"))
         return None
