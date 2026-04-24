@@ -330,6 +330,7 @@ async def notify_task_update(
     task_type: str = "pipeline",
     result_summary: dict | None = None,
     subtasks: list | None = None,
+    stage: str = "",
 ):
     """广播任务更新到 WebSocket 客户端"""
     message = {
@@ -339,6 +340,8 @@ async def notify_task_update(
         "status": status,
         "task_type": task_type,
     }
+    if stage:
+        message["stage"] = stage
     if result_summary:
         message["result_summary"] = result_summary
     if subtasks:
@@ -432,6 +435,7 @@ async def update_task_progress(
     task_type: str = "pipeline",
     result_summary: dict | None = None,
     subtasks: list | None = None,
+    stage: str = "",
 ):
     """更新任务进度，支持详细的进度信息"""
     try:
@@ -449,7 +453,7 @@ async def update_task_progress(
                        update_time = excluded.update_time""",
                 (task_id, task_type, progress, payload_str, now, now)
             )
-        await notify_task_update(task_id, progress, msg, "RUNNING", task_type, result_summary, subtasks)
+        await notify_task_update(task_id, progress, msg, "RUNNING", task_type, result_summary, subtasks, stage)
     except (sqlite3.Error, OSError, RuntimeError) as e:
         logger.error(f"Error updating task: {e}")
 
@@ -510,8 +514,8 @@ async def _fail_task(task_id: str, task_type: str, error: str) -> None:
 
 
 async def _background_pipeline_worker(task_id: str, req: PipelineRequest):
-    async def _progress_fn(p, m):
-        await update_task_progress(task_id, p, m, "pipeline")
+    async def _progress_fn(p, m, stage=""):
+        await update_task_progress(task_id, p, m, "pipeline", stage=stage)
 
     heartbeat = asyncio.create_task(_task_heartbeat(task_id))
     try:
@@ -1007,8 +1011,8 @@ class FullSyncRequest(BaseModel):
     batch_size: int | None = None  # 每批下载数量
 
 async def _background_batch_worker(task_id: str, req: BatchPipelineRequest):
-    async def _progress_fn(p, m):
-        await update_task_progress(task_id, p, m, "pipeline")
+    async def _progress_fn(p, m, stage=""):
+        await update_task_progress(task_id, p, m, "pipeline", stage=stage)
 
     heartbeat = asyncio.create_task(_task_heartbeat(task_id))
     try:
@@ -1042,8 +1046,8 @@ async def trigger_batch_pipeline(req: BatchPipelineRequest, background_tasks: Ba
     return {"task_id": task_id, "status": "started"}
 
 async def _background_download_worker(task_id: str, req: DownloadBatchRequest):
-    async def _progress_fn(p, m):
-        await update_task_progress(task_id, p, m, "download")
+    async def _progress_fn(p, m, stage=""):
+        await update_task_progress(task_id, p, m, "download", stage=stage)
 
     heartbeat = asyncio.create_task(_task_heartbeat(task_id))
     try:
@@ -1073,8 +1077,8 @@ async def trigger_download_batch(req: DownloadBatchRequest, background_tasks: Ba
     return {"task_id": task_id, "status": "started"}
 
 async def _background_creator_download_worker(task_id: str, uid: str, mode: str = "incremental", batch_size: int | None = None, original_params: dict | None = None):
-    async def _progress_fn(p, m, result_summary=None, subtasks=None):
-        await update_task_progress(task_id, p, m, f"creator_sync_{mode}", result_summary, subtasks)
+    async def _progress_fn(p, m, result_summary=None, subtasks=None, stage=""):
+        await update_task_progress(task_id, p, m, f"creator_sync_{mode}", result_summary, subtasks, stage)
 
     heartbeat = asyncio.create_task(_task_heartbeat(task_id))
     try:
@@ -1095,7 +1099,7 @@ async def _background_creator_download_worker(task_id: str, uid: str, mode: str 
         requested_batch_size = batch_size
         douyin_batch_size = batch_size or 50  # 抖音默认每批50个
         batch_label = requested_batch_size if requested_batch_size is not None else ("全部" if platform == "bilibili" else douyin_batch_size)
-        await _progress_fn(0.05, f"开始同步 {display_name} 的视频（{mode}，每批 {batch_label} 个）...")
+        await _progress_fn(0.05, f"开始同步 {display_name} 的视频（{mode}，每批 {batch_label} 个）...", stage="initializing")
 
         skip_existing = (original_params or {}).get("_resumed") or mode != "full"
         total_downloaded = 0
@@ -1108,7 +1112,7 @@ async def _background_creator_download_worker(task_id: str, uid: str, mode: str 
 
         while True:
             current_batch_size = requested_batch_size if platform == "bilibili" else douyin_batch_size
-            await _progress_fn(0.1, f"第 {batch_num} 批：下载中（最多 {current_batch_size or '全部'} 个）...")
+            await _progress_fn(0.1, f"第 {batch_num} 批：下载中（最多 {current_batch_size or '全部'} 个）...", stage="downloading")
 
             if platform == "bilibili":
                 from media_tools.bilibili.core.downloader import download_up_by_url
@@ -1121,7 +1125,7 @@ async def _background_creator_download_worker(task_id: str, uid: str, mode: str 
                 except Exception as e:
                     error_msg = str(e)
                     if "412" in error_msg or "blocked" in error_msg.lower():
-                        await _progress_fn(0.5, f"B站请求被拦截(412)，请更换IP或稍后重试")
+                        await _progress_fn(0.5, f"B站请求被拦截(412)，请更换IP或稍后重试", stage="downloading")
                         raise RuntimeError(f"B站请求被拦截(412)，请更换IP或稍后重试: {error_msg}")
                     raise
                 completed_batches += 1
@@ -1176,6 +1180,7 @@ async def _background_creator_download_worker(task_id: str, uid: str, mode: str 
                                 f"第 {p} 批：已下载 {d} 个，跳过 {s} 个",
                                 f"creator_sync_{mode}",
                                 subtasks=subtasks,
+                                stage="downloading",
                             )
 
                 poll_task = asyncio.create_task(_poll())
@@ -1220,7 +1225,7 @@ async def _background_creator_download_worker(task_id: str, uid: str, mode: str 
             all_new_files.extend(new_files)
             batch_num += 1
 
-            await _progress_fn(0.9, f"第 {batch_num - 1} 批完成（累计 {total_downloaded} 个），继续下一批...")
+            await _progress_fn(0.9, f"第 {batch_num - 1} 批完成（累计 {total_downloaded} 个），继续下一批...", stage="downloading")
 
         # 更新创作者信息
         if uploader := last_result.get("uploader"):
@@ -1277,7 +1282,7 @@ async def _transcribe_files(task_id: str, _progress_fn, new_files: list, display
     from media_tools.pipeline.config import load_pipeline_config
     from media_tools.pipeline.orchestrator_v2 import create_orchestrator
 
-    await _progress_fn(0.6, f"下载完成，准备转写 {len(new_files)} 个视频...")
+    await _progress_fn(0.6, f"下载完成，准备转写 {len(new_files)} 个视频...", stage="transcribing")
     pipeline_config = load_pipeline_config()
     orchestrator = create_orchestrator(pipeline_config, creator_folder_override=display_name)
     delete_after = auto_delete
@@ -1292,6 +1297,7 @@ async def _transcribe_files(task_id: str, _progress_fn, new_files: list, display
             0.6 + 0.3 * ((index - 1) / total),
             f"正在转写 ({index}/{total})",
             subtasks=subtasks,
+            stage="transcribing",
         )
         transcribe_ok = False
         error_msg = ""
@@ -1328,6 +1334,7 @@ async def _transcribe_files(task_id: str, _progress_fn, new_files: list, display
         f"转写完成：成功 {success_count} 个，失败 {failed_count} 个",
         result_summary=result_summary,
         subtasks=subtasks,
+        stage="transcribing",
     )
     return {
         "success_count": success_count,
@@ -1345,8 +1352,8 @@ async def trigger_creator_download(req: CreatorDownloadRequest, background_tasks
     return {"task_id": task_id, "status": "started"}
 
 async def _background_full_sync_worker(task_id: str, mode: str = "incremental", batch_size: int | None = None, original_params: dict | None = None):
-    async def _progress_fn(p, m, result_summary=None, subtasks=None):
-        await update_task_progress(task_id, p, m, f"full_sync_{mode}", result_summary, subtasks)
+    async def _progress_fn(p, m, result_summary=None, subtasks=None, stage=""):
+        await update_task_progress(task_id, p, m, f"full_sync_{mode}", result_summary, subtasks, stage)
 
     heartbeat = asyncio.create_task(_task_heartbeat(task_id))
     try:
@@ -1371,7 +1378,7 @@ async def _background_full_sync_worker(task_id: str, mode: str = "incremental", 
         for index, user in enumerate(users, 1):
             uid = user.get("uid") or ""
             name = user.get("nickname") or user.get("name") or uid or f"creator-{index}"
-            await _progress_fn((index - 1) / total, f"正在同步 {name} ({index}/{total}) [{mode}]")
+            await _progress_fn((index - 1) / total, f"正在同步 {name} ({index}/{total}) [{mode}]", stage="downloading")
             try:
                 dl_task = asyncio.create_task(
                     asyncio.to_thread(download_by_uid, uid, batch_size, skip_existing, task_id)
@@ -1462,8 +1469,8 @@ class ScanDirectoryRequest(BaseModel):
     directory: str
 
 async def _background_local_transcribe_worker(task_id: str, req: LocalTranscribeRequest):
-    async def _progress_fn(p, m):
-        await update_task_progress(task_id, p, m, "local_transcribe")
+    async def _progress_fn(p, m, stage=""):
+        await update_task_progress(task_id, p, m, "local_transcribe", stage=stage)
 
     heartbeat = asyncio.create_task(_task_heartbeat(task_id))
     try:
