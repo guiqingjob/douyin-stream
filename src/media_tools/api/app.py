@@ -1,8 +1,13 @@
 from contextlib import asynccontextmanager
 from fastapi import FastAPI, Request, HTTPException
+from fastapi.responses import JSONResponse
 from fastapi.middleware.cors import CORSMiddleware
 from media_tools.api.routers import creators, assets, tasks, settings, douyin, scheduler
+from media_tools.core.exceptions import AppError
 import uvicorn
+import logging
+
+logger = logging.getLogger(__name__)
 
 
 @asynccontextmanager
@@ -83,6 +88,47 @@ app.add_middleware(
     allow_methods=["*"],
     allow_headers=["*"],
 )
+
+@app.exception_handler(AppError)
+async def app_error_handler(request: Request, exc: AppError):
+    """处理应用自定义异常 - 返回结构化错误"""
+    logger.warning(f"AppError: {exc.code} - {exc.message}")
+    return JSONResponse(
+        status_code=400,
+        content={
+            "code": exc.code,
+            "message": exc.message,
+            "details": exc.details,
+        },
+    )
+
+
+@app.exception_handler(HTTPException)
+async def http_exception_handler(request: Request, exc: HTTPException):
+    """处理 HTTP 异常 - 统一格式"""
+    return JSONResponse(
+        status_code=exc.status_code,
+        content={
+            "code": f"HTTP_{exc.status_code}",
+            "message": exc.detail,
+            "details": {},
+        },
+    )
+
+
+@app.exception_handler(Exception)
+async def generic_error_handler(request: Request, exc: Exception):
+    """处理未捕获异常 - 不暴露内部信息"""
+    logger.exception(f"Unhandled exception at {request.url.path}")
+    return JSONResponse(
+        status_code=500,
+        content={
+            "code": "INTERNAL_ERROR",
+            "message": "服务器内部错误",
+            "details": {},
+        },
+    )
+
 
 app.include_router(creators.router)
 app.include_router(assets.router)
