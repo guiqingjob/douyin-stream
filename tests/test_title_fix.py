@@ -8,9 +8,10 @@ import unittest
 from pathlib import Path
 from unittest.mock import patch, MagicMock
 
-from media_tools.pipeline.orchestrator import _lookup_video_title, _clean_title_for_export
+from media_tools.pipeline.orchestrator_v2 import _lookup_video_title, _clean_title_for_export
 from media_tools.transcribe.flow import build_export_output_path, _get_video_title_from_db
 from media_tools.transcribe.runtime import ExportConfig
+import media_tools.db.core as _db_core
 
 
 class CleanTitleForExportTests(unittest.TestCase):
@@ -74,13 +75,14 @@ class LookupVideoTitleTests(unittest.TestCase):
             db_path = Path(tmp) / "test.db"
             self._create_test_db(db_path, "7620767195682364133", "孩子并非是不会思考的未完成版成年人#纳瓦尔宝典")
 
-            mock_config = MagicMock()
-            mock_config.get_db_path.return_value = db_path
-
-            with patch("media_tools.douyin.core.config_mgr.get_config", return_value=mock_config):
+            original = _db_core._db_path
+            try:
+                _db_core._db_path = str(db_path)
                 # 模拟 F2 原始格式
                 video_path = Path("/downloads/user/7620767195682364133_video.mp4")
                 title = _lookup_video_title(video_path)
+            finally:
+                _db_core._db_path = original
 
             self.assertIsNotNone(title)
             self.assertEqual(title, "孩子并非是不会思考的未完成版成年人")
@@ -109,12 +111,13 @@ class LookupVideoTitleTests(unittest.TestCase):
             conn.commit()
             conn.close()
 
-            mock_config = MagicMock()
-            mock_config.get_db_path.return_value = db_path
-
-            with patch("media_tools.douyin.core.config_mgr.get_config", return_value=mock_config):
+            original = _db_core._db_path
+            try:
+                _db_core._db_path = str(db_path)
                 video_path = Path("/downloads/user/7620767195682364133_video.mp4")
                 title = _lookup_video_title(video_path)
+            finally:
+                _db_core._db_path = original
 
             self.assertIsNone(title)
 

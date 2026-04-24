@@ -55,11 +55,11 @@ _db_path: str | None = None
 
 
 def get_db_path() -> str:
-    """Return the resolved DB path. Falls back to config_mgr if init_db hasn't been called."""
+    """Return the resolved DB path. Falls back to common.paths if init_db hasn't been called."""
     global _db_path
     if _db_path is None:
-        from media_tools.douyin.core.config_mgr import get_config
-        _db_path = str(get_config().get_db_path())
+        from media_tools.common.paths import get_db_path as _resolve_db_path
+        _db_path = str(_resolve_db_path())
     return _db_path
 
 
@@ -117,11 +117,14 @@ class DBConnection:
 
     def __exit__(self, exc_type, exc_val, exc_tb) -> None:
         """自动 commit/rollback + close"""
-        with DBConnection._open_count_lock:
-            DBConnection._open_count -= 1
+        if not self._keep_open:
+            with DBConnection._open_count_lock:
+                DBConnection._open_count -= 1
 
         try:
-            if exc_type is None and not self._committed:
+            if self._committed:
+                pass  # already committed, don't rollback even on exception
+            elif exc_type is None:
                 self._conn.commit()
             else:
                 self._conn.rollback()

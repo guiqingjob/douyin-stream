@@ -8,15 +8,38 @@ import uvicorn
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     # Startup: ensure DB schema is up to date (adds new columns to existing tables)
-    from media_tools.douyin.core.config_mgr import get_config
+    from media_tools.common.paths import get_db_path
     from media_tools.db.core import init_db
-    init_db(get_config().get_db_path())
+    init_db(get_db_path())
 
     scheduler.startup_scheduler()
 
     # Kick off the transcript preview backfill in the background
     from media_tools.pipeline.preview_backfill import start_backfill_once
     start_backfill_once()
+
+    # 启动时清理孤儿任务：服务重启后内存中的后台任务全部丢失，
+    # 数据库里残留的 RUNNING/PENDING 任务实际上已经无人执行。
+    from media_tools.db.core import get_db_connection
+    import sqlite3
+    from datetime import datetime
+    try:
+        with get_db_connection() as conn:
+            now = datetime.now().isoformat()
+            cursor = conn.execute(
+                """UPDATE task_queue
+                   SET status='FAILED',
+                       error_msg='服务重启导致任务中断，请重新发起',
+                       update_time=?
+                   WHERE status IN ('PENDING', 'RUNNING')""",
+                (now,),
+            )
+            orphaned = cursor.rowcount
+            conn.commit()
+            if orphaned > 0:
+                print(f"[startup] 已清理 {orphaned} 个孤儿任务（服务重启残留）")
+    except (sqlite3.Error, OSError):
+        pass
 
     yield
     # Shutdown

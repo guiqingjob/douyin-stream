@@ -12,6 +12,7 @@
 """
 
 import logging
+import re
 import sys
 from pathlib import Path
 from datetime import datetime, timedelta
@@ -21,6 +22,17 @@ from rich.console import Console
 from rich.logging import RichHandler
 
 console = Console()
+
+# ANSI 颜色转义码正则（用于文件日志自动过滤颜色）
+_ANSI_RE = re.compile(r"\x1b\[[0-9;]*m")
+
+
+class StripAnsiFormatter(logging.Formatter):
+    """文件日志 formatter：自动过滤 ANSI 颜色代码，避免日志文件出现 [92m 等转义码。"""
+
+    def format(self, record: logging.LogRecord) -> str:
+        s = super().format(record)
+        return _ANSI_RE.sub("", s)
 
 
 class MediaLogger:
@@ -67,21 +79,21 @@ class MediaLogger:
         ))
         self.logger.addHandler(rich_handler)
 
-        # 2. 文件输出
+        # 2. 文件输出（过滤 ANSI 颜色代码）
         log_file = self.log_dir / f"media_tools_{datetime.now().strftime('%Y%m%d')}.log"
         file_handler = logging.FileHandler(log_file, encoding="utf-8")
         file_handler.setLevel(logging.DEBUG)
-        file_handler.setFormatter(logging.Formatter(
+        file_handler.setFormatter(StripAnsiFormatter(
             "%(asctime)s [%(levelname)s] %(name)s - %(message)s",
             datefmt="%Y-%m-%d %H:%M:%S"
         ))
         self.logger.addHandler(file_handler)
 
-        # 3. 错误文件输出
+        # 3. 错误文件输出（过滤 ANSI 颜色代码）
         error_file = self.log_dir / f"error_{datetime.now().strftime('%Y%m%d')}.log"
         error_handler = logging.FileHandler(error_file, encoding="utf-8")
         error_handler.setLevel(logging.ERROR)
-        error_handler.setFormatter(logging.Formatter(
+        error_handler.setFormatter(StripAnsiFormatter(
             "%(asctime)s [ERROR] %(name)s\n%(message)s\n%(exc_info)s\n"
         ))
         self.logger.addHandler(error_handler)
@@ -102,41 +114,35 @@ class MediaLogger:
             except Exception as e:
                 self.logger.warning(f"清理日志失败: {e}")
 
+    def _clean_msg(self, message: str) -> str:
+        """清理消息中的 ANSI 颜色代码，避免和 RichHandler 的颜色叠加。"""
+        if message is None:
+            return ""
+        return _ANSI_RE.sub("", message)
+
     def debug(self, message: str = "", *args, **kwargs):
         """DEBUG级别日志"""
-        if message is None:
-            message = ""
-        self.logger.debug(message, *args, **kwargs)
+        self.logger.debug(self._clean_msg(message), *args, **kwargs)
 
     def info(self, message: str = "", *args, **kwargs):
         """INFO级别日志"""
-        if message is None:
-            message = ""
-        self.logger.info(message, *args, **kwargs)
+        self.logger.info(self._clean_msg(message), *args, **kwargs)
 
     def warning(self, message: str = "", *args, **kwargs):
         """WARNING级别日志"""
-        if message is None:
-            message = ""
-        self.logger.warning(message, *args, **kwargs)
+        self.logger.warning(self._clean_msg(message), *args, **kwargs)
 
     def error(self, message: str = "", *args, exc_info=False, **kwargs):
         """ERROR级别日志"""
-        if message is None:
-            message = ""
-        self.logger.error(message, *args, exc_info=exc_info, **kwargs)
+        self.logger.error(self._clean_msg(message), *args, exc_info=exc_info, **kwargs)
 
     def critical(self, message: str = "", *args, **kwargs):
         """CRITICAL级别日志"""
-        if message is None:
-            message = ""
-        self.logger.critical(message, *args, **kwargs)
+        self.logger.critical(self._clean_msg(message), *args, **kwargs)
 
     def exception(self, message: str = "", *args, **kwargs):
         """异常日志（自动包含堆栈信息）"""
-        if message is None:
-            message = ""
-        self.logger.exception(message, *args, **kwargs)
+        self.logger.exception(self._clean_msg(message), *args, **kwargs)
 
     def log_operation(
         self,

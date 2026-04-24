@@ -1,13 +1,14 @@
 from fastapi import APIRouter, Query, HTTPException
 from fastapi.responses import StreamingResponse
 from pydantic import BaseModel, field_validator
-from media_tools.douyin.core.config_mgr import get_config
+from media_tools.common.paths import get_download_path, get_project_root
 from media_tools.db.core import get_db_connection, resolve_safe_path, resolve_query_value
 from typing import Optional
 import sqlite3
 import logging
 import io
 import os
+import sys
 import zipfile
 from pathlib import Path
 
@@ -159,8 +160,7 @@ def export_transcripts(asset_ids: list[str]):
     if not asset_ids:
         raise HTTPException(status_code=400, detail="No asset IDs provided")
 
-    config = get_config()
-    transcripts_dir = config.project_root / "transcripts"
+    transcripts_dir = get_project_root() / "transcripts"
 
     buffer = io.BytesIO()
     with zipfile.ZipFile(buffer, 'w', zipfile.ZIP_DEFLATED) as zf:
@@ -205,8 +205,7 @@ def get_transcript(asset_id: str):
             raise HTTPException(status_code=404, detail="Transcript not found in database")
 
         transcript_name = row["transcript_path"]
-        config = get_config()
-        transcripts_dir = config.project_root / "transcripts"
+        transcripts_dir = get_project_root() / "transcripts"
         transcript_file = resolve_safe_path(transcripts_dir, transcript_name)
 
         if not transcript_file or not transcript_file.exists():
@@ -255,15 +254,13 @@ def delete_asset(asset_id: str):
             video_path = row['video_path']
             transcript_name = row['transcript_path']
 
-            config = get_config()
-
             # Phase 1: Delete video file (先删文件)
             if creator_uid != LOCAL_CREATOR_UID and (source_url or video_path):
                 full_video_path = _resolve_asset_video_file(
                     creator_uid=creator_uid,
                     source_url=source_url,
                     video_path=video_path,
-                    download_dir=config.get_download_path(),
+                    download_dir=get_download_path(),
                 )
                 if full_video_path and full_video_path.exists():
                     try:
@@ -274,7 +271,7 @@ def delete_asset(asset_id: str):
 
             # Phase 2: Delete transcript file
             if transcript_name:
-                full_transcript_path = resolve_safe_path(config.project_root / "transcripts", transcript_name)
+                full_transcript_path = resolve_safe_path(get_project_root() / "transcripts", transcript_name)
                 if full_transcript_path and full_transcript_path.exists():
                     try:
                         full_transcript_path.unlink()
@@ -384,9 +381,8 @@ def bulk_delete_assets(req: BulkAssetDeleteRequest):
     if not req.ids:
         raise HTTPException(status_code=400, detail="ids 不能为空")
 
-    config = get_config()
-    download_dir = config.get_download_path()
-    transcripts_dir = config.project_root / "transcripts"
+    download_dir = get_download_path()
+    transcripts_dir = get_project_root() / "transcripts"
     failed_deletions: list[str] = []
 
     deleted = 0
@@ -456,9 +452,8 @@ def bulk_delete_assets(req: BulkAssetDeleteRequest):
 @router.post("/cleanup")
 def cleanup_missing_assets():
     """清理不存在的素材（视频文件已被删除的记录）"""
-    config = get_config()
-    download_dir = config.get_download_path()
-    transcripts_dir = config.project_root / "transcripts"
+    download_dir = get_download_path()
+    transcripts_dir = get_project_root() / "transcripts"
 
     deleted = 0
     with get_db_connection() as conn:

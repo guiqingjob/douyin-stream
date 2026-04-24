@@ -40,11 +40,14 @@ def _create_managed_task(coro) -> asyncio.Task[Any]:
     return task
 
 
+MIN_VIDEO_BYTES = 10240  # 10KB，正常视频文件至少几百KB
+
+
 def filter_supported_media_paths(file_paths: list[str]) -> list[Path]:
     valid_paths: list[Path] = []
     for file_path in file_paths:
         path = Path(file_path)
-        if path.exists() and path.suffix.lower() in MEDIA_EXTENSIONS:
+        if path.exists() and path.suffix.lower() in MEDIA_EXTENSIONS and path.stat().st_size >= MIN_VIDEO_BYTES:
             valid_paths.append(path)
     return valid_paths
 
@@ -180,8 +183,9 @@ async def run_pipeline_for_user(url: str, max_counts: int, update_progress_fn, d
             )
         else:
             # 抖音使用 download_router（会自动选择 yt-dlp 视频或回退到 F2 用户主页）
+            # disable_auto_transcribe=True：pipeline 模式由 run_pipeline_for_user 自己控制转写
             dl_result = await asyncio.wait_for(
-                asyncio.to_thread(download_router, url, max_counts, False, True, task_id),
+                asyncio.to_thread(download_router, url, max_counts, True, True, task_id),
                 timeout=600,
             )
     except asyncio.TimeoutError:
@@ -207,7 +211,8 @@ async def run_pipeline_for_user(url: str, max_counts: int, update_progress_fn, d
 
     # 2. Transcribe (并发批量转写)
     config = load_pipeline_config()
-    orchestrator = create_orchestrator(config)
+    state_file = Path(f".pipeline_state_{task_id or 'default'}.json")
+    orchestrator = create_orchestrator(config, state_file=state_file)
 
     total = len(new_files)
 
@@ -294,7 +299,7 @@ async def run_batch_pipeline(video_urls: list[str], update_progress_fn, delete_a
         await _call_progress(update_progress_fn, 0.4 * (i / total), f"正在下载 ({i+1}/{total})")
         try:
             dl_result = await asyncio.wait_for(
-                asyncio.to_thread(download_router, url, 1, False, True),
+                asyncio.to_thread(download_router, url, 1, True, True, task_id),
                 timeout=300,
             )
         except asyncio.TimeoutError:
@@ -308,7 +313,8 @@ async def run_batch_pipeline(video_urls: list[str], update_progress_fn, delete_a
 
     # Transcribe phase (并发批量转写)
     config = load_pipeline_config()
-    orchestrator = create_orchestrator(config)
+    state_file = Path(f".pipeline_state_{task_id or 'batch_default'}.json")
+    orchestrator = create_orchestrator(config, state_file=state_file)
 
     # 使用批量并发转写
     def _progress_callback(current: int, total: int, video_path: Path, status: str):
@@ -364,7 +370,7 @@ async def run_download_only(video_urls: list[str], update_progress_fn, task_id: 
         await _call_progress(update_progress_fn, i / total, f"正在下载 ({i+1}/{total})")
         try:
             result = await asyncio.wait_for(
-                asyncio.to_thread(download_router, url, 1, False, True),
+                asyncio.to_thread(download_router, url, 1, True, True, task_id),
                 timeout=300,
             )
             if isinstance(result, dict) and result.get("success"):

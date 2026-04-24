@@ -295,8 +295,11 @@ def _rename_videos_in_downloads(nickname: str, uid: str, downloads_path: Path) -
             processed_count = 0
             db_updated = False
 
-            # 递归查找下载目录下的所有视频文件
+            # 递归查找下载目录下的所有视频文件（过滤下载失败的垃圾文件）
+            MIN_VIDEO_BYTES = 10240  # 10KB
             for f in downloads_path.rglob("*.mp4"):
+                if f.stat().st_size < MIN_VIDEO_BYTES:
+                    continue
                 # 跳过 douyin/post 临时目录
                 if "/douyin/post/" in str(f):
                     continue
@@ -462,8 +465,9 @@ def _sync_media_assets(uid: str, nickname: str, folder_name: str):
             keyword_lookup = {}  # {keyword: filename}
 
             if user_dir and user_dir.exists():
-                # 一次性获取所有mp4文件
-                all_files = list(user_dir.glob("*.mp4"))
+                # 一次性获取所有mp4文件，过滤掉下载失败的垃圾文件
+                MIN_VIDEO_BYTES = 10240  # 10KB
+                all_files = [f for f in user_dir.glob("*.mp4") if f.stat().st_size >= MIN_VIDEO_BYTES]
 
                 # 构建aweme_id查找表
                 for f in all_files:
@@ -539,13 +543,6 @@ def _update_last_fetch_time(uid: str, nickname: str = ""):
 
 
 
-
-
-def _generate_data():
-    """生成 Web 数据看板"""
-    from .data_generator import generate_data
-
-    generate_data()
 
 
 async def _download_with_stats(url: str, max_counts: int | None = None, skip_existing: bool = True):
@@ -758,10 +755,6 @@ async def _download_with_stats(url: str, max_counts: int | None = None, skip_exi
         logger.info(info("[资产] 同步至媒体资产库..."))
         _sync_media_assets(uid, nickname, folder_name)
 
-    # 生成 Web 数据文件
-    logger.info(info("[数据] 生成 Web 数据文件..."))
-    _generate_data()
-
     new_files = []
     if new_aweme_ids and folder_name:
         try:
@@ -823,7 +816,7 @@ def download_by_url_sync(url, max_counts=None, skip_existing: bool = True):
         return False
 
 
-def download_by_url(url, max_counts: int | None = None, disable_auto_transcribe=False, skip_existing: bool = True):
+def download_by_url(url, max_counts: int | None = None, disable_auto_transcribe=False, skip_existing: bool = True, task_id: str | None = None):
     """
     通过 URL 下载单个博主的视频
 
@@ -831,6 +824,7 @@ def download_by_url(url, max_counts: int | None = None, disable_auto_transcribe=
         url: 博主主页 URL
         max_counts: 最大下载数量
         disable_auto_transcribe: 是否禁用自动转写
+        task_id: 关联的任务 ID（用于取消检测）
 
     Returns:
         dict: 包含 success, uid, nickname, new_files 的字典，或 False
@@ -845,13 +839,6 @@ def download_by_url(url, max_counts: int | None = None, disable_auto_transcribe=
     logger.info()
 
     result = download_by_url_sync(url, max_counts, skip_existing=skip_existing)
-
-    # 【修复异步报错】：下载完成后触发自动转写（此时事件循环已关闭）
-    if not disable_auto_transcribe and isinstance(result, dict) and result.get('success'):
-        try:
-            _trigger_auto_transcribe(result['uid'], result['nickname'])
-        except Exception as e:
-            logger.info(f"⚠️ 自动转写失败: {e}")
 
     if result:
         logger.info(success("下载完成！"))
@@ -925,8 +912,6 @@ async def download_aweme_by_url(url: str):
         _sync_media_assets(uid, nickname, folder_name)
         _update_last_fetch_time(uid, nickname or folder_name)
 
-    _generate_data()
-
     new_files: list[str] = []
     target_dir = downloads_path / folder_name if folder_name else user_path
     if target_dir.exists():
@@ -961,13 +946,14 @@ async def download_aweme_by_url(url: str):
     }
 
 
-def download_by_uid(uid, max_counts=None, skip_existing: bool = True):
+def download_by_uid(uid, max_counts=None, skip_existing: bool = True, task_id: str | None = None):
     """
     通过 UID 下载博主视频
 
     Args:
         uid: 用户 UID
         max_counts: 最大下载数量
+        task_id: 关联的任务 ID（用于取消检测）
 
     Returns:
         是否成功
@@ -989,101 +975,9 @@ def download_by_uid(uid, max_counts=None, skip_existing: bool = True):
     name = user.get("nickname", user.get("name", "未知"))
     logger.info(info(f"博主: {name} (UID: {uid})"))
 
-    result = download_by_url(url, max_counts, skip_existing=skip_existing)
-    
+    result = download_by_url(url, max_counts, skip_existing=skip_existing, task_id=task_id)
+
     return result
-
-
-def _trigger_auto_transcribe(uid, nickname):
-    """
-    尝试触发自动转写
-    如果配置开启了 auto_transcribe，则扫描博主目录下**最近下载**的视频并转写
-    """
-    import time
-    
-    config = get_config()
-    if not config.is_auto_transcribe():
-        return
-
-    logger.info("\n" + "="*60)
-    logger.info("⚡ [全自动模式] 视频已下载，正在准备自动转写...")
-    logger.info("="*60)
-
-    try:
-        # 查找博主文件夹
-        downloads_path = config.get_download_path()
-        user_dir = resolve_safe_path(downloads_path, nickname)
-
-        # 如果昵称目录不存在，尝试用 UID
-        if not user_dir or not user_dir.exists():
-            user_dir = resolve_safe_path(downloads_path, uid)
-        
-        if not user_dir or not user_dir.exists():
-            logger.info("⚠️  未找到下载目录，跳过自动转写")
-            return
-
-        # 获取所有 mp4 视频
-        all_mp4_files = list(user_dir.glob("*.mp4"))
-        if not all_mp4_files:
-            logger.info("⚠️  未找到视频文件，跳过自动转写")
-            return
-
-        # 【优化】只转写最近 5 分钟内下载的文件
-        # 避免每次下载都把历史记录重新转写一遍
-        now = time.time()
-        five_mins = 300  # 5分钟
-        
-        mp4_files = []
-        for f in all_mp4_files:
-            if (now - f.stat().st_mtime) < five_mins:
-                mp4_files.append(f)
-
-        if not mp4_files:
-            logger.info("⚠️  未发现最近下载的视频（均为旧文件），跳过转写")
-            return
-
-        logger.info(f"🔍 扫描到 {len(all_mp4_files)} 个文件，其中 {len(mp4_files)} 个为新下载，开始排队转写...")
-        
-        # 调用 Pipeline 进行批量转写
-        # 这里直接导入，使用批量接口支持并发（默认并发数为 6）
-        from media_tools.pipeline.orchestrator_v2 import run_pipeline_batch
-
-        results = run_pipeline_batch(mp4_files)
-
-        # 统计与清理
-        success_count = 0
-        fail_count = 0
-        deleted_count = 0
-
-        for r in results:
-            if r.success:
-                success_count += 1
-                # 【核心优化】如果开启配置且转写成功，删除原视频节省空间
-                if config.is_auto_delete_video():
-                    try:
-                        if r.video_path.exists():
-                            r.video_path.unlink()
-                            deleted_count += 1
-                    except OSError:
-                        pass
-            else:
-                fail_count += 1
-
-        # 打印结果汇总
-        logger.info("\n" + "="*60)
-        logger.info("🎉 自动转写完成!")
-        
-        delete_msg = f" | 🗑️ 已删除 {deleted_count} 个视频" if deleted_count > 0 else ""
-        logger.info(f"   总数: {len(results)} | ✅ 成功: {success_count} | ❌ 失败: {fail_count}{delete_msg}")
-        logger.info(f"   📂 文稿位置: ./transcripts/")
-        if deleted_count > 0:
-            logger.info(f"   ✨ 已自动释放 {deleted_count * 50} MB+ 磁盘空间 (估算)")
-        logger.info("="*60 + "\n")
-
-    except Exception as e:
-        logger.info(f"⚠️  自动转写过程出错: {e}")
-        import traceback
-        traceback.print_exc()
 
 
 def download_all(auto_confirm=False):

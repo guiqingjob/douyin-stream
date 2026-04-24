@@ -56,7 +56,7 @@ def test_local_transcribe_uses_batch_transcribe(monkeypatch) -> None:
     monkeypatch.setattr("media_tools.pipeline.orchestrator_v2.create_orchestrator", _fake_create_orchestrator)
 
     mp3_path = Path("/tmp/local_concurrency_test.mp3")
-    mp3_path.write_bytes(b"ok")
+    mp3_path.write_bytes(b"ok" * 6000)  # 12KB, above MIN_VIDEO_BYTES
 
     result = asyncio.run(run_local_transcribe([str(mp3_path)], update_progress_fn=None, delete_after=False))
     assert result["total"] == 1

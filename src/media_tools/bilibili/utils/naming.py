@@ -15,7 +15,7 @@ def build_bilibili_asset_id(bvid: str, p_index: int | None) -> str:
 
 def sanitize_filename(name: str) -> str:
     value = name or ""
-    value = re.sub(r'[<>:"/\\\\|?*]', "", value)
-    value = re.sub(r"\\s+", " ", value).strip()
+    value = re.sub(r'[<>:"/\\|?*]', "", value)
+    value = re.sub(r"\s+", " ", value).strip()
     return value
 

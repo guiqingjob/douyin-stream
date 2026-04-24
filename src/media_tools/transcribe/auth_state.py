@@ -8,7 +8,7 @@ import json
 import sqlite3
 
 from media_tools.db.core import init_db
-from media_tools.douyin.core.config_mgr import get_config
+from media_tools.common.paths import get_db_path
 from media_tools.douyin.utils.auth_parser import AuthParser
 from media_tools.logger import get_logger
 
@@ -163,7 +163,7 @@ def read_qwen_storage_state_file(auth_state_path: str | Path) -> dict[str, Any] 
 
 
 def load_qwen_storage_state_from_db(db_path: str | Path | None = None) -> dict[str, Any] | None:
-    configured_path = db_path if db_path is not None else get_config().get_db_path()
+    configured_path = db_path if db_path is not None else get_db_path()
     resolved_db_path = Path(configured_path).expanduser().resolve()
     if not resolved_db_path.exists():
         return None
@@ -240,7 +240,7 @@ def persist_qwen_auth_state(
 
     should_sync_db = is_default_qwen_auth_state_path(target_path) if sync_db is None else sync_db
     if should_sync_db:
-        db_path = Path(get_config().get_db_path()).expanduser().resolve()
+        db_path = Path(get_db_path()).expanduser().resolve()
         init_db(db_path)
         from media_tools.db.core import get_db_connection
         with get_db_connection() as conn:

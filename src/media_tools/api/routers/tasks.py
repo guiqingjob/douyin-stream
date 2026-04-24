@@ -3,6 +3,7 @@ import sqlite3
 import json
 import logging
 import hashlib
+import threading
 from datetime import datetime, timedelta
 from fastapi import APIRouter, BackgroundTasks, HTTPException, WebSocket, WebSocketDisconnect
 from pydantic import BaseModel, field_validator
@@ -13,7 +14,8 @@ import sys
 import os
 from media_tools.pipeline.worker import run_pipeline_for_user, run_batch_pipeline, run_download_only
 from media_tools.pipeline.media_extensions import MEDIA_EXTENSIONS
-from media_tools.douyin.core.config_mgr import get_config
+from media_tools.common.paths import get_download_path
+from media_tools.douyin.core.cancel_registry import set_cancel_event, clear_cancel_event, get_download_progress, clear_download_progress
 from media_tools.db.core import get_db_connection, local_asset_id
 
 router = APIRouter(prefix="/api/v1/tasks", tags=["tasks"])
@@ -21,6 +23,22 @@ logger = logging.getLogger(__name__)
 STALE_TASK_HOURS = 2
 LOCAL_CREATOR_UID = "local:upload"
 LOCAL_CREATOR_NAME = "本地上传"
+
+
+def _get_global_setting_bool(key: str, default: bool = False) -> bool:
+    """从数据库 SystemSettings 表读取布尔配置（前端设置页面的值）。"""
+    try:
+        with get_db_connection() as conn:
+            cursor = conn.execute("SELECT value FROM SystemSettings WHERE key = ?", (key,))
+            row = cursor.fetchone()
+            if row:
+                val = row[0]
+                if isinstance(val, str):
+                    return val.lower() in ("true", "1", "yes")
+                return bool(val)
+    except (sqlite3.Error, OSError):
+        pass
+    return default
 
 
 def _is_allowed_scan_path(dir_path: Path) -> bool:
@@ -33,7 +51,7 @@ def _is_allowed_scan_path(dir_path: Path) -> bool:
         return False
 
     home = Path.home().resolve()
-    downloads = get_config().get_download_path().resolve()
+    downloads = get_download_path().resolve()
     allowed_roots = [home, downloads, Path("/tmp").resolve()]
     if sys.platform == "darwin":
         allowed_roots.append(Path("/Volumes").resolve())
@@ -130,11 +148,11 @@ class ConnectionManager:
     async def broadcast(self, message: dict):
         """广播消息给所有活跃连接"""
         # 先检查并清理关闭的连接
+        from starlette.websockets import WebSocketState
         dead_connections = []
         for conn in self.active_connections:
             try:
-            # 检查连接是否仍然打开
-                if not hasattr(conn, 'closed') or conn.closed:
+                if conn.client_state == WebSocketState.DISCONNECTED:
                     dead_connections.append(conn)
             except (AttributeError, RuntimeError):
                 # 连接对象状态异常，标记为死亡
@@ -149,17 +167,9 @@ class ConnectionManager:
                 await connection.send_json(message)
                 self._stats["broadcast_success"] += 1
             except (ConnectionResetError, OSError, BrokenPipeError, RuntimeError) as e:
-                # 区分异常类型
-                from starlette.websockets import WebSocketClose
-                if isinstance(e, (WebSocketClose, ConnectionResetError, OSError, BrokenPipeError)):
-                    # 连接已关闭/重置，移除该连接
-                    logger.info(f"WebSocket 连接已关闭，移除连接: {id(connection)}")
-                    self.disconnect(connection)
-                    self._stats["broadcast_failed"] += 1
-                else:
-                    # 其他异常，记录错误但不移除连接
-                    logger.error(f"WebSocket 广播失败: {e}")
-                    self._stats["broadcast_failed"] += 1
+                logger.info(f"WebSocket 连接已关闭，移除连接: {id(connection)}")
+                self.disconnect(connection)
+                self._stats["broadcast_failed"] += 1
 
 manager = ConnectionManager()
 
@@ -214,7 +224,7 @@ async def _handle_auto_retry(task_id: str):
         # 检查当前重试次数
         try:
             original_params = json.loads(payload_str) if payload_str else {}
-        except json.JSONDecodeError:
+        except (json.JSONDecodeError, TypeError):
             original_params = {}
 
         retry_count = original_params.get("_retry_count", 0)
@@ -249,6 +259,7 @@ def _register_background_task(task_id: str, coro) -> "asyncio.Task[Any]":  # typ
     def _on_done(t: "asyncio.Task[Any]") -> None:  # type: ignore[type-arg]
         _active_tasks.pop(task_id, None)
         _background_tasks.discard(t)
+        clear_cancel_event(task_id)
 
         # 检查任务是否失败，如果是则触发自动重试
         if not t.cancelled() and t.done():
@@ -347,7 +358,7 @@ def _merge_task_payload(
             parsed = json.loads(existing_payload)
             if isinstance(parsed, dict):
                 base_payload = parsed
-        except json.JSONDecodeError:
+        except (json.JSONDecodeError, TypeError):
             base_payload = {}
     base_payload["msg"] = msg
     if result_summary:
@@ -626,12 +637,21 @@ async def delete_task(task_id: str):
     """
     try:
         # 1. 如果任务还在运行，先取消
-        if task_id in _active_tasks:
-            _active_tasks[task_id].cancel()
+        active_task = _active_tasks.pop(task_id, None)
+        if active_task is not None:
+            set_cancel_event(task_id)
             try:
-                await _active_tasks[task_id]
+                from media_tools.bilibili.core.downloader import cancel_download
+                cancel_download(task_id)
+            except (RuntimeError, OSError, ImportError):
+                pass
+            active_task.cancel()
+            try:
+                await active_task
             except asyncio.CancelledError:
                 pass
+
+        clear_cancel_event(task_id)
 
         # 2. 删除数据库记录
         with get_db_connection() as conn:
@@ -681,9 +701,13 @@ async def cancel_task(task_id: str):
         except (RuntimeError, OSError, ImportError):
             pass
 
+        # 设置 Douyin 下载取消标志（供线程中的 F2 下载循环检查）
+        set_cancel_event(task_id)
+
         # Cancel the asyncio task if running
-        if task_id in _active_tasks:
-            _active_tasks[task_id].cancel()
+        active_task = _active_tasks.pop(task_id, None)
+        if active_task is not None:
+            active_task.cancel()
             await _mark_task_cancelled(task_id, task_type)
             return {"status": "success", "message": "Task cancelled"}
         else:
@@ -774,9 +798,13 @@ async def rerun_task(task_id: str):
         # 解析参数
         try:
             original_params = json.loads(payload_str) if payload_str else {}
-        except json.JSONDecodeError:
+        except (json.JSONDecodeError, TypeError):
             original_params = {}
         original_params.pop("msg", None)
+        original_params.pop("result_summary", None)
+        original_params.pop("subtasks", None)
+        # 标记为恢复运行，让 worker 跳过已存在的资源避免重复下载
+        original_params["_resumed"] = True
 
         # 重置任务状态为 RUNNING
         with get_db_connection() as conn:
@@ -822,12 +850,13 @@ async def _start_task_worker(task_id: str, task_type: str, original_params: dict
         uid = str(original_params.get("uid", ""))
         mode = str(original_params.get("mode", "incremental"))
         batch_size: int | None = original_params.get("batch_size")
-        _register_background_task(task_id, _background_creator_download_worker(task_id, uid, mode, batch_size))
+        _register_background_task(task_id, _background_creator_download_worker(task_id, uid, mode, batch_size, original_params))
         return {"task_id": task_id, "status": "started", "message": "Creator sync task rerun"}
 
     elif task_type.startswith("full_sync") and "mode" in original_params:
         mode = str(original_params.get("mode", "incremental"))
-        _register_background_task(task_id, _background_full_sync_worker(task_id, mode))
+        batch_size: int | None = original_params.get("batch_size")
+        _register_background_task(task_id, _background_full_sync_worker(task_id, mode, batch_size, original_params))
         return {"task_id": task_id, "status": "started", "message": "Full sync task rerun"}
 
     elif task_type == "local_transcribe" and "file_paths" in original_params:
@@ -859,7 +888,7 @@ async def retry_task(task_id: str, background_tasks: BackgroundTasks):
         # Parse original parameters from payload
         try:
             original_params = json.loads(payload_str) if payload_str else {}
-        except json.JSONDecodeError:
+        except (json.JSONDecodeError, TypeError):
             original_params = {}
 
         # Remove internal fields
@@ -908,14 +937,15 @@ async def retry_task(task_id: str, background_tasks: BackgroundTasks):
             batch_size: int | None = original_params.get("batch_size")
             new_task_id = str(uuid.uuid4())
             await _create_task(new_task_id, f"creator_sync_{mode}", {"uid": uid, "mode": mode, "batch_size": batch_size})
-            _register_background_task(new_task_id, _background_creator_download_worker(new_task_id, uid, mode, batch_size))
+            _register_background_task(new_task_id, _background_creator_download_worker(new_task_id, uid, mode, batch_size, original_params))
             return {"task_id": new_task_id, "status": "started", "message": "Creator download task retry started"}
 
         elif task_type.startswith("full_sync") and "mode" in original_params:
             mode = str(original_params.get("mode", "incremental"))
+            batch_size: int | None = original_params.get("batch_size")
             new_task_id = str(uuid.uuid4())
-            await _create_task(new_task_id, f"full_sync_{mode}", {"mode": mode})
-            _register_background_task(new_task_id, _background_full_sync_worker(new_task_id, mode))
+            await _create_task(new_task_id, f"full_sync_{mode}", {"mode": mode, "batch_size": batch_size})
+            _register_background_task(new_task_id, _background_full_sync_worker(new_task_id, mode, batch_size, original_params))
             return {"task_id": new_task_id, "status": "started", "message": "Full sync task retry started"}
 
         elif task_type == "local_transcribe" and "file_paths" in original_params:
@@ -1042,9 +1072,9 @@ async def trigger_download_batch(req: DownloadBatchRequest, background_tasks: Ba
     _register_background_task(task_id, _background_download_worker(task_id, req))
     return {"task_id": task_id, "status": "started"}
 
-async def _background_creator_download_worker(task_id: str, uid: str, mode: str = "incremental", batch_size: int | None = None):
-    async def _progress_fn(p, m):
-        await update_task_progress(task_id, p, m, f"creator_sync_{mode}")
+async def _background_creator_download_worker(task_id: str, uid: str, mode: str = "incremental", batch_size: int | None = None, original_params: dict | None = None):
+    async def _progress_fn(p, m, result_summary=None, subtasks=None):
+        await update_task_progress(task_id, p, m, f"creator_sync_{mode}", result_summary, subtasks)
 
     heartbeat = asyncio.create_task(_task_heartbeat(task_id))
     try:
@@ -1067,12 +1097,14 @@ async def _background_creator_download_worker(task_id: str, uid: str, mode: str 
         batch_label = requested_batch_size if requested_batch_size is not None else ("全部" if platform == "bilibili" else douyin_batch_size)
         await _progress_fn(0.05, f"开始同步 {display_name} 的视频（{mode}，每批 {batch_label} 个）...")
 
-        skip_existing = mode != "full"
+        skip_existing = (original_params or {}).get("_resumed") or mode != "full"
         total_downloaded = 0
         batch_num = 1
         completed_batches = 0
         all_new_files: list[str] = []
         last_result: dict[str, Any] = {}
+        transcribe_stats = {"success_count": 0, "failed_count": 0, "total": 0}
+        all_subtasks: list[dict] = []
 
         while True:
             current_batch_size = requested_batch_size if platform == "bilibili" else douyin_batch_size
@@ -1080,7 +1112,6 @@ async def _background_creator_download_worker(task_id: str, uid: str, mode: str 
 
             if platform == "bilibili":
                 from media_tools.bilibili.core.downloader import download_up_by_url
-                from media_tools.douyin.core.config_mgr import get_config
 
                 mid = sec_user_id or uid.split(":", 1)[-1]
                 url = f"https://space.bilibili.com/{mid}"
@@ -1098,9 +1129,14 @@ async def _background_creator_download_worker(task_id: str, uid: str, mode: str 
                     last_result = result
                 new_files = (result.get("new_files") or []) if isinstance(result, dict) else []
 
-                config = get_config()
-                if config.is_auto_transcribe() and new_files:
-                    await _transcribe_files(task_id, _progress_fn, new_files, display_name, config)
+                auto_transcribe = _get_global_setting_bool("auto_transcribe")
+                auto_delete = _get_global_setting_bool("auto_delete")
+                if auto_transcribe and new_files:
+                    tr = await _transcribe_files(task_id, _progress_fn, new_files, display_name, auto_delete)
+                    transcribe_stats["success_count"] += tr.get("success_count", 0)
+                    transcribe_stats["failed_count"] += tr.get("failed_count", 0)
+                    transcribe_stats["total"] += tr.get("total", 0)
+                    all_subtasks.extend(tr.get("subtasks", []))
 
                 total_downloaded += len(new_files)
                 all_new_files.extend(new_files)
@@ -1116,7 +1152,43 @@ async def _background_creator_download_worker(task_id: str, uid: str, mode: str 
                 else:
                     url = f"https://www.douyin.com/user/{uid}"
 
-                result = await asyncio.to_thread(download_by_url, url, current_batch_size, False, skip_existing)
+                # 启动下载任务 + 进度轮询，避免卡死在 10%
+                dl_task = asyncio.create_task(
+                    asyncio.to_thread(download_by_url, url, current_batch_size, False, skip_existing, task_id)
+                )
+
+                async def _poll():
+                    while True:
+                        await asyncio.sleep(5)
+                        info = get_download_progress(task_id)
+                        if info:
+                            d = info.get("downloaded", 0)
+                            s = info.get("skipped", 0)
+                            p = info.get("page", batch_num)
+                            details = info.get("details", [])
+                            subtasks = [
+                                {"title": d_.get("title", "未知")[:60], "status": d_.get("status", "unknown")}
+                                for d_ in details[-50:]
+                            ]
+                            await update_task_progress(
+                                task_id,
+                                0.1 + 0.3 * min(d / max(current_batch_size or 50, 1), 1.0),
+                                f"第 {p} 批：已下载 {d} 个，跳过 {s} 个",
+                                f"creator_sync_{mode}",
+                                subtasks=subtasks,
+                            )
+
+                poll_task = asyncio.create_task(_poll())
+                try:
+                    result = await dl_task
+                finally:
+                    poll_task.cancel()
+                    try:
+                        await poll_task
+                    except asyncio.CancelledError:
+                        pass
+                    clear_download_progress(task_id)
+
                 completed_batches += 1
                 if isinstance(result, dict):
                     last_result = result
@@ -1127,11 +1199,18 @@ async def _background_creator_download_worker(task_id: str, uid: str, mode: str 
 
                 new_files = (result.get("new_files") or []) if isinstance(result, dict) else []
 
-                # 立即转写这批视频
-                from media_tools.douyin.core.config_mgr import get_config
-                config = get_config()
-                if config.is_auto_transcribe() and new_files:
-                    await _transcribe_files(task_id, _progress_fn, new_files, display_name, config)
+                auto_transcribe = _get_global_setting_bool("auto_transcribe")
+                auto_delete = _get_global_setting_bool("auto_delete")
+                if auto_transcribe and new_files:
+                    tr = await _transcribe_files(task_id, _progress_fn, new_files, display_name, auto_delete)
+                    transcribe_stats["success_count"] += tr.get("success_count", 0)
+                    transcribe_stats["failed_count"] += tr.get("failed_count", 0)
+                    transcribe_stats["total"] += tr.get("total", 0)
+                    all_subtasks.extend(tr.get("subtasks", []))
+
+            if not skip_existing:
+                # 全量模式：单次 download_by_url 已通过 F2 内部分页处理完所有视频，不需要循环
+                break
 
             if not new_files:
                 # 没有更多视频或不需要分批，结束
@@ -1163,11 +1242,21 @@ async def _background_creator_download_worker(task_id: str, uid: str, mode: str 
                         )
                     conn.commit()
 
-        msg = f"{display_name} 同步完成：共 {total_downloaded} 个新视频（{completed_batches} 批，{mode}）"
+        # 构建结果摘要
+        result_summary = {
+            "success": transcribe_stats["success_count"],
+            "failed": transcribe_stats["failed_count"],
+            "skipped": 0,
+            "total": transcribe_stats["total"],
+        }
+        if transcribe_stats["total"] > 0:
+            msg = f"{display_name} 同步完成：下载 {total_downloaded} 个，转写成功 {transcribe_stats['success_count']} 个，失败 {transcribe_stats['failed_count']} 个"
+        else:
+            msg = f"{display_name} 同步完成：共 {total_downloaded} 个新视频（{completed_batches} 批，{mode}）"
         with get_db_connection() as conn:
-            payload_str = _merge_payload_from_db(conn, task_id, msg)
+            payload_str = _merge_payload_from_db(conn, task_id, msg, result_summary, all_subtasks or None)
             conn.execute("UPDATE task_queue SET status='COMPLETED', progress=1.0, payload=? WHERE task_id=?", (payload_str, task_id))
-        await notify_task_update(task_id, 1.0, msg, "COMPLETED", f"creator_sync_{mode}")
+        await notify_task_update(task_id, 1.0, msg, "COMPLETED", f"creator_sync_{mode}", result_summary, all_subtasks or None)
     except asyncio.CancelledError:
         raise
     except Exception as e:
@@ -1183,43 +1272,81 @@ async def _background_creator_download_worker(task_id: str, uid: str, mode: str 
             pass
 
 
-async def _transcribe_files(task_id: str, _progress_fn, new_files: list, display_name: str, config):
-    """转写一批视频文件"""
+async def _transcribe_files(task_id: str, _progress_fn, new_files: list, display_name: str, auto_delete: bool = False):
+    """转写一批视频文件，返回统计信息。"""
     from media_tools.pipeline.config import load_pipeline_config
     from media_tools.pipeline.orchestrator_v2 import create_orchestrator
 
     await _progress_fn(0.6, f"下载完成，准备转写 {len(new_files)} 个视频...")
     pipeline_config = load_pipeline_config()
     orchestrator = create_orchestrator(pipeline_config, creator_folder_override=display_name)
-    delete_after = config.is_auto_delete_video()
+    delete_after = auto_delete
     total = len(new_files)
+    success_count = 0
+    failed_count = 0
+    subtasks: list[dict] = []
 
     for index, file_path in enumerate(new_files, 1):
-        await _progress_fn(0.6 + 0.3 * ((index - 1) / total), f"正在转写 ({index}/{total})")
+        title = Path(file_path).stem[:60]
+        await _progress_fn(
+            0.6 + 0.3 * ((index - 1) / total),
+            f"正在转写 ({index}/{total})",
+            subtasks=subtasks,
+        )
         transcribe_ok = False
+        error_msg = ""
         try:
             result = await orchestrator.transcribe_with_retry(Path(file_path))
             transcribe_ok = bool(getattr(result, "success", False))
         except Exception as e:
+            error_msg = str(e)
             logger.warning(f"转写失败 {file_path}: {e}")
+
+        if transcribe_ok:
+            success_count += 1
+            subtasks.append({"title": title, "status": "completed"})
+        else:
+            failed_count += 1
+            subtasks.append({"title": title, "status": "failed", "error": error_msg or "转写失败"})
+
         if delete_after and transcribe_ok:
             try:
                 Path(file_path).unlink()
             except FileNotFoundError:
-                pass  # 文件已不存在，可忽略
+                pass
             except OSError as e:
                 logger.error(f"删除转写后视频失败: {file_path}, {e}")
+
+    result_summary = {
+        "success": success_count,
+        "failed": failed_count,
+        "skipped": 0,
+        "total": total,
+    }
+    await _progress_fn(
+        0.9,
+        f"转写完成：成功 {success_count} 个，失败 {failed_count} 个",
+        result_summary=result_summary,
+        subtasks=subtasks,
+    )
+    return {
+        "success_count": success_count,
+        "failed_count": failed_count,
+        "total": total,
+        "subtasks": subtasks,
+        "result_summary": result_summary,
+    }
 
 @router.post("/download/creator")
 async def trigger_creator_download(req: CreatorDownloadRequest, background_tasks: BackgroundTasks):
     task_id = str(uuid.uuid4())
     await _create_task(task_id, f"creator_sync_{req.mode}", {"uid": req.uid, "mode": req.mode, "batch_size": req.batch_size})
-    _register_background_task(task_id, _background_creator_download_worker(task_id, req.uid, req.mode, req.batch_size))
+    _register_background_task(task_id, _background_creator_download_worker(task_id, req.uid, req.mode, req.batch_size, {}))
     return {"task_id": task_id, "status": "started"}
 
-async def _background_full_sync_worker(task_id: str, mode: str = "incremental"):
-    async def _progress_fn(p, m):
-        await update_task_progress(task_id, p, m, f"full_sync_{mode}")
+async def _background_full_sync_worker(task_id: str, mode: str = "incremental", batch_size: int | None = None, original_params: dict | None = None):
+    async def _progress_fn(p, m, result_summary=None, subtasks=None):
+        await update_task_progress(task_id, p, m, f"full_sync_{mode}", result_summary, subtasks)
 
     heartbeat = asyncio.create_task(_task_heartbeat(task_id))
     try:
@@ -1239,14 +1366,48 @@ async def _background_full_sync_worker(task_id: str, mode: str = "incremental"):
         creator_success = 0
         creator_failed = 0
         new_video_count = 0
-        skip_existing = mode != "full"
+        skip_existing = (original_params or {}).get("_resumed") or mode != "full"
 
         for index, user in enumerate(users, 1):
             uid = user.get("uid") or ""
             name = user.get("nickname") or user.get("name") or uid or f"creator-{index}"
             await _progress_fn((index - 1) / total, f"正在同步 {name} ({index}/{total}) [{mode}]")
             try:
-                result = await asyncio.to_thread(download_by_uid, uid, None, skip_existing)
+                dl_task = asyncio.create_task(
+                    asyncio.to_thread(download_by_uid, uid, batch_size, skip_existing, task_id)
+                )
+
+                async def _poll_creator():
+                    while True:
+                        await asyncio.sleep(5)
+                        info = get_download_progress(task_id)
+                        if info:
+                            d = info.get("downloaded", 0)
+                            s = info.get("skipped", 0)
+                            details = info.get("details", [])
+                            subtasks = [
+                                {"title": d_.get("title", "未知")[:60], "status": d_.get("status", "unknown")}
+                                for d_ in details[-50:]
+                            ]
+                            await update_task_progress(
+                                task_id,
+                                (index - 1) / total + 0.5 / total * min(d / max(batch_size or 50, 1), 1.0),
+                                f"{name}：已下载 {d} 个，跳过 {s} 个",
+                                f"full_sync_{mode}",
+                                subtasks=subtasks,
+                            )
+
+                poll_task = asyncio.create_task(_poll_creator())
+                try:
+                    result = await dl_task
+                finally:
+                    poll_task.cancel()
+                    try:
+                        await poll_task
+                    except asyncio.CancelledError:
+                        pass
+                    clear_download_progress(task_id)
+
                 if isinstance(result, dict) and result.get("success"):
                     creator_success += 1
                     new_video_count += len(result.get("new_files") or [])
@@ -1258,11 +1419,17 @@ async def _background_full_sync_worker(task_id: str, mode: str = "incremental"):
             finally:
                 await update_task_progress(task_id, index / total, f"已完成 {name} ({index}/{total})", f"full_sync_{mode}")
 
+        result_summary = {
+            "success": creator_success,
+            "failed": creator_failed,
+            "skipped": 0,
+            "total": total,
+        }
         msg = f"全量同步完成：成功 {creator_success} 位，失败 {creator_failed} 位，新增 {new_video_count} 个视频（{mode}）"
         with get_db_connection() as conn:
-            payload_str = _merge_payload_from_db(conn, task_id, msg)
+            payload_str = _merge_payload_from_db(conn, task_id, msg, result_summary)
             conn.execute("UPDATE task_queue SET status='COMPLETED', progress=1.0, payload=? WHERE task_id=?", (payload_str, task_id))
-        await notify_task_update(task_id, 1.0, msg, "COMPLETED", f"full_sync_{mode}")
+        await notify_task_update(task_id, 1.0, msg, "COMPLETED", f"full_sync_{mode}", result_summary)
     except asyncio.CancelledError:
         raise
     except Exception as e:
@@ -1279,8 +1446,8 @@ async def _background_full_sync_worker(task_id: str, mode: str = "incremental"):
 @router.post("/download/full-sync")
 async def trigger_full_sync(req: FullSyncRequest, background_tasks: BackgroundTasks):
     task_id = str(uuid.uuid4())
-    await _create_task(task_id, f"full_sync_{req.mode}", {"mode": req.mode})
-    _register_background_task(task_id, _background_full_sync_worker(task_id, req.mode))
+    await _create_task(task_id, f"full_sync_{req.mode}", {"mode": req.mode, "batch_size": req.batch_size})
+    _register_background_task(task_id, _background_full_sync_worker(task_id, req.mode, req.batch_size, {}))
     return {"task_id": task_id, "status": "started"}
 
 
@@ -1332,6 +1499,61 @@ async def trigger_local_transcribe(req: LocalTranscribeRequest, background_tasks
     )
     _register_background_task(task_id, _background_local_transcribe_worker(task_id, req))
     return {"task_id": task_id, "status": "started"}
+
+@router.post("/transcribe/select-folder")
+def select_folder():
+    """调用系统原生文件选择器弹出文件夹选择对话框，返回选中的绝对路径。"""
+    import subprocess
+    import platform
+
+    system = platform.system()
+    selected = ""
+
+    try:
+        if system == "Darwin":
+            result = subprocess.run(
+                ["osascript", "-e", 'POSIX path of (choose folder with prompt "选择要扫描的文件夹")'],
+                capture_output=True, text=True, timeout=60,
+            )
+            if result.returncode == 0:
+                selected = result.stdout.strip()
+            else:
+                logger.info(f"用户取消选择文件夹: {result.stderr.strip()}")
+        elif system == "Linux":
+            result = subprocess.run(
+                ["zenity", "--file-selection", "--directory", "--title=选择要扫描的文件夹"],
+                capture_output=True, text=True, timeout=60,
+            )
+            if result.returncode == 0:
+                selected = result.stdout.strip()
+            else:
+                logger.info("用户取消选择文件夹")
+        elif system == "Windows":
+            ps_cmd = (
+                "Add-Type -AssemblyName System.Windows.Forms; "
+                "$f = New-Object System.Windows.Forms.FolderBrowserDialog; "
+                "$f.Description = '选择要扫描的文件夹'; "
+                "[void]$f.ShowDialog(); "
+                "$f.SelectedPath"
+            )
+            result = subprocess.run(
+                ["powershell", "-Command", ps_cmd],
+                capture_output=True, text=True, timeout=60,
+            )
+            if result.returncode == 0:
+                selected = result.stdout.strip()
+            else:
+                logger.info("用户取消选择文件夹")
+    except subprocess.TimeoutExpired:
+        logger.warning("文件夹选择器超时")
+    except FileNotFoundError as e:
+        logger.warning(f"系统文件选择器不可用: {e}")
+
+    if not selected:
+        raise HTTPException(status_code=400, detail="未选择文件夹或选择器不可用")
+
+    return {"directory": selected}
+
 
 @router.post("/transcribe/scan")
 def scan_directory(req: ScanDirectoryRequest):

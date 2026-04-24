@@ -25,6 +25,7 @@ from ..transcribe.flow import run_real_flow
 from ..transcribe.runtime import get_export_config, ensure_dir, now_stamp
 from ..transcribe.config import load_config as load_transcribe_config
 from .config import PipelineConfig, load_pipeline_config
+from ..db.core import get_db_connection
 
 # 配置日志记录器
 logger = logging.getLogger(__name__)
@@ -91,8 +92,8 @@ def _lookup_creator_folder(video_path: Path) -> str | None:
 
     aweme_id = aweme_matches[0]
     try:
-        from media_tools.douyin.core.config_mgr import get_config as get_douyin_config
-        db_path = get_douyin_config().get_db_path()
+        from media_tools.common.paths import get_db_path as _get_db_path
+        db_path = _get_db_path()
         with get_db_connection() as conn:
             cursor = conn.cursor()
             # media_assets.creator_uid -> creators.nickname
@@ -481,9 +482,16 @@ class PipelineStateManager:
         pending = []
         for path in video_paths:
             state = self.get_state(path)
-            # 已成功或正在运行的跳过
-            if state.status in ("success", "running"):
+            # 正在运行的跳过
+            if state.status == "running":
                 continue
+            # 已成功的检查转录文件是否实际存在
+            if state.status == "success" and state.transcript_path:
+                if Path(state.transcript_path).exists():
+                    continue
+                # 转录文件已丢失，需要重新处理
+                logger.warning(f"缓存的转录文件已丢失，重新加入队列: {path}")
+                self.update_state(path, status="pending", transcript_path="")
             pending.append(path)
         return pending
 
@@ -770,6 +778,7 @@ class OrchestratorV2:
                         should_delete=self.config.delete_after_export,
                         account_id=account_id,
                         title=video_title,
+                        shared_api=None,
                     )
                     await self._mark_qwen_account_used_async(account_id)
 
@@ -826,6 +835,69 @@ class OrchestratorV2:
                 duration=duration,
             )
 
+    def _update_media_asset_transcript(
+        self,
+        video_path: Path,
+        transcript_path: Path | None,
+    ) -> None:
+        """同步更新 media_assets 表的转写状态。"""
+        try:
+            from media_tools.pipeline.preview import extract_transcript_preview, extract_transcript_text
+            from media_tools.db.core import get_db_connection, update_fts_for_asset
+            import sqlite3
+            import re
+
+            if transcript_path:
+                try:
+                    transcript_name = str(transcript_path.relative_to(Path(self.config.output_dir).resolve()))
+                except ValueError:
+                    transcript_name = str(transcript_path.name)
+            else:
+                transcript_name = ""
+            if transcript_path:
+                preview = extract_transcript_preview(transcript_path)
+                full_text = extract_transcript_text(transcript_path)
+            else:
+                preview = ""
+                full_text = ""
+            aweme_matches = re.findall(r'\d{15,}', video_path.name)
+
+            with get_db_connection() as conn:
+                if aweme_matches:
+                    asset_id = aweme_matches[0]
+                    conn.execute("""
+                        UPDATE media_assets
+                        SET transcript_path = ?, transcript_status = 'completed', transcript_preview = ?, transcript_text = ?, update_time = CURRENT_TIMESTAMP
+                        WHERE asset_id = ?
+                    """, (
+                        transcript_name,
+                        preview,
+                        full_text,
+                        asset_id,
+                    ))
+                else:
+                    conn.execute("""
+                        UPDATE media_assets
+                        SET transcript_path = ?, transcript_status = 'completed', transcript_preview = ?, transcript_text = ?, update_time = CURRENT_TIMESTAMP
+                        WHERE video_path LIKE ? OR title LIKE ?
+                    """, (
+                        transcript_name,
+                        preview,
+                        full_text,
+                        f"%{video_path.name}%",
+                        f"%{video_path.stem}%",
+                    ))
+                if aweme_matches:
+                    try:
+                        title_row = conn.execute(
+                            "SELECT title FROM media_assets WHERE asset_id = ?", (asset_id,)
+                        ).fetchone()
+                        update_fts_for_asset(asset_id, title_row["title"] if title_row else "", full_text)
+                    except sqlite3.Error:
+                        pass
+        except sqlite3.Error as e:
+            logger.warning(f"更新 media_assets 转写状态失败: {e}")
+
     async def transcribe_with_retry(
         self,
         video_path: Path,
@@ -840,16 +912,26 @@ class OrchestratorV2:
         """
         state = self.state_manager.get_state(video_path)
 
-        # 如果已成功且无重试需求，直接返回缓存结果
+        # 如果已成功且无重试需求，检查缓存的转录文件是否实际存在
         if state.status == "success" and state.transcript_path:
-            logger.info(f"跳过已成功的视频: {video_path}")
-            return PipelineResultV2(
-                success=True,
-                video_path=video_path,
-                transcript_path=Path(state.transcript_path),
-                attempts=state.attempt,
-                duration=state.duration,
+            cached_path = Path(state.transcript_path)
+            if cached_path.exists():
+                logger.info(f"跳过已成功的视频: {video_path}")
+                self._update_media_asset_transcript(video_path, cached_path)
+                return PipelineResultV2(
+                    success=True,
+                    video_path=video_path,
+                    transcript_path=cached_path,
+                    attempts=state.attempt,
+                    duration=state.duration,
+                )
+            logger.warning(f"缓存的转录文件已丢失，重新转录: {video_path}")
+            self.state_manager.update_state(
+                video_path,
+                status="pending",
+                transcript_path="",
             )
+            state = self.state_manager.get_state(video_path)
 
         max_attempts = self.retry_config.max_retries + 1  # 首次 + 重试次数
         state.max_attempts = max_attempts
@@ -883,66 +965,9 @@ class OrchestratorV2:
                     max_attempts=max_attempts,
                     transcript_path=str(result.transcript_path) if result.transcript_path else "",
                 )
-                
+
                 # 同步更新数据库
-                try:
-                    from media_tools.douyin.core.config_mgr import get_config
-                    from media_tools.pipeline.preview import extract_transcript_preview, extract_transcript_text
-                    from media_tools.db.core import get_db_connection, update_fts_for_asset
-                    import sqlite3
-                    import re
-
-                    if result.transcript_path:
-                        try:
-                            transcript_name = str(result.transcript_path.relative_to(Path(self.config.output_dir).resolve()))
-                        except ValueError:
-                            transcript_name = str(result.transcript_path.name)
-                    else:
-                        transcript_name = ""
-                    if result.transcript_path:
-                        preview = extract_transcript_preview(result.transcript_path)
-                        full_text = extract_transcript_text(result.transcript_path)
-                    else:
-                        preview = ""
-                        full_text = ""
-                    aweme_matches = re.findall(r'\d{15,}', video_path.name)
-
-                    with get_db_connection() as conn:
-                        if aweme_matches:
-                            asset_id = aweme_matches[0]
-                            conn.execute("""
-                                UPDATE media_assets
-                                SET transcript_path = ?, transcript_status = 'completed', transcript_preview = ?, transcript_text = ?, update_time = CURRENT_TIMESTAMP
-                                WHERE asset_id = ?
-                            """, (
-                                transcript_name,
-                                preview,
-                                full_text,
-                                asset_id
-                            ))
-                        else:
-                            conn.execute("""
-                                UPDATE media_assets
-                                SET transcript_path = ?, transcript_status = 'completed', transcript_preview = ?, transcript_text = ?, update_time = CURRENT_TIMESTAMP
-                                WHERE video_path LIKE ? OR title LIKE ?
-                            """, (
-                                transcript_name,
-                                preview,
-                                full_text,
-                                f"%{video_path.name}%",
-                                f"%{video_path.stem}%"
-                            ))
-                        # Sync to FTS5 index for the asset we just updated
-                        if aweme_matches:
-                            try:
-                                title_row = conn.execute(
-                                    "SELECT title FROM media_assets WHERE asset_id = ?", (asset_id,)
-                                ).fetchone()
-                                update_fts_for_asset(asset_id, title_row["title"] if title_row else "", full_text)
-                            except sqlite3.Error:
-                                pass
-                except sqlite3.Error as e:
-                    logger.warning(f"更新 media_assets 转写状态失败: {e}")
+                self._update_media_asset_transcript(video_path, result.transcript_path)
 
                 self._fire_progress(1, 1, video_path, "成功")
                 logger.info(f"视频处理成功: {video_path} (尝试 {attempt} 次, 耗时 {result.duration:.1f}s)")

@@ -1,6 +1,6 @@
 from typing import Optional
 from fastapi import APIRouter, HTTPException, Query
-from media_tools.douyin.core.config_mgr import get_config
+from media_tools.common.paths import get_download_path, get_project_root
 from media_tools.db.core import get_db_connection, resolve_safe_path, resolve_query_value
 import asyncio
 import os
@@ -13,8 +13,15 @@ from pathlib import Path
 router = APIRouter(prefix="/api/v1/creators", tags=["creators"])
 logger = logging.getLogger(__name__)
 
-# Bilibili API 并发限制
-_bilibili_semaphore = asyncio.Semaphore(5)  # 最多 5 个并发请求
+# Bilibili API 并发限制（lazy-init，避免模块导入时无事件循环）
+_bilibili_semaphore: asyncio.Semaphore | None = None
+
+
+def _get_bilibili_semaphore() -> asyncio.Semaphore:
+    global _bilibili_semaphore
+    if _bilibili_semaphore is None:
+        _bilibili_semaphore = asyncio.Semaphore(5)
+    return _bilibili_semaphore
 
 
 async def _fetch_bilibili_nickname(mid: str, retries: int = 3) -> str:
@@ -36,7 +43,7 @@ async def _fetch_bilibili_nickname(mid: str, retries: int = 3) -> str:
 
     for attempt in range(retries):
         try:
-            async with _bilibili_semaphore:  # 限制并发
+            async with _get_bilibili_semaphore():  # 限制并发
                 async with httpx.AsyncClient(timeout=timeout, follow_redirects=True) as client:
                     resp = await client.get(url, headers=headers)
                     logger.info(f"B站API响应: mid={mid}, status={resp.status_code}")
@@ -98,7 +105,7 @@ def list_creators(
             creator_columns = _get_table_columns(conn, "creators")
             platform_select = "c.platform" if "platform" in creator_columns else "'douyin' AS platform"
             platform_group = ", c.platform" if "platform" in creator_columns else ""
-            homepage_select = "c.homepage_url" if "homepage_url" in creator_columns else "'' AS homepage_url"
+            homepage_select = "COALESCE(NULLIF(c.homepage_url, ''), CASE WHEN c.platform = 'douyin' THEN 'https://www.douyin.com/user/' || c.sec_user_id ELSE '' END) AS homepage_url" if "homepage_url" in creator_columns else "'' AS homepage_url"
             homepage_group = ", c.homepage_url" if "homepage_url" in creator_columns else ""
             cursor = conn.execute("""
                 SELECT
@@ -224,7 +231,7 @@ async def create_creator(req: CreatorCreateRequest):
 
         from media_tools.douyin.core.following_mgr import add_user
 
-        success, user_info = add_user(req.url)
+        success, user_info = await asyncio.to_thread(add_user, req.url)
         if success:
             return {"status": "created", "creator": user_info}
         if user_info:
@@ -254,8 +261,6 @@ def delete_creator(uid: str):
             cursor = conn.execute("SELECT asset_id, video_path, transcript_path FROM media_assets WHERE creator_uid = ?", (uid,))
             assets = cursor.fetchall()
 
-            config = get_config()
-
             # Phase 1: 删除文件（先删文件）
             for asset in assets:
                 video_path = asset['video_path']
@@ -263,26 +268,26 @@ def delete_creator(uid: str):
 
                 # Delete video file
                 if video_path:
-                    full_video_path = resolve_safe_path(config.get_download_path(), video_path)
+                    full_video_path = resolve_safe_path(get_download_path(), video_path)
                     if full_video_path and full_video_path.exists():
                         try:
                             full_video_path.unlink()
                         except OSError as e:
                             conn.rollback()
-                            raise HTTPException(status_code=500, detail=f"删除视频失败: {full_video_path}")
+                            raise HTTPException(status_code=500, detail=f"删除视频失败: {full_video_path} ({e})")
 
                 # Delete transcript file
                 if transcript_name:
-                    full_transcript_path = resolve_safe_path(config.project_root / "transcripts", transcript_name)
+                    full_transcript_path = resolve_safe_path(get_project_root() / "transcripts", transcript_name)
                     if full_transcript_path and full_transcript_path.exists():
                         try:
                             full_transcript_path.unlink()
                         except OSError as e:
                             conn.rollback()
-                            raise HTTPException(status_code=500, detail=f"删除转写失败: {full_transcript_path}")
+                            raise HTTPException(status_code=500, detail=f"删除转写失败: {full_transcript_path} ({e})")
 
             # Also try to delete the creator's download folder if it exists
-            download_base = config.get_download_path().resolve()
+            download_base = get_download_path().resolve()
             for folder_name in [nickname, uid]:
                 if folder_name:
                     creator_dir = resolve_safe_path(download_base, folder_name)
@@ -291,7 +296,7 @@ def delete_creator(uid: str):
                             shutil.rmtree(creator_dir)
                         except OSError as e:
                             conn.rollback()
-                            raise HTTPException(status_code=500, detail=f"删除创作者目录失败: {creator_dir}")
+                            raise HTTPException(status_code=500, detail=f"删除创作者目录失败: {creator_dir} ({e})")
 
             # Phase 2: 删除 DB 记录（后删DB）
             conn.execute("DELETE FROM media_assets WHERE creator_uid = ?", (uid,))

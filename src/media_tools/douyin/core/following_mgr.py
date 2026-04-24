@@ -75,12 +75,12 @@ def _resolve_sec_user_id(url: str) -> str | None:
         if resolved and resolved.startswith('MS4w'):
             return resolved
     except Exception as exc:
-        logger.info(warning(f"sec_user_id 规范化失败: {exc}"))
+        logger.warning(f"sec_user_id 规范化失败: {exc}")
 
     if raw_value:
-        logger.info(error('当前链接未包含 sec_user_id；请优先使用 sec_user_id 形式的用户主页链接。'))
+        logger.error('当前链接未包含 sec_user_id；请优先使用 sec_user_id 形式的用户主页链接。')
     else:
-        logger.info(error('无法从链接中提取用户标识。'))
+        logger.error('无法从链接中提取用户标识。')
     return None
 
 
@@ -165,7 +165,7 @@ def add_user(url):
 
     sec_user_id = _resolve_sec_user_id(url)
     if not sec_user_id:
-        logger.info(error("无法从链接解析有效的 sec_user_id"))
+        logger.error("无法从链接解析有效的 sec_user_id")
         logger.info(info("请使用可访问的抖音主页链接，格式如:"))
         logger.info(info("https://www.douyin.com/user/MS4wLjABAAAA..."))
         return False, None
@@ -180,7 +180,7 @@ def add_user(url):
             row = cursor.fetchone()
             if row:
                 name = row[1] or "未知"
-                logger.info(warning(f"用户已在关注列表: {name} (UID: {row[0]})"))
+                logger.warning(f"用户已在关注列表: {name} (UID: {row[0]})")
                 return False, {"uid": row[0], "sec_user_id": sec_user_id, "nickname": name}
     except Exception as e:
         logger.error(f"查询数据库失败: {e}")
@@ -190,7 +190,7 @@ def add_user(url):
     user_info = _fetch_user_info_via_f2(url, sec_user_id)
 
     if not user_info:
-        logger.info(error("获取用户信息失败"))
+        logger.error("获取用户信息失败")
         return False, None
 
     uid = user_info.get("uid")
@@ -205,11 +205,12 @@ def add_user(url):
             avatar = user_info.get("avatar_url", "")
             bio = user_info.get("signature", "")
             
+            homepage_url = f"https://www.douyin.com/user/{sec_user_id}"
             cursor.execute("""
                 INSERT OR REPLACE INTO creators 
-                (uid, sec_user_id, nickname, avatar, bio, platform, sync_status, last_fetch_time)
-                VALUES (?, ?, ?, ?, ?, 'douyin', 'active', ?)
-            """, (uid, sec_user_id, nickname, avatar, bio, now))
+                (uid, sec_user_id, nickname, avatar, bio, homepage_url, platform, sync_status, last_fetch_time)
+                VALUES (?, ?, ?, ?, ?, ?, 'douyin', 'active', ?)
+            """, (uid, sec_user_id, nickname, avatar, bio, homepage_url, now))
             conn.commit()
     except Exception as e:
         logger.error(f"保存用户到数据库失败: {e}")
@@ -240,13 +241,13 @@ def _fetch_user_info_via_f2(url, sec_user_id):
     try:
         profile_data = _run_async_coro(_fetch_profile())
     except Exception as exc:
-        logger.info(error(f"获取用户 profile 失败: {exc}"))
+        logger.error(f"获取用户 profile 失败: {exc}")
         return None
 
     uid = str(profile_data.get("uid", "")).strip()
     nickname = _clean_nickname(str(profile_data.get("nickname", "")).strip())
     if not uid:
-        logger.info(error("实时 profile 返回的 uid 为空"))
+        logger.error("实时 profile 返回的 uid 为空")
         return None
 
     return {
@@ -254,6 +255,7 @@ def _fetch_user_info_via_f2(url, sec_user_id):
         "sec_user_id": str(profile_data.get("sec_user_id", sec_user_id) or sec_user_id),
         "name": nickname or uid,
         "nickname": nickname or uid,
+        "homepage_url": f"https://www.douyin.com/user/{sec_user_id}",
         "avatar_url": profile_data.get("avatar_url", "") or "",
         "signature": profile_data.get("signature", "") or "",
         "follower_count": profile_data.get("follower_count", 0) or 0,
@@ -287,7 +289,7 @@ def remove_user(uid=None, delete_local=False):
         是否成功
     """
     if uid is None or str(uid).strip() == "":
-        logger.info(error("未指定要删除的用户"))
+        logger.error("未指定要删除的用户")
         return False
 
     config = get_config()
@@ -301,16 +303,17 @@ def remove_user(uid=None, delete_local=False):
             cursor.execute("SELECT nickname FROM creators WHERE uid = ?", (uid,))
             row = cursor.fetchone()
             if not row:
-                logger.info(error(f"用户 {uid} 不在关注列表中"))
+                logger.error(f"用户 {uid} 不在关注列表中")
                 return False
             name = row[0] or str(uid)
             
             # 删除关注记录
             cursor.execute("DELETE FROM creators WHERE uid = ?", (uid,))
-            
+
             # 清理旧数据库遗留记录 (兼容旧代码清理)
             cursor.execute("DELETE FROM user_info_web WHERE uid = ?", (uid,))
             cursor.execute("DELETE FROM video_metadata WHERE uid = ? OR nickname = ?", (uid, name))
+            cursor.execute("DELETE FROM media_assets WHERE creator_uid = ?", (uid,))
             conn.commit()
             
             logger.info(success(f"已从关注列表移除: {name} (UID: {uid})"))
@@ -330,14 +333,8 @@ def remove_user(uid=None, delete_local=False):
             try:
                 shutil.rmtree(user_dir)
                 logger.info(success(f"已删除本地视频文件: {user_dir}"))
-
-                # 同步删除 media_assets 记录
-                with get_db_connection() as conn:
-                    cursor = conn.cursor()
-                    cursor.execute("DELETE FROM media_assets WHERE creator_uid = ?", (uid,))
-                    conn.commit()
             except Exception as e:
-                logger.info(error(f"删除本地文件夹失败: {e}"))
+                logger.error(f"删除本地文件夹失败: {e}")
         else:
             logger.info(info("本地无该用户视频目录"))
 

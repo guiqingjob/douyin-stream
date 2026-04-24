@@ -1,0 +1,142 @@
+name: CI / Regression Tests
+
+on:
+  push:
+    branches: [main, fix/*, feat/*]
+  pull_request:
+    branches: [main]
+
+jobs:
+  backend-lint:
+    name: Backend Lint & Static Checks
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - name: Install dependencies
+        run: pip install ruff pytest
+      - name: Ruff check (including BLE001)
+        run: ruff check --select BLE001,E,W,F src/media_tools/
+      - name: Ruff format check
+        run: ruff format --check src/media_tools/
+      - name: Check no bare except Exception
+        run: |
+          COUNT=$(grep -rn "except Exception" src/media_tools/ | wc -l)
+          if [ "$COUNT" -ne 0 ]; then
+            echo "ERROR: Found $COUNT bare 'except Exception' (BACKEND-001)"
+            grep -rn "except Exception" src/media_tools/
+            exit 1
+          fi
+      - name: Check no bare sqlite3.connect
+        run: |
+          COUNT=$(grep -rn "sqlite3.connect" src/media_tools/ | grep -v "db/core.py" | wc -l)
+          if [ "$COUNT" -ne 0 ]; then
+            echo "ERROR: Found $COUNT bare sqlite3.connect outside db/core.py (BACKEND-004)"
+            grep -rn "sqlite3.connect" src/media_tools/ | grep -v "db/core.py"
+            exit 1
+          fi
+      - name: Check no duplicate _get_table_columns
+        run: |
+          COUNT=$(grep -rln "def _get_table_columns" src/media_tools/ | wc -l)
+          if [ "$COUNT" -gt 1 ]; then
+            echo "ERROR: _get_table_columns defined in $COUNT files (BACKEND-006/007)"
+            grep -rln "def _get_table_columns" src/media_tools/
+            exit 1
+          fi
+
+  backend-test:
+    name: Backend Tests
+    runs-on: ubuntu-latest
+    needs: backend-lint
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - name: Install dependencies
+        run: |
+          pip install -e ".[dev]" || pip install -e .
+          pip install pytest pytest-asyncio
+      - name: Run unit tests
+        run: pytest tests/ -q --tb=short -x
+      - name: Run regression tests
+        run: pytest tests/regression/test_recurring_backend.py -v
+
+  frontend-lint:
+    name: Frontend Lint & Build
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: frontend
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          cache: 'npm'
+          cache-dependency-path: frontend/package-lock.json
+      - name: Install dependencies
+        run: npm ci
+      - name: ESLint
+        run: npm run lint
+      - name: Type check
+        run: npx tsc --noEmit
+      - name: Build
+        run: npm run build
+      - name: Check no silent catch
+        run: |
+          COUNT=$(grep -rn ".catch(() => {})" src/ | wc -l)
+          if [ "$COUNT" -ne 0 ]; then
+            echo "ERROR: Found $COUNT silent catch blocks (CROSS-001)"
+            grep -rn ".catch(() => {})" src/
+            exit 1
+          fi
+      - name: Check no hardcoded vh
+        run: |
+          COUNT=$(grep -rn "calc(100vh" src/ | wc -l)
+          if [ "$COUNT" -ne 0 ]; then
+            echo "WARNING: Found $COUNT hardcoded calc(100vh) (FRONTEND-005)"
+            grep -rn "calc(100vh" src/
+          fi
+      - name: Check component sizes
+        run: |
+          echo "Checking page component sizes..."
+          find src/pages -name "*.tsx" -exec wc -l {} + | awk '$1 > 300 {print "WARNING: " $2 " has " $1 " lines (FRONTEND-004)"}'
+
+  regression-checks:
+    name: Cross-cutting Regression Checks
+    runs-on: ubuntu-latest
+    needs: [backend-lint, frontend-lint]
+    steps:
+      - uses: actions/checkout@v4
+      - name: Check duplicate function definitions
+        run: |
+          echo "Checking for duplicate managed_temp_file..."
+          COUNT=$(grep -rln "def managed_temp_file" src/media_tools/ | wc -l)
+          if [ "$COUNT" -gt 1 ]; then
+            echo "ERROR: managed_temp_file defined in $COUNT files (BACKEND-002/007)"
+            grep -rln "def managed_temp_file" src/media_tools/
+            exit 1
+          fi
+      - name: Check bug tracking doc is updated
+        run: |
+          # 如果修改了关键文件，检查 bug 追踪文档是否也被修改
+          CHANGED=$(git diff --name-only HEAD~1)
+          CRITICAL_FILES="src/media_tools/db/core.py src/media_tools/pipeline/orchestrator_v2.py src/media_tools/pipeline/worker.py src/media_tools/douyin/core/downloader_ytdlp.py src/media_tools/bilibili/core/downloader.py frontend/src/store/useStore.ts frontend/src/App.tsx"
+          NEEDS_DOC_UPDATE=false
+          for f in $CRITICAL_FILES; do
+            if echo "$CHANGED" | grep -q "$f"; then
+              NEEDS_DOC_UPDATE=true
+              echo "Critical file changed: $f"
+            fi
+          done
+          if [ "$NEEDS_DOC_UPDATE" = true ]; then
+            if echo "$CHANGED" | grep -q "docs/bug-tracking"; then
+              echo "Bug tracking docs updated."
+            else
+              echo "WARNING: Critical file changed but docs/bug-tracking/ not updated."
+              echo "Please update RECURRING_BUGS.md if this change affects a tracked bug."
+            fi
+          fi

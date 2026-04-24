@@ -20,8 +20,8 @@ _lock = threading.Lock()
 
 
 def _transcripts_dir() -> Path:
-    from media_tools.douyin.core.config_mgr import get_config
-    return get_config().project_root / "transcripts"
+    from media_tools.common.paths import get_project_root
+    return get_project_root() / "transcripts"
 
 
 def _validate_path(base_dir: Path, transcript_path: str) -> Path | None:

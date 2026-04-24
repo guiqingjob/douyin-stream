@@ -17,7 +17,7 @@ from datetime import datetime
 from pathlib import Path
 from typing import Any, Callable, Generator
 
-from media_tools.douyin.core.config_mgr import get_config
+from media_tools.common.paths import get_download_path
 from media_tools.logger import get_logger
 
 from media_tools.bilibili.utils.cookies import get_bilibili_cookie_string
@@ -281,12 +281,12 @@ def download_up_by_url(
     skip_existing: bool = True,
     progress_cb: ProgressCallback | None = None,
     task_id: str | None = None,
+    disable_auto_transcribe: bool = False,
 ) -> dict:
     if YoutubeDL is None:
         raise RuntimeError("yt-dlp not installed")
 
-    config = get_config()
-    downloads_path = config.get_download_path()
+    downloads_path = get_download_path()
 
     cookie = get_bilibili_cookie_string()
 

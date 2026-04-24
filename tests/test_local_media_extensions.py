@@ -32,6 +32,6 @@ def test_scan_directory_returns_mp3_files() -> None:
 def test_filter_supported_media_paths_keeps_mp3() -> None:
     with tempfile.TemporaryDirectory(dir="/tmp") as temp_dir:
         mp3_path = Path(temp_dir) / "b.mp3"
-        mp3_path.write_bytes(b"fake")
+        mp3_path.write_bytes(b"fake" * 3000)  # 12KB, above MIN_VIDEO_BYTES
         paths = filter_supported_media_paths([str(mp3_path)])
         assert paths == [mp3_path]

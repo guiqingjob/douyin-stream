@@ -35,6 +35,16 @@ class BilibiliCreatorDownloadTaskTests(unittest.IsolatedAsyncioTestCase):
             )
             """
         )
+        conn.execute(
+            """
+            CREATE TABLE SystemSettings (
+              key TEXT PRIMARY KEY,
+              value TEXT
+            )
+            """
+        )
+        conn.execute("INSERT INTO SystemSettings (key, value) VALUES (?, ?)", ("auto_transcribe", "true"))
+        conn.execute("INSERT INTO SystemSettings (key, value) VALUES (?, ?)", ("auto_delete", "true"))
 
         creator_uid = "bilibili:596133959"
         conn.execute(
@@ -55,9 +65,6 @@ class BilibiliCreatorDownloadTaskTests(unittest.IsolatedAsyncioTestCase):
         orchestrator = SimpleNamespace(transcribe_with_retry=AsyncMock(return_value=SimpleNamespace(success=True)))
 
         with patch("media_tools.api.routers.tasks.get_db_connection", return_value=conn), patch(
-            "media_tools.api.routers.tasks.get_config",
-            return_value=fake_config,
-        ), patch(
             "media_tools.api.routers.tasks.update_task_progress",
             new=AsyncMock(),
         ), patch(

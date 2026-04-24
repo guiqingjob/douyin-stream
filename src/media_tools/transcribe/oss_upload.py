@@ -205,16 +205,20 @@ def direct_upload_with_presigned_url(url: str, file_buffer: bytes, mime_type: st
 
 
 def _direct_upload_with_presigned_url_from_path(url: str, file_path: Path, mime_type: str) -> None:
-    """从文件路径直接上传到预签名URL，使用流式上传避免大文件 OOM"""
-    with _ChunkedFileReader(file_path) as reader:
-        req = urllib_request.Request(
-            url,
-            data=reader,
-            method="PUT",
-            headers={"content-type": mime_type},
-        )
-        with _open_request(req):
-            return
+    """从文件路径直接上传到预签名URL。
+
+    使用一次性读取（非流式），因为 _open_request 会重试，
+    流式迭代器在首次请求后耗尽会导致重试时上传空 body。
+    """
+    data = file_path.read_bytes()
+    req = urllib_request.Request(
+        url,
+        data=data,
+        method="PUT",
+        headers={"content-type": mime_type, "content-length": str(len(data))},
+    )
+    with _open_request(req):
+        return
 
 
 def abort_multipart_upload(sts: dict[str, Any], upload_id: str) -> None:

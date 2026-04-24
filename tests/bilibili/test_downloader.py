@@ -27,7 +27,7 @@ def test_download_up_returns_requested_filepaths(tmp_path: Path, monkeypatch) ->
 
     monkeypatch.setattr("media_tools.bilibili.core.downloader.YoutubeDL", FakeYDL)
     monkeypatch.setattr("media_tools.bilibili.core.downloader.get_bilibili_cookie_string", lambda: "")
-    monkeypatch.setattr("media_tools.bilibili.core.downloader.get_config", lambda: type("C", (), {"get_download_path": lambda self: tmp_path})())
+    monkeypatch.setattr("media_tools.bilibili.core.downloader.get_download_path", lambda: tmp_path)
 
     result = download_up_by_url("https://space.bilibili.com/123", max_counts=None, skip_existing=True)
     assert result["success"] is True
@@ -55,7 +55,7 @@ def test_download_up_adds_cookiefile_when_available(tmp_path: Path, monkeypatch)
 
     monkeypatch.setattr("media_tools.bilibili.core.downloader.YoutubeDL", FakeYDL)
     monkeypatch.setattr("media_tools.bilibili.core.downloader.get_bilibili_cookie_string", lambda: "SESSDATA=xxx")
-    monkeypatch.setattr("media_tools.bilibili.core.downloader.get_config", lambda: type("C", (), {"get_download_path": lambda self: tmp_path})())
+    monkeypatch.setattr("media_tools.bilibili.core.downloader.get_download_path", lambda: tmp_path)
 
     download_up_by_url("https://space.bilibili.com/123", max_counts=None, skip_existing=True)
 
