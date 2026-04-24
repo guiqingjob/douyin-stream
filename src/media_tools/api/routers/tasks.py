@@ -1261,7 +1261,14 @@ async def _background_creator_download_worker(task_id: str, uid: str, mode: str 
         with get_db_connection() as conn:
             payload_str = _merge_payload_from_db(conn, task_id, msg, result_summary, all_subtasks or None)
             conn.execute("UPDATE task_queue SET status='COMPLETED', progress=1.0, payload=? WHERE task_id=?", (payload_str, task_id))
-        await notify_task_update(task_id, 1.0, msg, "COMPLETED", f"creator_sync_{mode}", result_summary, all_subtasks or None)
+            # 增量同步完成后更新 last_fetch_time
+            if mode == "incremental":
+                conn.execute(
+                    "UPDATE creators SET last_fetch_time = CURRENT_TIMESTAMP WHERE uid = ?",
+                    (uid,)
+                )
+            conn.commit()
+        await notify_task_update(task_id, 1.0, msg, "COMPLETED", f"creator_sync_{mode}", result_summary, all_subtasks or None, stage="completed")
     except asyncio.CancelledError:
         raise
     except Exception as e:
