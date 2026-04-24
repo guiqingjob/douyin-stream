@@ -2,6 +2,8 @@ from typing import Optional
 from fastapi import APIRouter, HTTPException, Query
 from media_tools.common.paths import get_download_path, get_project_root
 from media_tools.db.core import get_db_connection, resolve_safe_path, resolve_query_value
+from media_tools.repositories.creator_repository import CreatorRepository
+from media_tools.repositories.asset_repository import AssetRepository
 import asyncio
 import os
 import sqlite3
