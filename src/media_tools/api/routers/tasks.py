@@ -17,6 +17,7 @@ from media_tools.pipeline.media_extensions import MEDIA_EXTENSIONS
 from media_tools.common.paths import get_download_path
 from media_tools.douyin.core.cancel_registry import set_cancel_event, clear_cancel_event, get_download_progress, clear_download_progress
 from media_tools.db.core import get_db_connection, local_asset_id
+from media_tools.repositories.task_repository import TaskRepository
 
 router = APIRouter(prefix="/api/v1/tasks", tags=["tasks"])
 logger = logging.getLogger(__name__)
@@ -576,13 +577,8 @@ async def _background_pipeline_worker(task_id: str, req: PipelineRequest):
 async def _create_task(task_id: str, task_type: str, request_params: dict):
     """Create a task with original request parameters stored in payload for retry."""
     msg = "任务已启动，准备执行..."
-    payload_str = json.dumps({**request_params, "msg": msg}, ensure_ascii=False)
-    now = datetime.now().isoformat()
-    with get_db_connection() as conn:
-        conn.execute(
-            "INSERT INTO task_queue (task_id, task_type, status, progress, payload, create_time, update_time) VALUES (?, ?, 'RUNNING', 0.0, ?, ?, ?)",
-            (task_id, task_type, payload_str, now, now)
-        )
+    payload = {**request_params, "msg": msg}
+    TaskRepository.create_running(task_id, task_type, payload)
     await notify_task_update(task_id, 0.0, msg, "RUNNING", task_type)
 
 
@@ -596,9 +592,7 @@ async def trigger_pipeline(req: PipelineRequest, background_tasks: BackgroundTas
 @router.get("/active")
 def get_active_tasks():
     try:
-        with get_db_connection() as conn:
-            cursor = conn.execute("SELECT * FROM task_queue WHERE status IN ('PENDING', 'RUNNING')")
-            return [dict(row) for row in cursor.fetchall()]
+        return TaskRepository.find_active()
     except sqlite3.Error:
         logger.exception("get_active_tasks failed")
         return []
@@ -606,9 +600,7 @@ def get_active_tasks():
 @router.get("/history")
 def get_task_history():
     try:
-        with get_db_connection() as conn:
-            cursor = conn.execute("SELECT * FROM task_queue ORDER BY update_time DESC LIMIT 50")
-            return [dict(row) for row in cursor.fetchall()]
+        return TaskRepository.list_recent(50)
     except sqlite3.Error:
         logger.exception("get_task_history failed")
         return []
@@ -621,11 +613,7 @@ def clear_task_history():
         with get_db_connection() as conn:
             # 先标记过期的 RUNNING/PENDING 为 FAILED，确保它们也能被清理
             cleanup_stale_tasks(conn)
-            # 再删除所有终态任务
-            conn.execute(
-                "DELETE FROM task_queue WHERE status IN ('COMPLETED', 'FAILED', 'CANCELLED')"
-            )
-            conn.commit()
+        TaskRepository.clear_all_history()
         return {"status": "success", "message": "历史任务已清除"}
     except (sqlite3.Error, OSError) as e:
         logger.exception("clear_task_history failed")
@@ -658,14 +646,8 @@ async def delete_task(task_id: str):
         clear_cancel_event(task_id)
 
         # 2. 删除数据库记录
-        with get_db_connection() as conn:
-            cursor = conn.execute("DELETE FROM task_queue WHERE task_id = ?", (task_id,))
-            if cursor.rowcount == 0:
-                raise HTTPException(status_code=404, detail="Task not found")
-
+        TaskRepository.delete(task_id)
         return {"status": "success", "message": "任务已删除"}
-    except HTTPException:
-        raise
     except (sqlite3.Error, OSError) as e:
         logger.exception(f"delete_task failed for {task_id}")
         return {"status": "error", "message": str(e)}
@@ -674,12 +656,10 @@ async def delete_task(task_id: str):
 @router.get("/{task_id}")
 def get_task_status(task_id: str):
     try:
-        with get_db_connection() as conn:
-            cursor = conn.execute("SELECT * FROM task_queue WHERE task_id = ?", (task_id,))
-            row = cursor.fetchone()
-            if row:
-                return dict(row)
-            return {"status": "NOT_FOUND"}
+        task = TaskRepository.find_by_id(task_id)
+        if task:
+            return task
+        return {"status": "NOT_FOUND"}
     except sqlite3.Error:
         logger.exception("get_task_status failed")
         return {"status": "ERROR"}
@@ -689,14 +669,11 @@ async def cancel_task(task_id: str):
     """Cancel a running or pending task."""
     try:
         # Check task exists and is cancellable
-        with get_db_connection() as conn:
-            cursor = conn.execute("SELECT status, task_type FROM task_queue WHERE task_id = ?", (task_id,))
-            row = cursor.fetchone()
-            if not row:
-                return {"status": "error", "message": "Task not found"}
-            if row["status"] in ("COMPLETED", "FAILED", "CANCELLED"):
-                return {"status": "error", "message": f"Task already {row['status']}"}
-            task_type = row["task_type"]
+        status, task_type = TaskRepository.get_status(task_id)
+        if not status:
+            return {"status": "error", "message": "Task not found"}
+        if status in ("COMPLETED", "FAILED", "CANCELLED"):
+            return {"status": "error", "message": f"Task already {status}"}
 
         # 设置 bilibili 下载取消标志（让 yt-dlp 的 hook 能检测到）
         try:
@@ -727,9 +704,7 @@ async def cancel_task(task_id: str):
 async def set_auto_retry(task_id: str, enabled: bool = True):
     """启用/禁用任务的自动重试"""
     try:
-        with get_db_connection() as conn:
-            conn.execute("UPDATE task_queue SET auto_retry = ? WHERE task_id = ?", (1 if enabled else 0, task_id))
-            conn.commit()
+        TaskRepository.set_auto_retry(task_id, enabled)
         return {"status": "success", "message": f"自动重试已{'启用' if enabled else '禁用'}"}
     except Exception as e:
         logger.exception(f"set_auto_retry failed for {task_id}")
@@ -741,14 +716,11 @@ async def pause_task(task_id: str):
     """暂停一个正在运行的任务（暂仅支持 B站）"""
     try:
         # 检查任务存在且正在运行
-        with get_db_connection() as conn:
-            cursor = conn.execute("SELECT status, task_type FROM task_queue WHERE task_id = ?", (task_id,))
-            row = cursor.fetchone()
-            if not row:
-                return {"status": "error", "message": "Task not found"}
-            if row["status"] != "RUNNING":
-                return {"status": "error", "message": f"Task is not running (current: {row['status']})"}
-            task_type = row["task_type"]
+        status, task_type = TaskRepository.get_status(task_id)
+        if not status:
+            return {"status": "error", "message": "Task not found"}
+        if status != "RUNNING":
+            return {"status": "error", "message": f"Task is not running (current: {status})"}
 
         # 当前架构下，yt-dlp 是库内调用（非子进程），PauseController 的 SIGSTOP 无效
         # 因此暂停功能实际上不可用。建议用户使用"取消"来停止任务。
@@ -764,14 +736,11 @@ async def resume_task(task_id: str):
     """恢复一个已暂停的任务（暂仅支持 B站）"""
     try:
         # 检查任务存在且已暂停
-        with get_db_connection() as conn:
-            cursor = conn.execute("SELECT status, task_type FROM task_queue WHERE task_id = ?", (task_id,))
-            row = cursor.fetchone()
-            if not row:
-                return {"status": "error", "message": "Task not found"}
-            if row["status"] != "PAUSED":
-                return {"status": "error", "message": f"Task is not paused (current: {row['status']})"}
-            task_type = row["task_type"]
+        status, task_type = TaskRepository.get_status(task_id)
+        if not status:
+            return {"status": "error", "message": "Task not found"}
+        if status != "PAUSED":
+            return {"status": "error", "message": f"Task is not paused (current: {status})"}
 
         # 当前架构下暂停功能不可用，因此恢复也无意义
         return {"status": "error", "message": "当前下载器不支持恢复"}
@@ -785,15 +754,9 @@ async def resume_task(task_id: str):
 async def rerun_task(task_id: str):
     """用同一个 task_id 重新运行任务（用于崩溃后继续）。"""
     try:
-        with get_db_connection() as conn:
-            cursor = conn.execute("SELECT task_type, payload, status FROM task_queue WHERE task_id = ?", (task_id,))
-            row = cursor.fetchone()
-            if not row:
-                return {"status": "error", "message": "Task not found"}
-
-            task_type = row["task_type"]
-            payload_str = row["payload"]
-            current_status = row["status"]
+        task_type, payload_str, current_status = TaskRepository.get_task_type_payload_status(task_id)
+        if not task_type:
+            return {"status": "error", "message": "Task not found"}
 
         # 只有 FAILED/CANCELLED/PAUSED 状态才能重新运行
         if current_status not in ("FAILED", "CANCELLED", "PAUSED"):
@@ -811,12 +774,7 @@ async def rerun_task(task_id: str):
         original_params["_resumed"] = True
 
         # 重置任务状态为 RUNNING
-        with get_db_connection() as conn:
-            conn.execute(
-                "UPDATE task_queue SET status='RUNNING', progress=0.0, error_msg=NULL, update_time=? WHERE task_id=?",
-                (datetime.now().isoformat(), task_id)
-            )
-            conn.commit()
+        TaskRepository.mark_running(task_id, 0.0)
 
         # 用同一个 task_id 重新执行（这样可以利用断点续传）
         return await _start_task_worker(task_id, task_type, original_params)
@@ -880,14 +838,9 @@ async def _start_task_worker(task_id: str, task_type: str, original_params: dict
 async def retry_task(task_id: str, background_tasks: BackgroundTasks):
     """Retry a failed task using original parameters from payload (creates NEW task)."""
     try:
-        with get_db_connection() as conn:
-            cursor = conn.execute("SELECT task_type, payload FROM task_queue WHERE task_id = ?", (task_id,))
-            row = cursor.fetchone()
-            if not row:
-                return {"status": "error", "message": "Task not found"}
-
-            task_type = row["task_type"]
-            payload_str = row["payload"]
+        task_type, payload_str = TaskRepository.get_task_type_and_payload(task_id)
+        if not task_type:
+            return {"status": "error", "message": "Task not found"}
 
         # Parse original parameters from payload
         try:
