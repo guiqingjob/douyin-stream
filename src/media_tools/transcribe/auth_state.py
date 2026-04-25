@@ -177,7 +177,8 @@ def load_qwen_storage_state_from_db(db_path: str | Path | None = None) -> dict[s
                 (QWEN_AUTH_PLATFORM,),
             )
             row = cursor.fetchone()
-    except sqlite3.Error:
+    except sqlite3.Error as e:
+        logger.warning(f"加载Qwen认证状态失败: {e}")
         return None
 
     if not row or not row[0]:

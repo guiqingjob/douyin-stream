@@ -43,8 +43,8 @@ async def lifespan(app: FastAPI):
             conn.commit()
             if orphaned > 0:
                 print(f"[startup] 已清理 {orphaned} 个孤儿任务（服务重启残留）")
-    except (sqlite3.Error, OSError):
-        pass
+    except (sqlite3.Error, OSError) as e:
+        print(f"[startup] 清理孤儿任务失败: {e}")
 
     yield
     # Shutdown

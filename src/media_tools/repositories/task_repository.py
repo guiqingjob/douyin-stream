@@ -2,8 +2,11 @@
 from __future__ import annotations
 
 import json
+import logging
 import sqlite3
 from datetime import datetime
+
+logger = logging.getLogger(__name__)
 from typing import Any
 
 from media_tools.db.core import get_db_connection
@@ -48,7 +51,8 @@ def _merge_payload_from_db(
         cursor = conn.execute("SELECT payload FROM task_queue WHERE task_id = ?", (task_id,))
         row = cursor.fetchone()
         existing = row["payload"] if row else None
-    except sqlite3.Error:
+    except sqlite3.Error as e:
+        logger.warning(f"读取任务payload失败: {e}")
         existing = None
     return _merge_task_payload(existing, msg, result_summary, subtasks)
 

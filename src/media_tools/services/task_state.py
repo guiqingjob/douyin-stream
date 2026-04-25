@@ -23,8 +23,8 @@ async def _task_heartbeat(task_id: str, interval: int = 30):
                     "UPDATE task_queue SET update_time = ? WHERE task_id = ? AND status IN ('PENDING', 'RUNNING')",
                     (datetime.now().isoformat(), task_id),
                 )
-        except (sqlite3.Error, OSError):
-            pass
+        except (sqlite3.Error, OSError) as e:
+            logger.warning(f"heartbeat DB更新失败 task_id={task_id}: {e}")
 
 
 async def _handle_auto_retry(task_id: str):

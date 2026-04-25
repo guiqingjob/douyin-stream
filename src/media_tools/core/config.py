@@ -7,10 +7,13 @@
 """
 from __future__ import annotations
 
+import logging
 import os
 import sqlite3
 from pathlib import Path
 from typing import Any
+
+logger = logging.getLogger(__name__)
 
 from media_tools.db.core import get_db_connection, validate_identifier
 
@@ -37,7 +40,8 @@ def _get_system_setting(key: str) -> str | None:
                 "SELECT value FROM SystemSettings WHERE key = ?", (key,)
             ).fetchone()
             return row[0] if row else None
-    except (sqlite3.Error, OSError):
+    except (sqlite3.Error, OSError) as e:
+        logger.warning(f"读取系统设置失败: {e}")
         return None
 
 

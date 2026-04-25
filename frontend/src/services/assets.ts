@@ -1,0 +1,63 @@
+import { apiClient } from '@/lib/api';
+import type { Asset } from '@/types';
+
+export const getAssets = async (limit = 500, signal?: AbortSignal): Promise<Asset[]> => {
+  const response = await apiClient.get(`/assets/?limit=${limit}`, { signal });
+  return response.data;
+};
+
+export const getAssetsByCreator = async (creatorUid: string, signal?: AbortSignal): Promise<Asset[]> => {
+  const response = await apiClient.get(`/assets/?creator_uid=${creatorUid}&limit=500`, { signal });
+  return response.data;
+};
+
+export const searchAssets = async (query: string, signal?: AbortSignal): Promise<(Asset & { match_type: string })[]> => {
+  const response = await apiClient.get(`/assets/search?q=${encodeURIComponent(query)}`, { signal });
+  return response.data;
+};
+
+export const getAssetTranscript = async (assetId: string, signal?: AbortSignal): Promise<string> => {
+  const response = await apiClient.get(`/assets/${assetId}/transcript`, { signal });
+  return response.data.content;
+};
+
+export const deleteAsset = async (assetId: string, signal?: AbortSignal): Promise<unknown> => {
+  const response = await apiClient.delete(`/assets/${assetId}`, { signal });
+  return response.data;
+};
+
+export const bulkDeleteAssets = async (ids: string[], signal?: AbortSignal): Promise<{ status: string; deleted: number }> => {
+  const response = await apiClient.post('/assets/bulk_delete', { ids }, { signal });
+  return response.data;
+};
+
+export const cleanupMissingAssets = async (signal?: AbortSignal): Promise<{ status: string; deleted: number }> => {
+  const response = await apiClient.post('/assets/cleanup', null, { signal });
+  return response.data;
+};
+
+export const markAsset = async (assetId: string, mark: { is_read?: boolean; is_starred?: boolean }, signal?: AbortSignal) => {
+  const response = await apiClient.patch(`/assets/${assetId}/mark`, mark, { signal });
+  return response.data;
+};
+
+export const bulkMarkAssets = async (
+  ids: string[],
+  mark: { is_read?: boolean; is_starred?: boolean },
+  signal?: AbortSignal
+): Promise<{ status: string; updated: number }> => {
+  const response = await apiClient.post('/assets/bulk_mark', { ids, ...mark }, { signal });
+  return response.data;
+};
+
+export const exportTranscripts = async (assetIds: string[], signal?: AbortSignal): Promise<void> => {
+  const response = await apiClient.post('/assets/export', assetIds, { responseType: 'blob', signal });
+  const url = window.URL.createObjectURL(new Blob([response.data]));
+  const a = document.createElement('a');
+  a.href = url;
+  a.download = 'transcripts.zip';
+  document.body.appendChild(a);
+  a.click();
+  document.body.removeChild(a);
+  setTimeout(() => window.URL.revokeObjectURL(url), 10000);
+};

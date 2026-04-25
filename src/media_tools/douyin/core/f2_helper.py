@@ -5,7 +5,10 @@ F2 辅助模块 - 统一管理 F2 配置和初始化
 """
 
 import f2
+import logging
 import sqlite3
+
+logger = logging.getLogger(__name__)
 from f2.utils.conf_manager import ConfigManager
 
 from .config_mgr import get_config
@@ -54,7 +57,8 @@ def _get_active_douyin_cookie_from_pool(db_path) -> str:
                 conn.commit()
                 return row[1]
             return ""
-    except sqlite3.Error:
+    except sqlite3.Error as e:
+        logger.debug(f"读取F2数据库值失败: {e}")
         return ""
 
 

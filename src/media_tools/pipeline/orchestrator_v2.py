@@ -12,6 +12,7 @@ from __future__ import annotations
 import asyncio
 import json
 import logging
+import logging
 import os
 import re
 import sqlite3
@@ -164,7 +165,8 @@ class OrchestratorV2:
                     (status, account_id),
                 )
                 conn.commit()
-        except sqlite3.Error:
+        except sqlite3.Error as e:
+            logger.warning(f"标记Qwen账号状态失败: {e}")
             return
 
     async def _mark_qwen_account_status_async(self, account_id: str, status: str) -> None:
@@ -181,7 +183,8 @@ class OrchestratorV2:
                     )
 
             await asyncio.to_thread(_do_update)
-        except sqlite3.Error:
+        except sqlite3.Error as e:
+            logger.warning(f"标记Qwen账号状态(异步)失败: {e}")
             return
 
     def _mark_qwen_account_used(self, account_id: str) -> None:
@@ -195,7 +198,8 @@ class OrchestratorV2:
                     "UPDATE Accounts_Pool SET last_used=CURRENT_TIMESTAMP WHERE platform='qwen' AND account_id=?",
                     (account_id,),
                 )
-        except sqlite3.Error:
+        except sqlite3.Error as e:
+            logger.warning(f"标记Qwen账号使用失败: {e}")
             return
 
     async def _mark_qwen_account_used_async(self, account_id: str) -> None:
@@ -212,7 +216,8 @@ class OrchestratorV2:
                     )
 
             await asyncio.to_thread(_do_update)
-        except sqlite3.Error:
+        except sqlite3.Error as e:
+            logger.warning(f"标记Qwen账号使用(异步)失败: {e}")
             return
 
     async def _transcribe_single_video(
@@ -409,8 +414,8 @@ class OrchestratorV2:
                             "SELECT title FROM media_assets WHERE asset_id = ?", (asset_id,)
                         ).fetchone()
                         update_fts_for_asset(asset_id, title_row["title"] if title_row else "", full_text)
-                    except sqlite3.Error:
-                        pass
+                    except sqlite3.Error as fts_err:
+                        logger.warning(f"FTS索引更新失败: {fts_err}")
         except sqlite3.Error as e:
             logger.warning(f"更新 media_assets 转写状态失败: {e}")
 

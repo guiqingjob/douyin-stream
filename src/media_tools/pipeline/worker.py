@@ -77,10 +77,10 @@ async def run_local_transcribe(file_paths: list[str], update_progress_fn=None, d
                             title_row["title"] if title_row else "",
                             full_text,
                         )
-                    except sqlite3.Error:
-                        pass
-            except sqlite3.Error:
-                pass
+                    except sqlite3.Error as fts_err:
+                        logger.error(f"FTS索引更新失败 (asset={local_asset_id(video_path)}): {fts_err}")
+            except sqlite3.Error as db_err:
+                logger.error(f"DB更新失败 (asset={local_asset_id(video_path)}): {db_err}")
             if delete_after and video_path.exists():
                 try:
                     video_path.unlink()
@@ -167,7 +167,8 @@ async def run_pipeline_for_user(url: str, max_counts: int, update_progress_fn, d
 
     # 2. Transcribe (并发批量转写)
     config = load_pipeline_config()
-    state_file = Path(f".pipeline_state_{task_id or 'default'}.json")
+    from media_tools.core.config import get_project_root
+    state_file = get_project_root() / f".pipeline_state_{task_id or 'default'}.json"
     orchestrator = create_orchestrator(config, state_file=state_file)
 
     total = len(new_files)
@@ -269,7 +270,8 @@ async def run_batch_pipeline(video_urls: list[str], update_progress_fn, delete_a
 
     # Transcribe phase (并发批量转写)
     config = load_pipeline_config()
-    state_file = Path(f".pipeline_state_{task_id or 'batch_default'}.json")
+    from media_tools.core.config import get_project_root
+    state_file = get_project_root() / f".pipeline_state_{task_id or 'batch_default'}.json"
     orchestrator = create_orchestrator(config, state_file=state_file)
 
     # 使用批量并发转写

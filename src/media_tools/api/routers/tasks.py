@@ -74,7 +74,7 @@ def get_active_tasks():
         return TaskRepository.find_active()
     except sqlite3.Error:
         logger.exception("get_active_tasks failed")
-        return []
+        raise HTTPException(status_code=500, detail="获取活跃任务失败")
 
 
 @router.get("/history")
@@ -83,7 +83,7 @@ def get_task_history():
         return TaskRepository.list_recent(50)
     except sqlite3.Error:
         logger.exception("get_task_history failed")
-        return []
+        raise HTTPException(status_code=500, detail="获取任务历史失败")
 
 
 @router.delete("/history")
@@ -95,7 +95,7 @@ def clear_task_history():
         return {"status": "success", "message": "历史任务已清除"}
     except (sqlite3.Error, OSError) as e:
         logger.exception("clear_task_history failed")
-        return {"status": "error", "message": str(e)}
+        raise HTTPException(status_code=500, detail=str(e))
 
 
 @router.delete("/{task_id}")
@@ -120,7 +120,7 @@ async def delete_task(task_id: str):
         return {"status": "success", "message": "任务已删除"}
     except (sqlite3.Error, OSError) as e:
         logger.exception(f"delete_task failed for {task_id}")
-        return {"status": "error", "message": str(e)}
+        raise HTTPException(status_code=500, detail=str(e))
 
 
 @router.get("/{task_id}")
@@ -129,10 +129,10 @@ def get_task_status(task_id: str):
         task = TaskRepository.find_by_id(task_id)
         if task:
             return task
-        return {"status": "NOT_FOUND"}
+        raise HTTPException(status_code=404, detail="任务不存在")
     except sqlite3.Error:
         logger.exception("get_task_status failed")
-        return {"status": "ERROR"}
+        raise HTTPException(status_code=500, detail="获取任务状态失败")
 
 
 @router.post("/{task_id}/cancel")
@@ -140,9 +140,9 @@ async def cancel_task(task_id: str):
     try:
         status, task_type = TaskRepository.get_status(task_id)
         if not status:
-            return {"status": "error", "message": "Task not found"}
+            raise HTTPException(status_code=404, detail="任务不存在")
         if status in ("COMPLETED", "FAILED", "CANCELLED"):
-            return {"status": "error", "message": f"Task already {status}"}
+            raise HTTPException(status_code=409, detail=f"任务已处于 {status} 状态，无法取消")
 
         try:
             from media_tools.bilibili.core.downloader import cancel_download
@@ -160,9 +160,11 @@ async def cancel_task(task_id: str):
         else:
             await _mark_task_cancelled(task_id, task_type)
             return {"status": "success", "message": "Task marked as cancelled (was not running)"}
+    except HTTPException:
+        raise
     except (sqlite3.Error, OSError, RuntimeError, asyncio.CancelledError) as e:
         logger.exception(f"cancel_task failed for {task_id}")
-        return {"status": "error", "message": str(e)}
+        raise HTTPException(status_code=500, detail=str(e))
 
 
 @router.post("/{task_id}/auto-retry")
@@ -172,7 +174,7 @@ async def set_auto_retry(task_id: str, enabled: bool = True):
         return {"status": "success", "message": f"自动重试已{'启用' if enabled else '禁用'}"}
     except (sqlite3.Error, OSError, RuntimeError) as e:
         logger.exception(f"set_auto_retry failed for {task_id}")
-        return {"status": "error", "message": str(e)}
+        raise HTTPException(status_code=500, detail=str(e))
 
 
 @router.post("/{task_id}/pause")
@@ -180,13 +182,15 @@ async def pause_task(task_id: str):
     try:
         status, task_type = TaskRepository.get_status(task_id)
         if not status:
-            return {"status": "error", "message": "Task not found"}
+            raise HTTPException(status_code=404, detail="任务不存在")
         if status != "RUNNING":
-            return {"status": "error", "message": f"Task is not running (current: {status})"}
-        return {"status": "error", "message": "当前下载器不支持暂停，请使用取消功能"}
+            raise HTTPException(status_code=409, detail=f"任务未在运行（当前: {status}）")
+        raise HTTPException(status_code=409, detail="当前下载器不支持暂停，请使用取消功能")
+    except HTTPException:
+        raise
     except (sqlite3.Error, OSError, RuntimeError) as e:
         logger.exception(f"pause_task failed for {task_id}")
-        return {"status": "error", "message": str(e)}
+        raise HTTPException(status_code=500, detail=str(e))
 
 
 @router.post("/{task_id}/resume")
@@ -194,13 +198,15 @@ async def resume_task(task_id: str):
     try:
         status, task_type = TaskRepository.get_status(task_id)
         if not status:
-            return {"status": "error", "message": "Task not found"}
+            raise HTTPException(status_code=404, detail="任务不存在")
         if status != "PAUSED":
-            return {"status": "error", "message": f"Task is not paused (current: {status})"}
-        return {"status": "error", "message": "当前下载器不支持恢复"}
+            raise HTTPException(status_code=409, detail=f"任务未暂停（当前: {status}）")
+        raise HTTPException(status_code=409, detail="当前下载器不支持恢复")
+    except HTTPException:
+        raise
     except (sqlite3.Error, OSError, RuntimeError) as e:
         logger.exception(f"resume_task failed for {task_id}")
-        return {"status": "error", "message": str(e)}
+        raise HTTPException(status_code=500, detail=str(e))
 
 
 @router.post("/{task_id}/rerun")
@@ -208,10 +214,10 @@ async def rerun_task(task_id: str):
     try:
         task_type, payload_str, current_status = TaskRepository.get_task_type_payload_status(task_id)
         if not task_type:
-            return {"status": "error", "message": "Task not found"}
+            raise HTTPException(status_code=404, detail="任务不存在")
 
         if current_status not in ("FAILED", "CANCELLED", "PAUSED"):
-            return {"status": "error", "message": f"当前状态 {current_status} 不能重新运行"}
+            raise HTTPException(status_code=409, detail=f"当前状态 {current_status} 不能重新运行")
 
         try:
             original_params = json.loads(payload_str) if payload_str else {}
@@ -225,9 +231,11 @@ async def rerun_task(task_id: str):
         TaskRepository.mark_running(task_id, 0.0)
         return await _start_task_worker(task_id, task_type, original_params)
 
+    except HTTPException:
+        raise
     except (sqlite3.Error, OSError, RuntimeError, asyncio.CancelledError) as e:
         logger.exception(f"rerun_task failed for {task_id}")
-        return {"status": "error", "message": str(e)}
+        raise HTTPException(status_code=500, detail=str(e))
 
 
 @router.post("/{task_id}/retry")
@@ -235,7 +243,7 @@ async def retry_task(task_id: str):
     try:
         task_type, payload_str = TaskRepository.get_task_type_and_payload(task_id)
         if not task_type:
-            return {"status": "error", "message": "Task not found"}
+            raise HTTPException(status_code=404, detail="任务不存在")
 
         try:
             original_params = json.loads(payload_str) if payload_str else {}
@@ -244,9 +252,11 @@ async def retry_task(task_id: str):
 
         return await _retry_task_worker(task_id, task_type, original_params)
 
+    except HTTPException:
+        raise
     except (sqlite3.Error, OSError, RuntimeError, asyncio.CancelledError) as e:
         logger.exception(f"retry_task failed for {task_id}")
-        return {"status": "error", "message": str(e)}
+        raise HTTPException(status_code=500, detail=str(e))
 
 
 @router.post("/pipeline/batch")

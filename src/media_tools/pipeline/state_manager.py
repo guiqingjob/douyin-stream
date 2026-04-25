@@ -3,6 +3,7 @@ from __future__ import annotations
 
 import json
 import logging
+import os
 import time
 from pathlib import Path
 
@@ -11,7 +12,7 @@ from ..transcribe.runtime import ensure_dir
 
 logger = logging.getLogger(__name__)
 
-DEFAULT_STATE_FILE = ".pipeline_state.json"
+DEFAULT_STATE_FILE = None  # Will use project root when None
 
 
 class PipelineStateManager:
@@ -21,7 +22,10 @@ class PipelineStateManager:
     支持中断后从断点继续执行。
     """
 
-    def __init__(self, state_file: Path | str = DEFAULT_STATE_FILE):
+    def __init__(self, state_file: Path | str | None = DEFAULT_STATE_FILE):
+        if state_file is None:
+            from media_tools.core.config import get_project_root
+            state_file = get_project_root() / ".pipeline_state.json"
         self.state_file = Path(state_file)
         self.states: dict[str, VideoState] = {}
         self._load()
@@ -42,13 +46,15 @@ class PipelineStateManager:
             logger.info(f"状态文件不存在，将创建新状态: {self.state_file}")
 
     def _save(self) -> None:
-        """保存状态到文件"""
+        """保存状态到文件（原子写入：先写临时文件再 rename）"""
         try:
             from dataclasses import asdict
             data = {path: asdict(state) for path, state in self.states.items()}
             ensure_dir(self.state_file.parent)
-            with open(self.state_file, "w", encoding="utf-8") as f:
+            tmp_file = self.state_file.with_suffix(".tmp")
+            with open(tmp_file, "w", encoding="utf-8") as f:
                 json.dump(data, f, ensure_ascii=False, indent=2)
+            os.replace(tmp_file, self.state_file)
             logger.debug(f"状态已保存到: {self.state_file}")
         except (OSError, TypeError, json.JSONDecodeError) as e:
             logger.error(f"保存状态文件失败: {e}")

@@ -56,7 +56,7 @@ def list_assets(
         logger.exception(f"list_assets 错误: creator_uid={creator_uid}, limit={limit}, offset={offset}")
         if silent:
             return []
-        raise HTTPException(status_code=500, detail={"detail": "Database error", "message": str(e)})
+        raise HTTPException(status_code=500, detail=str(e))
 
 @router.get("/search")
 def search_assets(q: str = Query(..., min_length=1)):

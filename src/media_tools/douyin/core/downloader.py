@@ -359,8 +359,8 @@ def _rename_videos_in_downloads(nickname: str, uid: str, downloads_path: Path) -
 
             if processed_count > 0:
                 logger.info(info(f"  [整理] 已处理 {processed_count} 个文件到 {folder_name}/（{renamed_count} 个已重命名）"))
-    except (sqlite3.Error, OSError):
-        pass
+    except (sqlite3.Error, OSError) as e:
+        logger.warning(f"整理下载文件失败: {e}")
 
     return folder_name
 
