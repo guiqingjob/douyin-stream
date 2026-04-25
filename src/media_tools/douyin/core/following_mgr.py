@@ -4,12 +4,10 @@
 关注列表管理模块 - 增删查取关清理
 """
 
-import asyncio
-import re
 import sqlite3
 from datetime import datetime
 
-from media_tools.db.core import get_db_connection
+from media_tools.db.core import get_db_connection, resolve_safe_path
 from media_tools.logger import get_logger
 
 from .config_mgr import get_config
@@ -22,71 +20,10 @@ from .ui import (
     success,
     warning,
 )
+from .utils import _run_async_coro, _resolve_sec_user_id, _get_skill_dir, _clean_nickname
 from pathlib import Path
-import os
 
 logger = get_logger(__name__)
-
-
-def _resolve_safe_path(base_dir: Path, relative_path: str | None) -> Path | None:
-    """Resolve a path and ensure it stays within base_dir."""
-    if not relative_path:
-        return None
-    try:
-        base = base_dir.resolve()
-        target = (base / relative_path).resolve()
-        if not str(target).startswith(str(base) + os.sep) and str(target) != str(base):
-            logger.warning(f"Path traversal blocked: {relative_path} -> {target}")
-            return None
-        return target
-    except (OSError, ValueError):
-        return None
-
-
-def _run_async_coro(coro):
-    """在同步代码中安全运行异步协程，兼容已有事件循环的场景（如 FastAPI）。"""
-    try:
-        loop = asyncio.get_running_loop()
-        if loop.is_running():
-            import concurrent.futures
-
-            with concurrent.futures.ThreadPoolExecutor() as pool:
-                return pool.submit(asyncio.run, coro).result()
-    except RuntimeError:
-        pass
-    return asyncio.run(coro)
-
-
-def _resolve_sec_user_id(url: str) -> str | None:
-    """将用户主页链接规范化为 canonical sec_user_id。"""
-
-    raw_match = re.search(r'/user/([^/"\s?]+)', url)
-    raw_value = raw_match.group(1) if raw_match else ''
-    if raw_value.startswith('MS4w'):
-        return raw_value
-
-    async def _fetch() -> str:
-        from f2.apps.douyin.utils import SecUserIdFetcher
-
-        return await SecUserIdFetcher.get_sec_user_id(url)
-
-    try:
-        resolved = _run_async_coro(_fetch())
-        if resolved and resolved.startswith('MS4w'):
-            return resolved
-    except (RuntimeError, OSError, ValueError) as exc:
-        logger.warning(f"sec_user_id 规范化失败: {exc}")
-
-    if raw_value:
-        logger.error('当前链接未包含 sec_user_id；请优先使用 sec_user_id 形式的用户主页链接。')
-    else:
-        logger.error('无法从链接中提取用户标识。')
-    return None
-
-
-def _get_skill_dir():
-    """获取项目根目录"""
-    return get_config().project_root
 
 
 def list_users():
@@ -266,17 +203,6 @@ def _fetch_user_info_via_f2(url, sec_user_id):
     }
 
 
-def _clean_nickname(name):
-    """清理昵称"""
-    if not name:
-        return ""
-    suffixes = ["的抖音", "的Douyin", " - 抖音", " - Douyin", " | 抖音", " | Douyin"]
-    for suffix in suffixes:
-        if name.endswith(suffix):
-            name = name[: -len(suffix)]
-    return name.strip()
-
-
 def remove_user(uid=None, delete_local=False):
     """
     移除关注的博主 (从 SQLite V2 架构)
@@ -324,9 +250,9 @@ def remove_user(uid=None, delete_local=False):
     # 删除本地视频文件
     if delete_local:
         downloads_path = config.get_download_path().resolve()
-        user_dir = _resolve_safe_path(downloads_path, name)
+        user_dir = resolve_safe_path(downloads_path, name)
         if not user_dir or not user_dir.exists():
-            user_dir = _resolve_safe_path(downloads_path, str(uid))
+            user_dir = resolve_safe_path(downloads_path, str(uid))
 
         if user_dir and user_dir.exists():
             import shutil
