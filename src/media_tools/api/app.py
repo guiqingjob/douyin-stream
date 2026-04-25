@@ -1,6 +1,7 @@
 from contextlib import asynccontextmanager
+from pathlib import Path
 from fastapi import FastAPI, Request, HTTPException
-from fastapi.responses import JSONResponse
+from fastapi.responses import JSONResponse, FileResponse
 from fastapi.middleware.cors import CORSMiddleware
 from media_tools.api.routers import creators, assets, tasks, settings, douyin, scheduler
 from media_tools.core.exceptions import AppError
@@ -135,6 +136,26 @@ app.include_router(tasks.router)
 app.include_router(settings.router)
 app.include_router(douyin.router)
 app.include_router(scheduler.router)
+
+# 托管前端静态资源（生产环境 Docker 部署用）
+_static_dir = Path(__file__).parent.parent.parent.parent / "static"
+if _static_dir.exists():
+    from fastapi.staticfiles import StaticFiles
+
+    app.mount("/assets", StaticFiles(directory=str(_static_dir / "assets")), name="assets")
+
+    @app.get("/")
+    async def root():
+        return FileResponse(str(_static_dir / "index.html"))
+
+    @app.get("/{full_path:path}")
+    async def spa_catch_all(full_path: str):
+        if full_path.startswith("api/") or full_path.startswith("docs") or full_path.startswith("openapi.json"):
+            raise HTTPException(status_code=404, detail="Not found")
+        index_file = _static_dir / "index.html"
+        if index_file.exists():
+            return FileResponse(str(index_file))
+        raise HTTPException(status_code=404, detail="Not found")
 
 import shutil
 
