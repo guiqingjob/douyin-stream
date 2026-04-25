@@ -1,4 +1,3 @@
-import hashlib
 import re
 import sqlite3
 import os
@@ -395,33 +394,8 @@ def init_db(db_path: str | Path):
 
 # --- Path helpers (shared across routers & downloader) ---
 
-def resolve_safe_path(base_dir: Path, relative_path: str | None) -> Path | None:
-    """Resolve a path and ensure it stays within base_dir."""
-    if not relative_path:
-        return None
-    try:
-        base = base_dir.resolve()
-        target = (base / relative_path).resolve()
-        if not str(target).startswith(str(base) + os.sep) and str(target) != str(base):
-            logger.warning(f"Path traversal blocked: {relative_path} -> {target}")
-            return None
-        return target
-    except (OSError, ValueError):
-        return None
-
-
-def resolve_query_value(val, default):
-    """Convert FastAPI Query object to actual value."""
-    if hasattr(val, 'default'):
-        return val.default if val.default is not None else default
-    return val if val is not None else default
-
-
-def local_asset_id(file_path: str | Path) -> str:
-    """Generate a stable local asset ID from a file path."""
-    resolved = str(Path(file_path).resolve())
-    digest = hashlib.sha1(resolved.encode("utf-8")).hexdigest()[:24]
-    return f"local:{digest}"
+# Re-export path utilities for backward compatibility
+from .path_utils import resolve_safe_path, resolve_query_value, local_asset_id  # noqa: F401
 
 
 if __name__ == "__main__":
