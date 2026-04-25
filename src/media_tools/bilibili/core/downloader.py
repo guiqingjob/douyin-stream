@@ -1,112 +1,38 @@
 from __future__ import annotations
 
-import atexit
 import inspect
 import os
 import re
 import shutil
-import signal
 import sqlite3
 import subprocess
-import tempfile
-import threading
 import time
-from contextlib import contextmanager
 from dataclasses import dataclass, field
 from datetime import datetime
 from pathlib import Path
-from typing import Any, Callable, Generator
+from typing import Any, Callable
 
 from media_tools.common.paths import get_download_path
 from media_tools.logger import get_logger
 
 from media_tools.bilibili.utils.cookies import get_bilibili_cookie_string
 from media_tools.bilibili.utils.naming import sanitize_filename
+from .temp_files import managed_temp_file
+from .task_control import (
+    PauseController,
+    register_cancel_flag,
+    cancel_download,
+    unregister_cancel_flag,
+    register_pause_controller,
+    get_pause_controller,
+    unregister_pause_controller,
+    pause_task,
+    resume_task,
+    cancel_task_download,
+)
 
 logger = get_logger("bilibili")
 
-# --- 临时文件安全管理（复用 douyin_ytdlp 的实现）---
-_temp_files: set[str] = set()
-_temp_files_lock = threading.Lock()
-
-
-def _cleanup_temp_files() -> None:
-    """进程退出时清理所有临时文件"""
-    with _temp_files_lock:
-        for path_str in list(_temp_files):
-            try:
-                if os.path.exists(path_str):
-                    os.unlink(path_str)
-                    logger.debug(f"Cleaned up temp file: {path_str}")
-            except (OSError, PermissionError) as e:
-                logger.warning(f"Failed to cleanup temp file {path_str}: {e}")
-        _temp_files.clear()
-
-
-def _register_temp_file(path_str: str) -> None:
-    """注册临时文件到清理列表"""
-    with _temp_files_lock:
-        _temp_files.add(path_str)
-
-
-def _unregister_temp_file(path_str: str) -> None:
-    """从清理列表移除（已清理时调用）"""
-    with _temp_files_lock:
-        _temp_files.discard(path_str)
-
-
-def _cleanup_on_signal(signum, frame) -> None:
-    """信号处理时清理临时文件"""
-    _cleanup_temp_files()
-    signal.signal(signum, signal.SIG_DFL)
-    os.kill(os.getpid(), signum)
-
-
-# 注册进程退出清理
-atexit.register(_cleanup_temp_files)
-if hasattr(signal, 'SIGTERM'):
-    signal.signal(signal.SIGTERM, _cleanup_on_signal)
-signal.signal(signal.SIGINT, _cleanup_on_signal)
-
-
-@contextmanager
-def managed_temp_file(mode: str = 'w', suffix: str = '.txt', dir: str | None = None) -> Generator[tuple, None, None]:
-    """
-    安全的临时文件上下文管理器（同 douyin_ytdlp）
-
-    - 使用 delete=True（自动删除）
-    - 显式在 finally 中 close + unlink（双重保险）
-    - mode=0o600 权限，防止其他用户读取
-    - 注册到 atexit 清理列表（进程崩溃时也能清理）
-    """
-    import sys
-    if sys.platform == 'win32':
-        fd, path_str = tempfile.mkstemp(suffix=suffix, dir=dir, text=True)
-        os.chmod(path_str, 0o600)
-        f = os.fdopen(fd, mode)
-    else:
-        f = tempfile.NamedTemporaryFile(
-            mode=mode, suffix=suffix, dir=dir,
-            delete=True,
-        )
-        path_str = f.name
-        os.chmod(path_str, 0o600)
-
-    _register_temp_file(path_str)
-
-    try:
-        yield f, path_str
-    finally:
-        try:
-            f.close()
-        except OSError:
-            pass
-        try:
-            if os.path.exists(path_str):
-                os.unlink(path_str)
-                _unregister_temp_file(path_str)
-        except OSError as e:
-            logger.warning(f"Failed to cleanup temp file {path_str}: {e}")
 
 # 扩展进度回调：支持详细进度信息
 DownloadProgress = dict[str, Any]
@@ -118,134 +44,6 @@ try:
     from yt_dlp import YoutubeDL
 except ImportError:
     YoutubeDL = None
-
-
-# 全局暂停控制字典
-_pause_controllers: dict[str, "PauseController"] = {}
-_pause_lock = threading.Lock()
-
-# 全局取消标志（用于库内调用的 yt-dlp，无法通过 subprocess 信号中断）
-_cancel_flags: dict[str, threading.Event] = {}
-_cancel_flags_lock = threading.Lock()
-
-
-def register_cancel_flag(task_id: str) -> threading.Event:
-    """为 task_id 注册一个线程安全的取消标志"""
-    event = threading.Event()
-    with _cancel_flags_lock:
-        _cancel_flags[task_id] = event
-    return event
-
-
-def cancel_download(task_id: str) -> None:
-    """标记 task_id 对应的下载为取消"""
-    with _cancel_flags_lock:
-        flag = _cancel_flags.get(task_id)
-        if flag:
-            flag.set()
-
-
-def unregister_cancel_flag(task_id: str) -> None:
-    """清理取消标志"""
-    with _cancel_flags_lock:
-        _cancel_flags.pop(task_id, None)
-
-
-class PauseController:
-    """暂停控制器，支持暂停/恢复下载"""
-
-    def __init__(self, task_id: str):
-        self.task_id = task_id
-        self._paused = threading.Event()
-        self._paused.set()  # 初始不暂停
-        self._cancelled = threading.Event()
-        self._process: subprocess.Popen | None = None
-
-    def pause(self):
-        """暂停下载"""
-        self._paused.clear()
-        if self._process and self._process.poll() is None:
-            try:
-                if hasattr(signal, 'SIGSTOP'):
-                    self._process.send_signal(signal.SIGSTOP)
-                logger.info(f"Task {self.task_id} paused")
-            except (OSError, ProcessLookupError) as e:
-                logger.warning(f"Failed to pause task {self.task_id}: {e}")
-
-    def resume(self):
-        """恢复下载"""
-        self._paused.set()
-        if self._process and self._process.poll() is None:
-            try:
-                if hasattr(signal, 'SIGCONT'):
-                    self._process.send_signal(signal.SIGCONT)
-                logger.info(f"Task {self.task_id} resumed")
-            except (OSError, ProcessLookupError) as e:
-                logger.warning(f"Failed to resume task {self.task_id}: {e}")
-
-    def cancel(self):
-        """取消下载"""
-        self._cancelled.set()
-        self._paused.set()
-        if self._process and self._process.poll() is None:
-            try:
-                self._process.terminate()
-                logger.info(f"Task {self.task_id} cancelled")
-            except (OSError, ProcessLookupError) as e:
-                logger.warning(f"Failed to cancel task {self.task_id}: {e}")
-
-    def is_cancelled(self) -> bool:
-        return self._cancelled.is_set()
-
-    def check_pause(self):
-        """检查是否需要暂停（阻塞直到恢复）"""
-        self._paused.wait()
-
-    def set_process(self, proc: subprocess.Popen):
-        self._process = proc
-
-
-def register_pause_controller(task_id: str) -> PauseController:
-    with _pause_lock:
-        controller = PauseController(task_id)
-        _pause_controllers[task_id] = controller
-        return controller
-
-
-def get_pause_controller(task_id: str) -> PauseController | None:
-    with _pause_lock:
-        return _pause_controllers.get(task_id)
-
-
-def unregister_pause_controller(task_id: str):
-    with _pause_lock:
-        _pause_controllers.pop(task_id, None)
-
-
-def pause_task(task_id: str):
-    controller = get_pause_controller(task_id)
-    if controller:
-        controller.pause()
-
-
-def resume_task(task_id: str):
-    controller = get_pause_controller(task_id)
-    if controller:
-        controller.resume()
-
-
-def cancel_task_download(task_id: str):
-    controller = get_pause_controller(task_id)
-    if controller:
-        controller.cancel()
-
-
-@dataclass
-class UploaderInfo:
-    nickname: str
-    mid: str
-    homepage_url: str
-
 
 def _format_speed(speed_bytes_per_sec: float) -> str:
     """格式化下载速度"""
