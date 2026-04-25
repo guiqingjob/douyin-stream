@@ -115,7 +115,7 @@ def _lookup_creator_folder(video_path: Path) -> str | None:
                 name = re.sub(r'[<>:"/\\|?*]', '', row[0]).strip()
                 name = re.sub(r'\.+', '_', name).strip()
                 return name if name else None
-    except Exception as e:
+    except (sqlite3.Error, OSError, re.error) as e:
         logger.warning(f"查询创作者信息失败: {e}")
     return None
 
@@ -394,7 +394,7 @@ class PipelineStateManager:
                 for path_str, state_data in data.items():
                     self.states[path_str] = VideoState(**state_data)
                 logger.info(f"已加载状态文件: {self.state_file} ({len(self.states)} 条记录)")
-            except Exception as e:
+            except (json.JSONDecodeError, OSError, TypeError, ValueError) as e:
                 logger.warning(f"加载状态文件失败，将创建新状态: {e}")
                 self.states = {}
         else:
@@ -411,7 +411,7 @@ class PipelineStateManager:
             with open(self.state_file, "w", encoding="utf-8") as f:
                 json.dump(data, f, ensure_ascii=False, indent=2)
             logger.debug(f"状态已保存到: {self.state_file}")
-        except Exception as e:
+        except (OSError, TypeError, json.JSONDecodeError) as e:
             logger.error(f"保存状态文件失败: {e}")
 
     def get_state(self, video_path: Path) -> VideoState:
@@ -563,7 +563,7 @@ class OrchestratorV2:
             try:
                 transcribe_config = load_transcribe_config()
                 self.auth_state_path = transcribe_config.paths.auth_state_path
-            except Exception as e:
+            except (OSError, TypeError, ValueError) as e:
                 logger.warning(f"无法加载认证配置，将使用默认路径: {e}")
 
     def _fire_progress(
@@ -584,7 +584,7 @@ class OrchestratorV2:
         if self.on_progress:
             try:
                 self.on_progress(current, total, video_path, status)
-            except Exception as e:
+            except (RuntimeError, TypeError, ValueError) as e:
                 logger.warning(f"进度回调执行失败: {e}")
 
     def _resolve_qwen_execution_accounts(self) -> list[dict[str, Any]]:
@@ -626,7 +626,7 @@ class OrchestratorV2:
                 self._account_pool = AccountPool(resolved, balances)
                 logger.info(f"账号池初始化: {[(a['account_id'], b) for a, b in zip(resolved, balances)]}")
                 return resolved
-        except Exception as e:
+        except (sqlite3.Error, OSError, TypeError, ValueError) as e:
             logger.warning(f"加载账号池失败: {e}")
 
         if self.auth_state_path is None:
@@ -793,7 +793,7 @@ class OrchestratorV2:
                         transcript_path=result.export_path,
                         duration=duration,
                     )
-                except Exception as e:
+                except Exception as e:  # classify_error 设计为处理任意异常类型
                     last_error = e
                     last_error_type = classify_error(e)
                     if last_error_type == ErrorType.AUTH and account_id:
@@ -823,7 +823,7 @@ class OrchestratorV2:
                 duration=duration,
             )
 
-        except Exception as e:
+        except Exception as e:  # classify_error 设计为处理任意异常类型
             duration = time.time() - start_time
             error_type = classify_error(e)
             logger.error(f"转写失败 [{error_type.value}]: {video_path} - {e}")

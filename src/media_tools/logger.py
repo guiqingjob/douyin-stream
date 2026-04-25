@@ -111,7 +111,7 @@ class MediaLogger:
                 if file_mtime < cutoff_date:
                     log_file.unlink()
                     self.logger.info(f"清理旧日志: {log_file.name}")
-            except Exception as e:
+            except (OSError, PermissionError) as e:
                 self.logger.warning(f"清理日志失败: {e}")
 
     def _clean_msg(self, message: str) -> str:

@@ -74,7 +74,7 @@ async def _fetch_bilibili_nickname(mid: str, retries: int = 3) -> str:
             logger.warning(f"B站API错误 (attempt {attempt + 1}/{retries}): {e}")
             if attempt < retries - 1:
                 await asyncio.sleep(wait)
-        except Exception as e:
+        except (RuntimeError, OSError, ValueError) as e:
             logger.error(f"B站API异常: {e}")
             break
 
@@ -154,7 +154,7 @@ async def create_creator(req: CreatorCreateRequest):
             homepage_url = f"https://space.bilibili.com/{parsed.mid}"
             try:
                 nickname = await _fetch_bilibili_nickname(parsed.mid)
-            except Exception as e:
+            except (RuntimeError, OSError, ValueError) as e:
                 logger.warning(f"获取B站昵称失败: {e}")
                 # 使用 mid 作为后备
 

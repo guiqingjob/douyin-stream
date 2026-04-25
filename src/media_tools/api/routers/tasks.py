@@ -304,7 +304,7 @@ async def websocket_endpoint(websocket: WebSocket):
                 logger.debug(f"WebSocket received: {data[:50]}...")
     except WebSocketDisconnect:
         manager.disconnect(websocket)
-    except Exception as e:
+    except (RuntimeError, OSError) as e:
         logger.exception(f"WebSocket unexpected error: {e}")
     finally:
         heartbeat_task.cancel()
@@ -486,7 +486,7 @@ async def _complete_task(
                 "UPDATE task_queue SET status=?, progress=1.0, payload=?, error_msg=? WHERE task_id=?",
                 (status, payload_str, error_msg, task_id),
             )
-    except Exception as e:
+    except (sqlite3.Error, OSError, RuntimeError) as e:
         logger.error(f"Failed to complete task {task_id} in DB: {e}")
     await notify_task_update(task_id, 1.0, msg, status, task_type, result_summary, subtasks)
 
@@ -553,7 +553,7 @@ async def _background_pipeline_worker(task_id: str, req: PipelineRequest):
         await notify_task_update(task_id, 1.0, msg, status, "pipeline", result_summary, subtasks)
     except asyncio.CancelledError:
         raise
-    except Exception as e:
+    except (RuntimeError, OSError) as e:
         with get_db_connection() as conn:
             conn.execute("UPDATE task_queue SET status='FAILED', error_msg=? WHERE task_id=?", (str(e), task_id))
         await notify_task_update(task_id, 0.0, str(e), "FAILED", "pipeline")
@@ -685,7 +685,7 @@ async def cancel_task(task_id: str):
             # Task not in active registry, just mark as cancelled
             await _mark_task_cancelled(task_id, task_type)
             return {"status": "success", "message": "Task marked as cancelled (was not running)"}
-    except Exception as e:
+    except (sqlite3.Error, OSError, RuntimeError, asyncio.CancelledError) as e:
         logger.exception(f"cancel_task failed for {task_id}")
         return {"status": "error", "message": str(e)}
 
@@ -696,7 +696,7 @@ async def set_auto_retry(task_id: str, enabled: bool = True):
     try:
         TaskRepository.set_auto_retry(task_id, enabled)
         return {"status": "success", "message": f"自动重试已{'启用' if enabled else '禁用'}"}
-    except Exception as e:
+    except (sqlite3.Error, OSError, RuntimeError) as e:
         logger.exception(f"set_auto_retry failed for {task_id}")
         return {"status": "error", "message": str(e)}
 
@@ -716,7 +716,7 @@ async def pause_task(task_id: str):
         # 因此暂停功能实际上不可用。建议用户使用"取消"来停止任务。
         return {"status": "error", "message": "当前下载器不支持暂停，请使用取消功能"}
 
-    except Exception as e:
+    except (sqlite3.Error, OSError, RuntimeError) as e:
         logger.exception(f"pause_task failed for {task_id}")
         return {"status": "error", "message": str(e)}
 
@@ -735,7 +735,7 @@ async def resume_task(task_id: str):
         # 当前架构下暂停功能不可用，因此恢复也无意义
         return {"status": "error", "message": "当前下载器不支持恢复"}
 
-    except Exception as e:
+    except (sqlite3.Error, OSError, RuntimeError) as e:
         logger.exception(f"resume_task failed for {task_id}")
         return {"status": "error", "message": str(e)}
 
@@ -769,7 +769,7 @@ async def rerun_task(task_id: str):
         # 用同一个 task_id 重新执行（这样可以利用断点续传）
         return await _start_task_worker(task_id, task_type, original_params)
 
-    except Exception as e:
+    except (sqlite3.Error, OSError, RuntimeError, asyncio.CancelledError) as e:
         logger.exception(f"rerun_task failed for {task_id}")
         return {"status": "error", "message": str(e)}
 
@@ -920,7 +920,7 @@ async def retry_task(task_id: str, background_tasks: BackgroundTasks):
         else:
             return {"status": "error", "message": f"Unsupported task type for retry: {task_type}"}
 
-    except Exception as e:
+    except (sqlite3.Error, OSError, RuntimeError, asyncio.CancelledError) as e:
         logger.exception(f"retry_task failed for {task_id}")
         return {"status": "error", "message": str(e)}
 
@@ -974,7 +974,7 @@ async def _background_batch_worker(task_id: str, req: BatchPipelineRequest):
             await _fail_task(task_id, "pipeline", failed_items[0]["error"] if failed_items else "全部视频处理失败")
         else:
             await _complete_task(task_id, "pipeline", f"批量处理完成：成功 {success_count} 个，失败 {failed_count} 个")
-    except Exception as e:
+    except (RuntimeError, OSError) as e:
         await _fail_task(task_id, "pipeline", str(e))
     finally:
         heartbeat.cancel()
@@ -1005,7 +1005,7 @@ async def _background_download_worker(task_id: str, req: DownloadBatchRequest):
             task_id, "download",
             f"下载完成：成功 {result.get('success_count', 0)} 个，失败 {result.get('failed_count', 0)} 个"
         )
-    except Exception as e:
+    except (RuntimeError, OSError) as e:
         await _fail_task(task_id, "download", str(e))
     finally:
         heartbeat.cancel()
@@ -1099,7 +1099,7 @@ async def _background_full_sync_worker(task_id: str, mode: str = "incremental", 
                     new_video_count += len(result.get("new_files") or [])
                 else:
                     creator_failed += 1
-            except Exception as exc:
+            except (RuntimeError, OSError, asyncio.CancelledError) as exc:
                 creator_failed += 1
                 await update_task_progress(task_id, (index - 1) / total, f"{name} 同步失败: {exc}", f"full_sync_{mode}")
             finally:
@@ -1118,7 +1118,7 @@ async def _background_full_sync_worker(task_id: str, mode: str = "incremental", 
         await notify_task_update(task_id, 1.0, msg, "COMPLETED", f"full_sync_{mode}", result_summary)
     except asyncio.CancelledError:
         raise
-    except Exception as e:
+    except (RuntimeError, OSError) as e:
         with get_db_connection() as conn:
             conn.execute("UPDATE task_queue SET status='FAILED', error_msg=? WHERE task_id=?", (str(e), task_id))
         await notify_task_update(task_id, 0.0, str(e), "FAILED", f"full_sync_{mode}")
@@ -1164,7 +1164,7 @@ async def _background_local_transcribe_worker(task_id: str, req: LocalTranscribe
         total = result.get("total", 0)
         msg = "没有找到有效的音视频文件" if total == 0 else f"本地转写完成：成功 {s_count} 个，失败 {f_count} 个"
         await _complete_task(task_id, "local_transcribe", msg)
-    except Exception as e:
+    except (RuntimeError, OSError) as e:
         logger.error(f"Local transcribe worker failed: {e}")
         await _fail_task(task_id, "local_transcribe", str(e))
     finally:

@@ -110,7 +110,7 @@ def add_douyin_account(req: DouyinAccountRequest):
             )
             conn.commit()
         return {"status": "success", "account_id": account_id}
-    except Exception as e:
+    except (sqlite3.Error, OSError, ValueError) as e:
         raise HTTPException(status_code=400, detail=str(e))
 
 @router.delete("/douyin/{account_id}")
@@ -125,7 +125,7 @@ def delete_douyin_account(account_id: str):
         return {"status": "success"}
     except HTTPException:
         raise
-    except Exception as e:
+    except (sqlite3.Error, OSError, ValueError) as e:
         raise HTTPException(status_code=400, detail=str(e))
 
 @router.put("/douyin/{account_id}/remark")
@@ -143,7 +143,7 @@ def update_douyin_account_remark(account_id: str, req: RemarkRequest):
         return {"status": "success"}
     except HTTPException:
         raise
-    except Exception as e:
+    except (sqlite3.Error, OSError, ValueError) as e:
         raise HTTPException(status_code=400, detail=str(e))
 
 @router.post("/bilibili/accounts")
@@ -157,7 +157,7 @@ def add_bilibili_account(req: BilibiliAccountRequest):
             )
             conn.commit()
         return {"status": "success", "account_id": account_id}
-    except Exception as e:
+    except (sqlite3.Error, OSError, ValueError) as e:
         raise HTTPException(status_code=400, detail=str(e))
 
 @router.delete("/bilibili/accounts/{account_id}")
@@ -167,7 +167,7 @@ def delete_bilibili_account(account_id: str):
             conn.execute("DELETE FROM Accounts_Pool WHERE account_id=? AND platform='bilibili'", (account_id,))
             conn.commit()
         return {"status": "success"}
-    except Exception as e:
+    except (sqlite3.Error, OSError, ValueError) as e:
         raise HTTPException(status_code=400, detail=str(e))
 
 @router.put("/bilibili/accounts/{account_id}/remark")
@@ -185,7 +185,7 @@ def update_bilibili_account_remark(account_id: str, req: RemarkRequest):
         return {"status": "success"}
     except HTTPException:
         raise
-    except Exception as e:
+    except (sqlite3.Error, OSError, ValueError) as e:
         raise HTTPException(status_code=400, detail=str(e))
 
 @router.get("/qwen/status")
@@ -229,7 +229,7 @@ async def get_qwen_status():
                 try:
                     snapshot = await get_quota_snapshot(auth_state_path=Path(resolved_auth_state_path))
                     remaining_hours = remaining_hours_from_snapshot(snapshot)
-                except Exception as e:
+                except (RuntimeError, OSError, ValueError, TypeError) as e:
                     logger.warning(f"获取 Qwen 额度失败: account_id={account_id}, error={e}")
                     remaining_hours = 0
                     status = "invalid"
@@ -262,7 +262,7 @@ async def get_qwen_status():
                 conn.commit()
 
         return {"status": "success", "accounts": rows}
-    except Exception as e:
+    except (sqlite3.Error, OSError, RuntimeError) as e:
         return {"status": "unavailable", "message": str(e), "accounts": []}
 
 @router.post("/qwen/claim")
@@ -297,7 +297,7 @@ async def claim_qwen_quota_endpoint():
                 "reason": result.reason,
             })
         return {"status": "success", "results": results}
-    except Exception as e:
+    except (RuntimeError, OSError, ValueError) as e:
         raise HTTPException(status_code=500, detail=str(e))
 
 @router.post("/global")
@@ -315,7 +315,7 @@ def update_qwen_key(req: QwenConfigRequest):
     try:
         save_qwen_cookie_string(req.cookie_string, default_qwen_auth_state_path())
         return {"status": "success"}
-    except Exception as e:
+    except (sqlite3.Error, OSError, ValueError) as e:
         raise HTTPException(status_code=400, detail=str(e))
 
 @router.post("/qwen/accounts")
@@ -331,7 +331,7 @@ def add_qwen_account(req: QwenAccountRequest):
             )
             conn.commit()
         return {"status": "success", "account_id": account_id}
-    except Exception as e:
+    except (sqlite3.Error, OSError, ValueError) as e:
         raise HTTPException(status_code=400, detail=str(e))
 
 @router.put("/qwen/accounts/{account_id}/cookie")
@@ -360,7 +360,7 @@ def update_qwen_account_cookie(account_id: str, req: QwenCookieUpdateRequest):
         return {"status": "success", "account_id": account_id}
     except HTTPException:
         raise
-    except Exception as e:
+    except (sqlite3.Error, OSError, ValueError) as e:
         raise HTTPException(status_code=400, detail=str(e))
 
 @router.delete("/qwen/accounts/{account_id}")
@@ -370,7 +370,7 @@ def delete_qwen_account(account_id: str):
             conn.execute("DELETE FROM Accounts_Pool WHERE account_id=? AND platform='qwen'", (account_id,))
             conn.commit()
         return {"status": "success"}
-    except Exception as e:
+    except (sqlite3.Error, OSError, ValueError) as e:
         raise HTTPException(status_code=400, detail=str(e))
 
 @router.put("/qwen/accounts/{account_id}/remark")
@@ -385,5 +385,5 @@ def update_qwen_account_remark(account_id: str, req: RemarkRequest):
         return {"status": "success"}
     except HTTPException:
         raise
-    except Exception as e:
+    except (sqlite3.Error, OSError, ValueError) as e:
         raise HTTPException(status_code=400, detail=str(e))

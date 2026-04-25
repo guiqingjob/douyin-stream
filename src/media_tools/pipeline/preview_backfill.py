@@ -75,7 +75,7 @@ def _validate_path(base_dir: Path, transcript_path: str) -> Path | None:
 
         return full_path
 
-    except Exception as e:
+    except (OSError, ValueError, TypeError) as e:
         logger.warning(
             f"[AUDIT] Path resolution failed: "
             f"db_value={transcript_path!r}, base_dir={base_resolved}, error={type(e).__name__}: {e}"
@@ -128,7 +128,7 @@ def _run() -> None:
                     # Sync to FTS5 index
                     update_fts_for_asset(asset_id, title or "", full_text)
 
-                except Exception as e:
+                except (OSError, TypeError, ValueError) as e:
                     # 单条失败不影响批次
                     logger.warning(f"Failed to extract preview/text for {asset_id}: {e}")
                     failed += 1
@@ -149,7 +149,7 @@ def _run() -> None:
         elif failed:
             logger.warning(f"Preview/text backfill: {failed} rows failed")
 
-    except Exception as exc:
+    except (sqlite3.Error, OSError) as exc:
         logger.warning(f"Preview/text backfill aborted: {exc}")
 
 

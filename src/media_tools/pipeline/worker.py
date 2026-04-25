@@ -19,7 +19,7 @@ async def _call_progress(update_progress_fn, progress: float, msg: str) -> None:
         result = update_progress_fn(progress, msg)
         if inspect.isawaitable(result):
             await result
-    except Exception as e:
+    except (TypeError, ValueError, RuntimeError) as e:
         logger.error(f"update_progress_fn 内部抛错: {e}")
 
 
