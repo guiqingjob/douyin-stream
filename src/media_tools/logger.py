@@ -11,12 +11,14 @@
 - 性能追踪
 """
 
+import json
 import logging
+import os
 import re
 import sys
 from pathlib import Path
 from datetime import datetime, timedelta
-from typing import Optional
+from typing import Any, Optional
 
 from rich.console import Console
 from rich.logging import RichHandler
@@ -35,6 +37,33 @@ class StripAnsiFormatter(logging.Formatter):
         return _ANSI_RE.sub("", s)
 
 
+class JsonFormatter(logging.Formatter):
+    """JSON 结构化日志 formatter，便于日志采集系统解析。"""
+
+    def format(self, record: logging.LogRecord) -> str:
+        payload: dict[str, Any] = {
+            "ts": datetime.fromtimestamp(record.created).isoformat(),
+            "level": record.levelname,
+            "logger": record.name,
+            "msg": _ANSI_RE.sub("", str(record.getMessage())),
+        }
+        if hasattr(record, "exc_info") and record.exc_info:
+            payload["exception"] = self.formatException(record.exc_info)
+        if hasattr(record, "stack_info") and record.stack_info:
+            payload["stack"] = record.stack_info
+        # 支持额外字段
+        for key, value in record.__dict__.items():
+            if key not in {
+                "name", "msg", "args", "levelname", "levelno", "pathname",
+                "filename", "module", "exc_info", "exc_text", "stack_info",
+                "lineno", "funcName", "created", "msecs", "relativeCreated",
+                "thread", "threadName", "processName", "process", "message",
+                "asctime", "taskName",
+            }:
+                payload[key] = value
+        return json.dumps(payload, ensure_ascii=False, default=str)
+
+
 class MediaLogger:
     """统一日志管理器"""
 
@@ -45,11 +74,13 @@ class MediaLogger:
         level: int = logging.INFO,
         max_files: int = 10,
         max_age_days: int = 30,
+        json_logs: bool = False,
     ):
         self.name = name
         self.log_dir = log_dir
         self.max_files = max_files
         self.max_age_days = max_age_days
+        self.json_logs = json_logs
 
         # 确保日志目录存在
         self.log_dir.mkdir(parents=True, exist_ok=True)
@@ -97,6 +128,14 @@ class MediaLogger:
             "%(asctime)s [ERROR] %(name)s\n%(message)s\n%(exc_info)s\n"
         ))
         self.logger.addHandler(error_handler)
+
+        # 4. JSON 结构化日志（可选，通过环境变量 MEDIA_TOOLS_JSON_LOGS=1 启用）
+        if self.json_logs:
+            json_file = self.log_dir / f"media_tools_{datetime.now().strftime('%Y%m%d')}.jsonl"
+            json_handler = logging.FileHandler(json_file, encoding="utf-8")
+            json_handler.setLevel(logging.DEBUG)
+            json_handler.setFormatter(JsonFormatter())
+            self.logger.addHandler(json_handler)
 
     def _cleanup_old_logs(self):
         """清理旧日志文件"""
@@ -190,7 +229,8 @@ def get_logger(name: str = "media_tools") -> MediaLogger:
     """获取全局日志实例"""
     global _logger
     if _logger is None:
-        _logger = MediaLogger(name)
+        json_logs = os.environ.get("MEDIA_TOOLS_JSON_LOGS", "").lower() in ("1", "true", "yes")
+        _logger = MediaLogger(name, json_logs=json_logs)
     return _logger
 
 
@@ -220,15 +260,17 @@ def init_logging(
         "ERROR": logging.ERROR,
     }
 
+    json_logs = os.environ.get("MEDIA_TOOLS_JSON_LOGS", "").lower() in ("1", "true", "yes")
     _logger = MediaLogger(
         name="media_tools",
         log_dir=log_dir,
         level=level_map.get(level.upper(), logging.INFO),
         max_files=max_files,
         max_age_days=max_age_days,
+        json_logs=json_logs,
     )
 
-    _logger.info(f"日志系统初始化完成 (级别: {level})")
+    _logger.info(f"日志系统初始化完成 (级别: {level}, JSON日志: {json_logs})")
     return _logger
 
 
