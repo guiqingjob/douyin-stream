@@ -7,6 +7,7 @@ from datetime import datetime
 from typing import Any
 
 from media_tools.db.core import get_db_connection
+from media_tools.core.workflow import validate_transition_by_str, InvalidTransitionError
 
 
 def _merge_task_payload(
@@ -53,7 +54,16 @@ def _merge_payload_from_db(
 
 
 class TaskRepository:
-    """任务仓库 - task_queue 表的所有操作"""
+    """任务仓库 - task_queue 表的所有操作（含状态机验证）"""
+
+    @staticmethod
+    def _validate_transition(task_id: str, to_status: str) -> None:
+        """验证状态转移是否合法，不合法则抛出 InvalidTransitionError。"""
+        with get_db_connection() as conn:
+            cursor = conn.execute("SELECT status FROM task_queue WHERE task_id = ?", (task_id,))
+            row = cursor.fetchone()
+            from_status = row[0] if row else "PENDING"
+        validate_transition_by_str(from_status, to_status)
 
     # ---------- CREATE ----------
 
@@ -195,6 +205,7 @@ class TaskRepository:
     @staticmethod
     def mark_running(task_id: str, progress: float = 0.0, payload: str | None = None) -> None:
         """标记任务为 RUNNING"""
+        TaskRepository._validate_transition(task_id, "RUNNING")
         now = datetime.now().isoformat()
         with get_db_connection() as conn:
             if payload:
@@ -216,6 +227,7 @@ class TaskRepository:
         subtasks: list | None = None,
     ) -> None:
         """标记任务为 COMPLETED"""
+        TaskRepository._validate_transition(task_id, "COMPLETED")
         now = datetime.now().isoformat()
         with get_db_connection() as conn:
             payload_str = _merge_payload_from_db(conn, task_id, msg, result_summary, subtasks)
@@ -227,6 +239,7 @@ class TaskRepository:
     @staticmethod
     def mark_failed(task_id: str, error: str) -> None:
         """标记任务为 FAILED"""
+        TaskRepository._validate_transition(task_id, "FAILED")
         with get_db_connection() as conn:
             conn.execute(
                 "UPDATE task_queue SET status='FAILED', error_msg=? WHERE task_id=?",

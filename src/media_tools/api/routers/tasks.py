@@ -18,6 +18,7 @@ from media_tools.common.paths import get_download_path
 from media_tools.douyin.core.cancel_registry import set_cancel_event, clear_cancel_event, get_download_progress, clear_download_progress
 from media_tools.db.core import get_db_connection, local_asset_id
 from media_tools.repositories.task_repository import TaskRepository
+from media_tools.core.config import get_runtime_setting_bool
 
 router = APIRouter(prefix="/api/v1/tasks", tags=["tasks"])
 logger = logging.getLogger(__name__)
@@ -28,18 +29,7 @@ LOCAL_CREATOR_NAME = "本地上传"
 
 def _get_global_setting_bool(key: str, default: bool = False) -> bool:
     """从数据库 SystemSettings 表读取布尔配置（前端设置页面的值）。"""
-    try:
-        with get_db_connection() as conn:
-            cursor = conn.execute("SELECT value FROM SystemSettings WHERE key = ?", (key,))
-            row = cursor.fetchone()
-            if row:
-                val = row[0]
-                if isinstance(val, str):
-                    return val.lower() in ("true", "1", "yes")
-                return bool(val)
-    except (sqlite3.Error, OSError):
-        pass
-    return default
+    return get_runtime_setting_bool(key, default)
 
 
 def _is_allowed_scan_path(dir_path: Path) -> bool:

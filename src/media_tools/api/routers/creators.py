@@ -1,7 +1,7 @@
 from typing import Optional
 from fastapi import APIRouter, HTTPException, Query
 from media_tools.common.paths import get_download_path, get_project_root
-from media_tools.db.core import get_db_connection, resolve_safe_path, resolve_query_value
+from media_tools.db.core import get_db_connection, resolve_safe_path, resolve_query_value, get_table_columns
 from media_tools.repositories.creator_repository import CreatorRepository
 from media_tools.repositories.asset_repository import AssetRepository
 import asyncio
@@ -85,15 +85,6 @@ class CreatorCreateRequest(BaseModel):
     url: str
 
 
-def _get_table_columns(conn: sqlite3.Connection, table: str) -> set[str]:
-    from media_tools.db.core import validate_identifier
-    safe_table = validate_identifier(table, "table_name")
-    return {
-        row["name"] if isinstance(row, sqlite3.Row) else row[1]
-        for row in conn.execute(f"PRAGMA table_info({safe_table})").fetchall()
-    }
-
-
 @router.get("/")
 def list_creators(
     limit: Optional[int] = Query(default=None, ge=1, le=500),
@@ -104,7 +95,7 @@ def list_creators(
     try:
         with get_db_connection() as conn:
             conn.row_factory = sqlite3.Row
-            creator_columns = _get_table_columns(conn, "creators")
+            creator_columns = get_table_columns(conn, "creators")
             platform_select = "c.platform" if "platform" in creator_columns else "'douyin' AS platform"
             platform_group = ", c.platform" if "platform" in creator_columns else ""
             homepage_select = "COALESCE(NULLIF(c.homepage_url, ''), CASE WHEN c.platform = 'douyin' THEN 'https://www.douyin.com/user/' || c.sec_user_id ELSE '' END) AS homepage_url" if "homepage_url" in creator_columns else "'' AS homepage_url"
@@ -168,7 +159,7 @@ async def create_creator(req: CreatorCreateRequest):
                 # 使用 mid 作为后备
 
             with get_db_connection() as conn:
-                creator_columns = _get_table_columns(conn, "creators")
+                creator_columns = get_table_columns(conn, "creators")
                 # 先检查是否存在
                 cursor = conn.execute("SELECT uid FROM creators WHERE uid = ?", (uid,))
                 exists = cursor.fetchone() is not None

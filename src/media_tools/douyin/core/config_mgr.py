@@ -5,6 +5,7 @@
 """
 
 import os
+import sqlite3
 from pathlib import Path
 
 import yaml
@@ -141,19 +142,28 @@ class ConfigManager:
         return self.get("naming", "{desc}_{aweme_id}")
 
     def is_auto_transcribe(self):
-        """获取是否开启自动转写"""
-        val = self.get("auto_transcribe", False)
-        # 兼容字符串 'true' 和布尔值 True
-        if isinstance(val, str):
-            return val.lower() in ('true', '1', 'yes')
-        return bool(val)
+        """获取是否开启自动转写（委托到 SystemSettings 表）。"""
+        try:
+            from media_tools.core.config import get_runtime_setting_bool
+            return get_runtime_setting_bool("auto_transcribe", False)
+        except (ImportError, OSError, sqlite3.Error):
+            # fallback 到 config.yaml（兼容旧代码）
+            val = self.get("auto_transcribe", False)
+            if isinstance(val, str):
+                return val.lower() in ('true', '1', 'yes')
+            return bool(val)
 
     def is_auto_delete_video(self):
-        """获取是否开启转写成功后自动删除视频"""
-        val = self.get("auto_delete_video", True) # 默认为 True，节省空间
-        if isinstance(val, str):
-            return val.lower() in ('true', '1', 'yes')
-        return bool(val)
+        """获取是否开启转写成功后自动删除视频（委托到 SystemSettings 表）。"""
+        try:
+            from media_tools.core.config import get_runtime_setting_bool
+            return get_runtime_setting_bool("auto_delete", True)
+        except (ImportError, OSError, sqlite3.Error):
+            # fallback 到 config.yaml（兼容旧代码）
+            val = self.get("auto_delete_video", True)
+            if isinstance(val, str):
+                return val.lower() in ('true', '1', 'yes')
+            return bool(val)
 
     def get_api_key(self):
         """获取 API 认证密钥（可选）"""
@@ -214,3 +224,8 @@ def reset_config():
     """重置配置实例（用于测试）"""
     global _config_instance
     _config_instance = None
+    try:
+        from media_tools.core.config import reset_config_cache
+        reset_config_cache()
+    except ImportError:
+        pass

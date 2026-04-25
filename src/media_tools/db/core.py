@@ -50,6 +50,16 @@ def _check_table_name(table: str) -> str:
     return validate_identifier(table, "table_name")
 
 
+def get_table_columns(conn: sqlite3.Connection, table: str) -> set[str]:
+    """获取表的列名集合。表名经过白名单/正则校验，无 SQL 注入风险。"""
+    safe_table = _check_table_name(table)
+    # PRAGMA 不支持参数化查询，但表名已通过 _check_table_name 严格校验
+    return {
+        row["name"] if isinstance(row, sqlite3.Row) else row[1]
+        for row in conn.execute("PRAGMA table_info(" + safe_table + ")").fetchall()
+    }
+
+
 # --- Resolved DB path (set once at init, reused everywhere) ---
 _db_path: str | None = None
 

@@ -57,10 +57,9 @@ app = FastAPI(title="Media Tools API", version="1.0.0", lifespan=lifespan)
 @app.middleware("http")
 async def api_key_auth(request: Request, call_next):
     """Optional API key authentication middleware."""
-    from media_tools.douyin.core.config_mgr import get_config
+    from media_tools.core.config import get_runtime_setting
 
-    config = get_config()
-    api_key = config.get_api_key()
+    api_key = get_runtime_setting("api_key", "")
 
     # Skip auth if no API key is configured
     if not api_key:

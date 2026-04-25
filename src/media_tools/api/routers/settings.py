@@ -15,6 +15,7 @@ from media_tools.transcribe.quota import (
 )
 from media_tools.douyin.core.config_mgr import get_config
 from media_tools.db.core import get_db_connection
+from media_tools.core.config import get_runtime_setting_int, get_runtime_setting_bool, set_runtime_setting
 
 router = APIRouter(prefix="/api/v1/settings", tags=["settings"])
 logger = logging.getLogger(__name__)
@@ -62,14 +63,9 @@ def get_settings():
         cursor.execute("SELECT account_id, status, last_used, remark, create_time FROM Accounts_Pool WHERE platform='bilibili'")
         bilibili_accounts = [{"id": row[0], "status": row[1], "last_used": row[2], "remark": row[3] or "", "create_time": row[4] or ""} for row in cursor.fetchall()]
 
-        # Get global settings
-        cursor.execute("SELECT key, value FROM SystemSettings")
-        settings_rows = cursor.fetchall()
-        settings_dict = {row[0]: row[1] for row in settings_rows}
-
-    concurrency = int(settings_dict.get("concurrency", 5))
-    auto_delete = settings_dict.get("auto_delete", "true") == "true"
-    auto_transcribe = settings_dict.get("auto_transcribe", "false") == "true"
+    concurrency = get_runtime_setting_int("concurrency", 5)
+    auto_delete = get_runtime_setting_bool("auto_delete", True)
+    auto_transcribe = get_runtime_setting_bool("auto_transcribe", False)
     douyin_accounts_count = len(accounts)
     douyin_primary_configured = get_config().has_cookie()
     douyin_cookie_source = "pool" if douyin_accounts_count > 0 else ("config" if douyin_primary_configured else "none")
@@ -307,14 +303,11 @@ async def claim_qwen_quota_endpoint():
 @router.post("/global")
 def update_global_settings(req: GlobalSettingsRequest):
     try:
-        # DB is the source of truth for these settings
-        with get_db_connection() as conn:
-            conn.execute("INSERT OR REPLACE INTO SystemSettings (key, value) VALUES (?, ?)", ("concurrency", str(req.concurrency)))
-            conn.execute("INSERT OR REPLACE INTO SystemSettings (key, value) VALUES (?, ?)", ("auto_delete", "true" if req.auto_delete else "false"))
-            conn.execute("INSERT OR REPLACE INTO SystemSettings (key, value) VALUES (?, ?)", ("auto_transcribe", "true" if req.auto_transcribe else "false"))
-            conn.commit()
+        set_runtime_setting("concurrency", req.concurrency)
+        set_runtime_setting("auto_delete", req.auto_delete)
+        set_runtime_setting("auto_transcribe", req.auto_transcribe)
         return {"status": "success"}
-    except Exception as e:
+    except (ValueError, sqlite3.Error, OSError) as e:
         raise HTTPException(status_code=400, detail=str(e))
 
 @router.post("/qwen")

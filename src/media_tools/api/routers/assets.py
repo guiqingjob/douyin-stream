@@ -2,7 +2,7 @@ from fastapi import APIRouter, Query, HTTPException
 from fastapi.responses import StreamingResponse
 from pydantic import BaseModel, field_validator
 from media_tools.common.paths import get_download_path, get_project_root
-from media_tools.db.core import get_db_connection, resolve_safe_path, resolve_query_value
+from media_tools.db.core import get_db_connection, resolve_safe_path, resolve_query_value, get_table_columns
 from typing import Optional
 import sqlite3
 import logging
@@ -42,12 +42,6 @@ def _resolve_asset_video_file(
             return None
     return resolve_safe_path(download_dir, video_path)
 
-
-def _get_table_columns(conn: sqlite3.Connection, table: str) -> set[str]:
-    return {
-        row["name"] if isinstance(row, sqlite3.Row) else row[1]
-        for row in conn.execute(f"PRAGMA table_info({table})").fetchall()
-    }
 
 @router.get("/")
 def list_assets(
@@ -238,7 +232,7 @@ def delete_asset(asset_id: str):
             # 开启事务，文件删除失败可回滚
             conn.execute("BEGIN IMMEDIATE")
 
-            media_asset_columns = _get_table_columns(conn, "media_assets")
+            media_asset_columns = get_table_columns(conn, "media_assets")
             source_url_select = "source_url," if "source_url" in media_asset_columns else "'' AS source_url,"
             cursor = conn.execute(
                 f"SELECT creator_uid, {source_url_select} video_path, transcript_path FROM media_assets WHERE asset_id = ?",
@@ -389,7 +383,7 @@ def bulk_delete_assets(req: BulkAssetDeleteRequest):
     with get_db_connection() as conn:
         conn.row_factory = sqlite3.Row
         conn.execute("BEGIN IMMEDIATE")
-        media_asset_columns = _get_table_columns(conn, "media_assets")
+        media_asset_columns = get_table_columns(conn, "media_assets")
         source_url_select = "source_url," if "source_url" in media_asset_columns else "'' AS source_url,"
 
         try:
@@ -458,7 +452,7 @@ def cleanup_missing_assets():
     deleted = 0
     with get_db_connection() as conn:
         conn.row_factory = sqlite3.Row
-        media_asset_columns = _get_table_columns(conn, "media_assets")
+        media_asset_columns = get_table_columns(conn, "media_assets")
         source_url_select = "source_url," if "source_url" in media_asset_columns else "'' AS source_url,"
         # 获取所有素材
         cursor = conn.execute(f"SELECT asset_id, creator_uid, {source_url_select} video_path, transcript_path FROM media_assets")
