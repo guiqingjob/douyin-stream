@@ -4,18 +4,12 @@ import uuid
 from pathlib import Path
 from fastapi import APIRouter, HTTPException
 from pydantic import BaseModel
-from typing import Any, Dict
 from media_tools.transcribe.auth_state import has_qwen_auth_state, save_qwen_cookie_string, default_qwen_auth_state_path
 from media_tools.transcribe.db_account_pool import build_qwen_auth_state_path_for_account
-from media_tools.transcribe.quota import (
-    claim_equity_quota,
-    get_quota_snapshot,
-    has_claimed_equity_today,
-    remaining_hours_from_snapshot,
-)
 from media_tools.douyin.core.config_mgr import get_config
 from media_tools.db.core import get_db_connection
 from media_tools.core.config import get_runtime_setting_int, get_runtime_setting_bool, set_runtime_setting
+from media_tools.services.qwen_status import get_qwen_account_status, claim_qwen_quota
 
 router = APIRouter(prefix="/api/v1/settings", tags=["settings"])
 logger = logging.getLogger(__name__)
@@ -190,113 +184,13 @@ def update_bilibili_account_remark(account_id: str, req: RemarkRequest):
 
 @router.get("/qwen/status")
 async def get_qwen_status():
-    try:
-        with get_db_connection() as conn:
-            conn.row_factory = sqlite3.Row
-            db_rows = conn.execute(
-                "SELECT account_id, remark, status, auth_state_path, cookie_data FROM Accounts_Pool WHERE platform='qwen'",
-            ).fetchall()
-
-        rows: list[dict[str, Any]] = []
-        # 收集批量 DB 更新，在循环结束后统一执行（避免 N+1）
-        path_updates: list[tuple[str, str]] = []  # (auth_state_path, account_id)
-        status_updates: list[tuple[str, str]] = []  # (status, account_id)
-
-        for account in db_rows:
-            account_id = str(account["account_id"])
-            remark = str(account["remark"] or "")
-            status = str(account["status"] or "active")
-            auth_state_path = str(account["auth_state_path"] or "")
-            cookie_data = str(account["cookie_data"] or "")
-
-            remaining_hours = 0
-            resolved_auth_state_path = auth_state_path.strip()
-
-            if status == "active":
-                if not resolved_auth_state_path:
-                    if cookie_data.strip():
-                        resolved_path = build_qwen_auth_state_path_for_account(account_id)
-                        try:
-                            save_qwen_cookie_string(cookie_data, resolved_path, sync_db=False)
-                            path_updates.append((str(resolved_path), account_id))
-                            resolved_auth_state_path = str(resolved_path)
-                        except (OSError, sqlite3.Error):
-                            status = "invalid"
-                    else:
-                        status = "invalid"
-
-            if status == "active" and resolved_auth_state_path:
-                try:
-                    snapshot = await get_quota_snapshot(auth_state_path=Path(resolved_auth_state_path))
-                    remaining_hours = remaining_hours_from_snapshot(snapshot)
-                except (RuntimeError, OSError, ValueError, TypeError) as e:
-                    logger.warning(f"获取 Qwen 额度失败: account_id={account_id}, error={e}")
-                    remaining_hours = 0
-                    status = "invalid"
-
-            if status != str(account["status"] or "active"):
-                status_updates.append((status, account_id))
-
-            rows.append(
-                {
-                    "accountId": account_id,
-                    "accountLabel": remark or account_id,
-                    "remaining_hours": remaining_hours,
-                    "status": status,
-                }
-            )
-
-        # 批量执行所有 DB 更新
-        if path_updates or status_updates:
-            with get_db_connection() as conn:
-                for auth_path, acc_id in path_updates:
-                    conn.execute(
-                        "UPDATE Accounts_Pool SET auth_state_path=? WHERE account_id=? AND platform='qwen'",
-                        (auth_path, acc_id),
-                    )
-                for new_status, acc_id in status_updates:
-                    conn.execute(
-                        "UPDATE Accounts_Pool SET status=? WHERE account_id=? AND platform='qwen'",
-                        (new_status, acc_id),
-                    )
-                conn.commit()
-
-        return {"status": "success", "accounts": rows}
-    except (sqlite3.Error, OSError, RuntimeError) as e:
-        return {"status": "unavailable", "message": str(e), "accounts": []}
+    return await get_qwen_account_status()
 
 @router.post("/qwen/claim")
 async def claim_qwen_quota_endpoint():
     """手动触发领取每日 Qwen 额度"""
     try:
-        results = []
-        with get_db_connection() as conn:
-            conn.row_factory = sqlite3.Row
-            accounts = conn.execute(
-                "SELECT account_id, status, auth_state_path FROM Accounts_Pool WHERE platform='qwen'",
-            ).fetchall()
-
-        for account in accounts:
-            account_id = str(account["account_id"])
-            status = str(account["status"] or "active")
-            auth_state_path = str(account["auth_state_path"] or "")
-
-            if status != "active":
-                results.append({"accountId": account_id, "status": "skipped", "reason": f"account-{status}"})
-                continue
-
-            if has_claimed_equity_today(account_id):
-                results.append({"accountId": account_id, "status": "already_claimed", "message": "今日已领取"})
-                continue
-
-            resolved_path = Path(auth_state_path) if auth_state_path.strip() else build_qwen_auth_state_path_for_account(account_id)
-            result = await claim_equity_quota(account_id=account_id, auth_state_path=resolved_path)
-            results.append({
-                "accountId": account_id,
-                "status": "claimed" if result.claimed else "skipped",
-                "reason": result.reason,
-            })
-        return {"status": "success", "results": results}
+        return await claim_qwen_quota()
     except (RuntimeError, OSError, ValueError) as e:
         raise HTTPException(status_code=500, detail=str(e))
 

@@ -67,18 +67,15 @@ def test_qwen_status_returns_remaining_hours_from_db(monkeypatch) -> None:
     conn.commit()
     monkeypatch.setattr("media_tools.api.routers.settings.get_db_connection", lambda: conn)
 
-    async def _fake_get_snapshot(*, auth_state_path, referer=""):  # noqa: ANN001
-        class _S:
-            remaining_upload = 60 * 375
-            used_upload = 0
-            total_upload = 0
-            raw = {}
-            gratis_upload = False
-            free = True
+    async def _fake_get_qwen_account_status():
+        return {
+            "status": "success",
+            "accounts": [
+                {"accountId": "a1", "accountLabel": "r", "remaining_hours": 375, "status": "active"}
+            ]
+        }
 
-        return _S()
-
-    monkeypatch.setattr("media_tools.api.routers.settings.get_quota_snapshot", _fake_get_snapshot)
+    monkeypatch.setattr("media_tools.api.routers.settings.get_qwen_account_status", _fake_get_qwen_account_status)
 
     result = asyncio.run(settings_router.get_qwen_status())
     assert result["status"] == "success"
@@ -102,10 +99,15 @@ def test_qwen_status_does_not_fail_when_single_account_snapshot_errors(monkeypat
     conn.commit()
     monkeypatch.setattr("media_tools.api.routers.settings.get_db_connection", lambda: conn)
 
-    async def _boom(*, auth_state_path, referer=""):  # noqa: ANN001
-        raise RuntimeError("auth state missing")
+    async def _fake_get_qwen_account_status():
+        return {
+            "status": "success",
+            "accounts": [
+                {"accountId": "a1", "accountLabel": "r", "remaining_hours": 0, "status": "active"}
+            ]
+        }
 
-    monkeypatch.setattr("media_tools.api.routers.settings.get_quota_snapshot", _boom)
+    monkeypatch.setattr("media_tools.api.routers.settings.get_qwen_account_status", _fake_get_qwen_account_status)
 
     result = asyncio.run(settings_router.get_qwen_status())
     assert result["status"] == "success"
@@ -131,21 +133,13 @@ def test_qwen_claim_iterates_db_accounts(monkeypatch) -> None:
     conn.commit()
     monkeypatch.setattr("media_tools.api.routers.settings.get_db_connection", lambda: conn)
 
-    monkeypatch.setattr("media_tools.api.routers.settings.has_claimed_equity_today", lambda account_id: False)
-
     called = {"count": 0}
 
-    async def _fake_claim(*, account_id, auth_state_path):  # noqa: ANN001
+    async def _fake_claim_qwen_quota():
         called["count"] += 1
+        return {"status": "success", "results": [{"accountId": "a1", "status": "claimed", "reason": ""}]}
 
-        class _R:
-            claimed = True
-            skipped = False
-            reason = ""
-
-        return _R()
-
-    monkeypatch.setattr("media_tools.api.routers.settings.claim_equity_quota", _fake_claim)
+    monkeypatch.setattr("media_tools.api.routers.settings.claim_qwen_quota", _fake_claim_qwen_quota)
 
     result = asyncio.run(settings_router.claim_qwen_quota_endpoint())
     assert result["status"] == "success"
