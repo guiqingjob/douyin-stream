@@ -17,7 +17,6 @@ import re
 import sqlite3
 import time
 from dataclasses import dataclass, field, asdict
-from enum import Enum
 from pathlib import Path
 from typing import Optional, Callable, Awaitable, Any
 
@@ -25,6 +24,8 @@ from ..transcribe.flow import run_real_flow
 from ..transcribe.runtime import get_export_config, ensure_dir, now_stamp
 from ..transcribe.config import load_config as load_transcribe_config
 from .config import PipelineConfig, load_pipeline_config
+from .helpers import _clean_title_for_export, _lookup_video_title, _lookup_creator_folder
+from .error_types import ErrorType, classify_error
 from ..db.core import get_db_connection
 
 # 配置日志记录器
@@ -32,150 +33,6 @@ logger = logging.getLogger(__name__)
 
 # 状态文件默认路径
 DEFAULT_STATE_FILE = ".pipeline_state.json"
-
-
-# --- helpers moved from orchestrator.py (V1) ---
-
-def _clean_title_for_export(raw_title: str) -> str | None:
-    """清洗标题用于导出文件名：去掉换行和 #话题标签"""
-    main_part = raw_title.replace('<br>', '\n').split('\n')[0]
-    if '#' in main_part:
-        clean = main_part[:main_part.index('#')].strip()
-    else:
-        clean = main_part.strip()
-    clean = re.sub(r'[<>:"/\\|?*]', '', clean).strip()
-    if len(clean) > 50:
-        clean = clean[:50]
-    return clean if len(clean) > 2 else None
-
-
-def _lookup_video_title(video_path: Path) -> str | None:
-    """从数据库查询视频标题（通过文件名中的 aweme_id）"""
-    aweme_matches = re.findall(r'\d{15,}', video_path.name)
-    if not aweme_matches:
-        return None
-
-    aweme_id = aweme_matches[0]
-    try:
-        from media_tools.db.core import get_db_connection
-        with get_db_connection() as conn:
-            cursor = conn.cursor()
-            cursor.execute("SELECT desc FROM video_metadata WHERE aweme_id = ?", (aweme_id,))
-            row = cursor.fetchone()
-            if not row or not row[0]:
-                cursor.execute("SELECT title FROM media_assets WHERE asset_id = ?", (aweme_id,))
-                row = cursor.fetchone()
-            if row and row[0]:
-                return _clean_title_for_export(row[0])
-    except (sqlite3.Error, OSError) as e:
-        logger.warning(f"查询视频标题失败: {e}")
-
-    return None
-
-
-def _lookup_creator_folder(video_path: Path) -> str | None:
-    """从视频所在目录或数据库查询视频所属创作者昵称（用作转写子目录名）"""
-
-    # 方法1：从视频所在目录获取（视频在 downloads/创作者名/ 下）
-    parent_name = video_path.parent.name
-    if parent_name and parent_name not in ["downloads", "douyin", "bilibili", ""]:
-        # 清理目录名
-        name = re.sub(r'[<>:"/\\|?*]', '', parent_name).strip()
-        name = re.sub(r'\.+', '_', name).strip()
-        if name and name != "downloads":
-            return name
-
-    # 方法2：从文件名中的 aweme_id 查询
-    aweme_matches = re.findall(r'\d{15,}', video_path.name)
-    if not aweme_matches:
-        return None
-
-    aweme_id = aweme_matches[0]
-    try:
-        from media_tools.common.paths import get_db_path as _get_db_path
-        db_path = _get_db_path()
-        with get_db_connection() as conn:
-            cursor = conn.cursor()
-            # media_assets.creator_uid -> creators.nickname
-            cursor.execute("""
-                SELECT c.nickname
-                FROM media_assets ma
-                JOIN creators c ON ma.creator_uid = c.uid
-                WHERE ma.asset_id = ?
-            """, (aweme_id,))
-            row = cursor.fetchone()
-            if row and row[0]:
-                name = re.sub(r'[<>:"/\\|?*]', '', row[0]).strip()
-                name = re.sub(r'\.+', '_', name).strip()
-                return name if name else None
-            # Fallback: video_metadata.nickname
-            cursor.execute("SELECT nickname FROM video_metadata WHERE aweme_id = ?", (aweme_id,))
-            row = cursor.fetchone()
-            if row and row[0]:
-                name = re.sub(r'[<>:"/\\|?*]', '', row[0]).strip()
-                name = re.sub(r'\.+', '_', name).strip()
-                return name if name else None
-    except (sqlite3.Error, OSError, re.error) as e:
-        logger.warning(f"查询创作者信息失败: {e}")
-    return None
-
-
-class ErrorType(Enum):
-    """错误类型枚举"""
-    UNKNOWN = "unknown"
-    NETWORK = "network"  # 网络错误
-    QUOTA = "quota"  # 配额超限错误
-    AUTH = "auth"  # 认证错误
-    FILE_NOT_FOUND = "file_not_found"  # 文件不存在
-    PERMISSION = "permission"  # 权限错误
-    TIMEOUT = "timeout"  # 超时错误
-    VALIDATION = "validation"  # 验证错误
-    CANCELLED = "cancelled"  # 用户取消
-
-
-def classify_error(error: Exception) -> ErrorType:
-    """根据异常内容分类错误类型
-
-    Args:
-        error: 捕获的异常对象
-
-    Returns:
-        ErrorType: 分类后的错误类型
-    """
-    error_msg = str(error).lower()
-    error_type = type(error).__name__.lower()
-
-    # 认证错误
-    if any(kw in error_msg for kw in ["auth", "unauthorized", "401", "403", "token", "credential", "permission denied"]):
-        return ErrorType.AUTH
-
-    # 网络错误
-    if any(kw in error_msg for kw in ["connection", "network", "socket", "dns", "resolve", "unreachable"]):
-        return ErrorType.NETWORK
-    if any(kw in error_type for kw in ["connection", "timeout", "network"]):
-        return ErrorType.NETWORK
-
-    # 超时错误
-    if any(kw in error_msg for kw in ["timeout", "timed out", "deadline"]):
-        return ErrorType.TIMEOUT
-
-    # 配额错误
-    if any(kw in error_msg for kw in ["quota", "limit", "rate limit", "429", "exceeded", "too many"]):
-        return ErrorType.QUOTA
-
-    # 文件不存在
-    if any(kw in error_msg for kw in ["not found", "no such file", "file not found", "does not exist", "找不到"]):
-        return ErrorType.FILE_NOT_FOUND
-
-    # 权限错误
-    if any(kw in error_msg for kw in ["permission", "access denied", "forbidden"]):
-        return ErrorType.PERMISSION
-
-    # 验证错误
-    if any(kw in error_msg for kw in ["invalid", "validation", "format", "parse"]):
-        return ErrorType.VALIDATION
-
-    return ErrorType.UNKNOWN
 
 
 class AccountPool:

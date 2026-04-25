@@ -8,7 +8,7 @@ import unittest
 from pathlib import Path
 from unittest.mock import patch, MagicMock
 
-from media_tools.pipeline.orchestrator_v2 import _lookup_video_title, _clean_title_for_export
+from media_tools.pipeline.helpers import _lookup_video_title, _clean_title_for_export
 from media_tools.transcribe.flow import build_export_output_path, _get_video_title_from_db
 from media_tools.transcribe.runtime import ExportConfig
 import media_tools.db.core as _db_core
