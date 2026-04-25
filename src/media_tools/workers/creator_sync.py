@@ -6,15 +6,14 @@ import logging
 import sqlite3
 from typing import Any
 
-from media_tools.api.routers.tasks import (
-    _get_global_setting_bool,
+from media_tools.core.config import get_runtime_setting_bool
+from media_tools.douyin.core.cancel_registry import clear_download_progress, get_download_progress
+from media_tools.services.task_ops import (
     _merge_payload_from_db,
-    _task_heartbeat,
-    clear_download_progress,
-    get_download_progress,
     notify_task_update,
     update_task_progress,
 )
+from media_tools.services.task_state import _task_heartbeat
 from media_tools.db.core import get_db_connection
 from media_tools.workers.transcribe import transcribe_files
 
@@ -85,8 +84,8 @@ async def background_creator_download_worker(
                     last_result = result
                 new_files = (result.get("new_files") or []) if isinstance(result, dict) else []
 
-                auto_transcribe = _get_global_setting_bool("auto_transcribe")
-                auto_delete = _get_global_setting_bool("auto_delete")
+                auto_transcribe = get_runtime_setting_bool("auto_transcribe")
+                auto_delete = get_runtime_setting_bool("auto_delete")
                 if auto_transcribe and new_files:
                     tr = await transcribe_files(task_id, _progress_fn, new_files, display_name, auto_delete)
                     transcribe_stats["success_count"] += tr.get("success_count", 0)
@@ -153,8 +152,8 @@ async def background_creator_download_worker(
 
                 new_files = (result.get("new_files") or []) if isinstance(result, dict) else []
 
-                auto_transcribe = _get_global_setting_bool("auto_transcribe")
-                auto_delete = _get_global_setting_bool("auto_delete")
+                auto_transcribe = get_runtime_setting_bool("auto_transcribe")
+                auto_delete = get_runtime_setting_bool("auto_delete")
                 if auto_transcribe and new_files:
                     tr = await transcribe_files(task_id, _progress_fn, new_files, display_name, auto_delete)
                     transcribe_stats["success_count"] += tr.get("success_count", 0)

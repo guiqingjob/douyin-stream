@@ -42,11 +42,13 @@ class TaskPayloadRetryTests(unittest.IsolatedAsyncioTestCase):
         )
         conn.commit()
 
-        with patch("media_tools.api.routers.tasks.get_db_connection", return_value=conn), patch(
-            "media_tools.api.routers.tasks.notify_task_update",
+        from media_tools.services import task_ops
+
+        with patch("media_tools.services.task_ops.get_db_connection", return_value=conn), patch(
+            "media_tools.services.task_ops.notify_task_update",
             new=AsyncMock(),
         ):
-            await tasks_router.update_task_progress(task_id, 0.2, "正在转写 /tmp/a.mp3 (1/1)", "local_transcribe")
+            await task_ops.update_task_progress(task_id, 0.2, "正在转写 /tmp/a.mp3 (1/1)", "local_transcribe")
 
         row = conn.execute("SELECT payload FROM task_queue WHERE task_id = ?", (task_id,)).fetchone()
         self.assertIsNotNone(row)

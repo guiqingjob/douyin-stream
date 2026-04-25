@@ -73,7 +73,7 @@ def test_register_local_assets_writes_folder_path(tmp_path, monkeypatch) -> None
     f = sub / "a.mp3"
     f.write_bytes(b"ok")
 
-    monkeypatch.setattr("media_tools.api.routers.tasks.get_db_connection", lambda: conn)
+    monkeypatch.setattr("media_tools.services.local_asset_service.get_db_connection", lambda: conn)
 
     tasks_router._register_local_assets([str(f)], delete_after=False, directory_root=str(root))
 

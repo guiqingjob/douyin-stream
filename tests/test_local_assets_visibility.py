@@ -8,9 +8,9 @@ from unittest.mock import patch
 
 class LocalAssetsVisibilityTests(unittest.TestCase):
     def test_local_transcribe_registers_assets_under_local_creator(self) -> None:
-        from media_tools.api.routers import tasks as tasks_router
         from media_tools.api.routers import creators as creators_router
         from media_tools.api.routers import assets as assets_router
+        from media_tools.services.local_asset_service import LOCAL_CREATOR_UID, _register_local_assets
 
         conn = sqlite3.connect(":memory:")
         conn.row_factory = sqlite3.Row
@@ -56,20 +56,20 @@ class LocalAssetsVisibilityTests(unittest.TestCase):
         tmp_file = Path("/tmp/local_asset_test.mp3")
         tmp_file.write_bytes(b"ok")
 
-        with patch("media_tools.api.routers.tasks.get_db_connection", return_value=conn), patch(
+        with patch("media_tools.services.local_asset_service.get_db_connection", return_value=conn), patch(
             "media_tools.api.routers.creators.get_db_connection",
             return_value=conn,
         ), patch(
             "media_tools.api.routers.assets.get_db_connection",
             return_value=conn,
         ):
-            tasks_router._register_local_assets([str(tmp_file)], delete_after=False)
+            _register_local_assets([str(tmp_file)], delete_after=False)
             creators = creators_router.list_creators()
-            local_creator = next((c for c in creators if c["uid"] == tasks_router.LOCAL_CREATOR_UID), None)
+            local_creator = next((c for c in creators if c["uid"] == LOCAL_CREATOR_UID), None)
             self.assertIsNotNone(local_creator)
             self.assertEqual(local_creator["asset_count"], 1)
 
-            assets = assets_router.list_assets(creator_uid=tasks_router.LOCAL_CREATOR_UID)
+            assets = assets_router.list_assets(creator_uid=LOCAL_CREATOR_UID)
             self.assertEqual(len(assets), 1)
             self.assertEqual(assets[0]["title"], tmp_file.stem)
 
