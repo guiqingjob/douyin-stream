@@ -16,6 +16,7 @@ from pathlib import Path
 from .f2_helper import get_f2_kwargs as _build_f2_kwargs
 from media_tools.logger import get_logger
 from media_tools.db.core import resolve_safe_path
+from .file_ops import _clean_video_title, _reorganize_files, _update_last_fetch_time
 
 logger = get_logger('downloader')
 
@@ -221,41 +222,6 @@ def _save_single_video_metadata(video: dict, nickname: str = "") -> int:
             conn.close()
 
 
-def _clean_video_title(raw_title: str) -> str:
-    """清洗视频标题：去掉换行符和 #话题标签，并智能截断长标题"""
-    # 1. 按换行分割，取第一行（正文）
-    main_part = raw_title.replace('<br>', '\n').split('\n')[0]
-    
-    # 2. 截取第一个 # 之前的内容
-    if '#' in main_part:
-        clean = main_part[:main_part.index('#')].strip()
-    else:
-        clean = main_part.strip()
-    
-    # 3. 智能截断：限制到 40 字以内，保持核心语义
-    if len(clean) > 40:
-        # 优先在句末标点（？ ！ 。）截断
-        for p in ['？', '！', '。']:
-            idx = clean.find(p)
-            if 10 < idx < 50:
-                return clean[:idx + 1].strip()
-        
-        # 其次在空格处截断（适合长标题中的短语）
-        space_idx = clean.find(' ')
-        if space_idx > 15:
-            return clean[:space_idx].strip()
-            
-        # 再次在逗号处截断（适合长句子）
-        comma_idx = clean.find('，')
-        if comma_idx > 10:
-            return clean[:comma_idx + 1].strip()
-        
-        # 如果都没有，强制截断
-        return clean[:35] + '...'
-        
-    return clean
-
-
 def _rename_videos_in_downloads(nickname: str, uid: str, downloads_path: Path) -> str | None:
     """重命名下载目录下的视频文件（包括已在目标子目录的情况）"""
     import re
@@ -399,45 +365,6 @@ def _rename_videos_in_downloads(nickname: str, uid: str, downloads_path: Path) -
     return folder_name
 
 
-def _reorganize_files(nickname: str, uid: str) -> str | None:
-    """整理文件到下载目录/{博主昵称}/"""
-    config = get_config()
-    downloads_path = config.get_download_path()
-    old_path = resolve_safe_path(downloads_path, f"douyin/post/{nickname}")
-
-    if not old_path or not old_path.exists():
-        return None
-
-    # 使用博主昵称作为文件夹名
-    folder_name = nickname or uid
-    new_path = resolve_safe_path(downloads_path, folder_name)
-    if not new_path:
-        logger.warning(f"Path traversal blocked for folder: {folder_name}")
-        new_path = resolve_safe_path(downloads_path, uid) or downloads_path
-    new_path.mkdir(parents=True, exist_ok=True)
-
-    # 移动文件（文件名已经在下载时清洗过，无需重命名）
-    moved_count = 0
-    for pattern in ["*.mp4", "*.jpg", "*.webp"]:
-        for f in old_path.glob(pattern):
-            dest = new_path / f.name
-            if not dest.exists():
-                shutil.move(str(f), str(dest))
-                moved_count += 1
-
-    # 清理旧文件夹
-    if old_path.exists():
-        try:
-            shutil.rmtree(old_path)
-        except OSError:
-            pass
-
-    if moved_count > 0:
-        logger.info(info(f"  [移动] {nickname} -> {folder_name} ({moved_count} 文件)"))
-
-    return folder_name
-
-
 def _sync_media_assets(uid: str, nickname: str, folder_name: str):
     """将 video_metadata 中的数据同步到全新的 V2 media_assets 表"""
     import re
@@ -522,28 +449,6 @@ def _sync_media_assets(uid: str, nickname: str, folder_name: str):
                 )
     except (sqlite3.Error, OSError) as e:
         logger.error(f"同步 media_assets 失败: {e}")
-
-def _update_last_fetch_time(uid: str, nickname: str = ""):
-    """更新 SQLite 中的 last_fetch_time"""
-    try:
-        from media_tools.db.core import get_db_connection
-        with get_db_connection() as conn:
-            cursor = conn.cursor()
-            cursor.execute(
-                "UPDATE creators SET last_fetch_time = ? WHERE uid = ?",
-                (datetime.now().isoformat(), uid)
-            )
-            conn.commit()
-        logger.info(info(f"  [更新] last_fetch_time for {nickname or uid}"))
-    except (sqlite3.Error, OSError) as e:
-        logger.error(f"更新 last_fetch_time 失败: {e}")
-        logger.info(info(f"  [更新] last_fetch_time for {nickname or uid}"))
-    except (RuntimeError, ValueError) as e:
-        logger.error(f"更新 last_fetch_time 失败: {e}")
-
-
-
-
 
 async def _download_with_stats(url: str, max_counts: int | None = None, skip_existing: bool = True):
     """
