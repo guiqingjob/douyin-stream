@@ -98,5 +98,5 @@ async def get_metadata(url: str, max_counts: int = 10):
         }
     except HTTPException:
         raise
-    except Exception as e:
+    except (RuntimeError, OSError, ValueError) as e:
         raise HTTPException(status_code=500, detail=str(e))

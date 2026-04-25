@@ -117,7 +117,7 @@ class AuthHandler(http.server.SimpleHTTPRequestHandler):
 
                 res = {"success": success, "message": msg, "data": data}
                 self.send_response(200)
-            except Exception as e:
+            except (RuntimeError, OSError, ValueError) as e:
                 res = {"success": False, "message": str(e), "data": {}}
                 self.send_response(500)
 

@@ -59,7 +59,7 @@ async def collect_account_statuses() -> list[dict[str, Any]]:
                     auth_state_path=account.auth_state_path,
                     referer="https://www.qianwen.com/equity",
                 )
-            except Exception as error:
+            except (RuntimeError, OSError, ConnectionError, TimeoutError) as error:
                 quota_error = str(error)
 
         rows.append(

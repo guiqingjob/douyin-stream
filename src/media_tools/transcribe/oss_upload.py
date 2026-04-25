@@ -420,7 +420,7 @@ async def upload_file_to_oss(
                 await asyncio.to_thread(direct_upload_with_presigned_url, token["getLink"], file_buffer, mime_type)
             callback({"type": "direct-upload-complete"})
             return
-        except Exception as error:
+        except (RuntimeError, OSError, ConnectionError, TimeoutError) as error:
             callback({"type": "direct-upload-failed", "error": error, "mode": mode})
             if mode == "direct":
                 raise
@@ -456,12 +456,12 @@ async def upload_file_to_oss(
 
         await asyncio.to_thread(complete_multipart_upload, token["sts"], upload_id, parts)
         callback({"type": "multipart-complete"})
-    except Exception as e:
+    except (RuntimeError, OSError, ConnectionError, TimeoutError) as e:
         # 修复：multipart上传失败时清理已上传的分片
         if upload_id:
             try:
                 await asyncio.to_thread(abort_multipart_upload, token["sts"], upload_id)
                 callback({"type": "multipart-aborted", "uploadId": upload_id})
-            except Exception as abort_error:
+            except (RuntimeError, OSError, ConnectionError, TimeoutError) as abort_error:
                 callback({"type": "multipart-abort-failed", "uploadId": upload_id, "error": abort_error})
         raise e

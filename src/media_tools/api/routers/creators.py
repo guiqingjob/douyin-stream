@@ -232,7 +232,7 @@ async def create_creator(req: CreatorCreateRequest):
         raise HTTPException(status_code=400, detail="无法添加创作者，请检查主页链接是否有效")
     except HTTPException:
         raise
-    except Exception as e:
+    except (RuntimeError, OSError, ValueError) as e:
         raise HTTPException(status_code=500, detail=str(e))
 
 @router.delete("/{uid}")
@@ -305,5 +305,5 @@ def delete_creator(uid: str):
         raise
     except OSError:
         raise
-    except Exception as e:
+    except (sqlite3.Error, RuntimeError) as e:
         raise HTTPException(status_code=500, detail=str(e))

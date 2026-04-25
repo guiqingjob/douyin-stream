@@ -54,7 +54,7 @@ def check_package_installed(package_name):
             return True, "已安装"
         else:
             return False, "未安装"
-    except Exception as e:
+    except (OSError, ValueError) as e:
         return False, str(e)
 
 
@@ -114,7 +114,7 @@ def check_config():
             return True, "配置正常"
         else:
             return False, "配置问题: " + "; ".join(errors)
-    except Exception as e:
+    except (OSError, ValueError) as e:
         return False, str(e)
 
 

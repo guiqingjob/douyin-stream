@@ -538,7 +538,7 @@ def _update_last_fetch_time(uid: str, nickname: str = ""):
     except (sqlite3.Error, OSError) as e:
         logger.error(f"更新 last_fetch_time 失败: {e}")
         logger.info(info(f"  [更新] last_fetch_time for {nickname or uid}"))
-    except Exception as e:
+    except (RuntimeError, ValueError) as e:
         logger.error(f"更新 last_fetch_time 失败: {e}")
 
 
@@ -585,7 +585,7 @@ async def _download_with_stats(url: str, max_counts: int | None = None, skip_exi
 
     try:
         sec_user_id = await SecUserIdFetcher.get_sec_user_id(url)
-    except Exception as e:
+    except (RuntimeError, OSError, ValueError) as e:
         logger.error(f"解析 sec_user_id 失败: {e}")
         logger.info(error("[错误] 无法解析用户 ID"))
         return False
@@ -724,7 +724,7 @@ async def _download_with_stats(url: str, max_counts: int | None = None, skip_exi
                     break
 
                 logger.info(info(f"[下载] 累计新增 {total_downloaded} 个，跳过 {total_skipped} 个已有"))
-    except Exception as e:
+    except (RuntimeError, OSError, ValueError) as e:
         logger.error(f"下载过程中出错: {e}")
         logger.info(error(f"下载过程中出错: {e}"))
         # 继续处理已下载的视频
@@ -811,7 +811,7 @@ def download_by_url_sync(url, max_counts=None, skip_existing: bool = True):
         else:
             # 没有运行中的循环，可以安全使用 asyncio.run()
             return asyncio.run(_download_with_stats(url, max_counts, skip_existing=skip_existing))
-    except Exception as e:
+    except (RuntimeError, OSError, ValueError) as e:
         logger.info(error(f"下载出错: {e}"))
         return False
 
@@ -869,7 +869,7 @@ async def download_aweme_by_url(url: str):
 
     try:
         aweme_id = await AwemeIdFetcher.get_aweme_id(url)
-    except Exception as e:
+    except (RuntimeError, OSError, ValueError) as e:
         logger.info(error(f"解析视频 ID 失败: {e}"))
         return False
 
@@ -881,7 +881,7 @@ async def download_aweme_by_url(url: str):
 
     try:
         aweme_data = await handler.fetch_one_video(aweme_id)
-    except Exception as e:
+    except (RuntimeError, OSError, ValueError) as e:
         logger.info(error(f"获取视频详情失败: {e}"))
         return False
 
@@ -933,7 +933,7 @@ async def download_aweme_by_url(url: str):
                 if full_path.exists():
                     if str(full_path) not in new_files:
                         new_files.append(str(full_path))
-    except Exception as e:
+    except (sqlite3.Error, OSError, RuntimeError) as e:
         logger.warning(f"查询单视频文件路径失败: {e}")
 
     logger.info(success(f"[完成] 单个视频下载成功: {aweme_id}"))

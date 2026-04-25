@@ -99,7 +99,7 @@ def list_assets(
             detail={"detail": "Data integrity error", "type": "integrity_error", "message": str(e)}
         )
 
-    except Exception as e:
+    except (sqlite3.Error, OSError, RuntimeError) as e:
         # 其他未预期异常
         logger.error(f"list_assets 未知错误: creator_uid={creator_uid}, limit={limit}, offset={offset}")
         logger.exception("list_assets 未知错误详情")
@@ -143,7 +143,7 @@ def search_assets(q: str = Query(..., min_length=1)):
                 (f"%{q}%", fts_query, f"%{q}%"),
             )
             return [dict(row) for row in cursor.fetchall()]
-    except Exception as e:
+    except (sqlite3.Error, OSError, RuntimeError) as e:
         logger.exception("search_assets failed")
         raise HTTPException(status_code=500, detail=str(e))
 
@@ -221,7 +221,7 @@ def get_transcript(asset_id: str):
 
     except HTTPException:
         raise
-    except Exception as e:
+    except (OSError, ValueError, RuntimeError) as e:
         raise HTTPException(status_code=500, detail=str(e))
 
 @router.delete("/{asset_id}")
@@ -283,7 +283,7 @@ def delete_asset(asset_id: str):
         raise
     except OSError:
         raise
-    except Exception as e:
+    except (sqlite3.Error, RuntimeError) as e:
         raise HTTPException(status_code=500, detail=str(e))
 
 class AssetMarkRequest(BaseModel):

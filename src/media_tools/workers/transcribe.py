@@ -37,7 +37,7 @@ async def transcribe_files(task_id: str, _progress_fn, new_files: list, display_
             async with semaphore:
                 result = await orchestrator.transcribe_with_retry(video_path)
                 transcribe_ok = bool(getattr(result, "success", False))
-        except Exception as e:
+        except (RuntimeError, OSError, ValueError) as e:
             error_msg = str(e)
             logger.warning(f"转写失败 {video_path}: {e}")
 

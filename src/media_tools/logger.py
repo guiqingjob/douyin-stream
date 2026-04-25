@@ -253,7 +253,7 @@ def main():
     # 测试异常日志
     try:
         raise ValueError("测试异常")
-    except Exception as e:
+    except ValueError as e:
         logger.exception("捕获到异常")
 
     print("\n✅ 日志系统测试完成！")

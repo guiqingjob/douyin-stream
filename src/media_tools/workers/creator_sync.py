@@ -74,7 +74,7 @@ async def background_creator_download_worker(
                 url = f"https://space.bilibili.com/{mid}"
                 try:
                     result = await asyncio.to_thread(download_up_by_url, url, current_batch_size, skip_existing, None, task_id)
-                except Exception as e:
+                except (RuntimeError, OSError, ValueError) as e:
                     error_msg = str(e)
                     if "412" in error_msg or "blocked" in error_msg.lower():
                         await _progress_fn(0.5, f"B站请求被拦截(412)，请更换IP或稍后重试", stage="downloading")
@@ -217,7 +217,7 @@ async def background_creator_download_worker(
         await notify_task_update(task_id, 1.0, msg, "COMPLETED", f"creator_sync_{mode}", result_summary, all_subtasks or None, stage="completed")
     except asyncio.CancelledError:
         raise
-    except Exception as e:
+    except (RuntimeError, OSError, sqlite3.Error) as e:
         logger.exception(f"creator_download_worker failed for {uid}")
         with get_db_connection() as conn:
             conn.execute("UPDATE task_queue SET status='FAILED', error_msg=? WHERE task_id=?", (str(e), task_id))

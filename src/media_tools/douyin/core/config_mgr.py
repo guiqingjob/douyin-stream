@@ -194,7 +194,7 @@ class ConfigManager:
         if not download_path.exists():
             try:
                 download_path.mkdir(parents=True, exist_ok=True)
-            except Exception as e:
+            except (OSError, PermissionError) as e:
                 errors.append(f"无法创建下载目录: {e}")
 
         return len(errors) == 0, errors

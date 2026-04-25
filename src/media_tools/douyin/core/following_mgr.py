@@ -74,7 +74,7 @@ def _resolve_sec_user_id(url: str) -> str | None:
         resolved = _run_async_coro(_fetch())
         if resolved and resolved.startswith('MS4w'):
             return resolved
-    except Exception as exc:
+    except (RuntimeError, OSError, ValueError) as exc:
         logger.warning(f"sec_user_id 规范化失败: {exc}")
 
     if raw_value:
@@ -182,7 +182,7 @@ def add_user(url):
                 name = row[1] or "未知"
                 logger.warning(f"用户已在关注列表: {name} (UID: {row[0]})")
                 return False, {"uid": row[0], "sec_user_id": sec_user_id, "nickname": name}
-    except Exception as e:
+    except (sqlite3.Error, OSError) as e:
         logger.error(f"查询数据库失败: {e}")
 
     # 通过 F2 获取用户信息
@@ -212,7 +212,7 @@ def add_user(url):
                 VALUES (?, ?, ?, ?, ?, ?, 'douyin', 'active', ?)
             """, (uid, sec_user_id, nickname, avatar, bio, homepage_url, now))
             conn.commit()
-    except Exception as e:
+    except (sqlite3.Error, OSError) as e:
         logger.error(f"保存用户到数据库失败: {e}")
         return False, None
 
@@ -240,7 +240,7 @@ def _fetch_user_info_via_f2(url, sec_user_id):
 
     try:
         profile_data = _run_async_coro(_fetch_profile())
-    except Exception as exc:
+    except (RuntimeError, OSError, ValueError) as exc:
         logger.error(f"获取用户 profile 失败: {exc}")
         return None
 
@@ -317,7 +317,7 @@ def remove_user(uid=None, delete_local=False):
             conn.commit()
             
             logger.info(success(f"已从关注列表移除: {name} (UID: {uid})"))
-    except Exception as e:
+    except (sqlite3.Error, OSError) as e:
         logger.error(f"删除用户失败: {e}")
         return False
 
@@ -333,7 +333,7 @@ def remove_user(uid=None, delete_local=False):
             try:
                 shutil.rmtree(user_dir)
                 logger.info(success(f"已删除本地视频文件: {user_dir}"))
-            except Exception as e:
+            except (OSError, PermissionError) as e:
                 logger.error(f"删除本地文件夹失败: {e}")
         else:
             logger.info(info("本地无该用户视频目录"))

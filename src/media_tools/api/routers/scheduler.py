@@ -91,7 +91,7 @@ def _register_system_jobs() -> None:
             finally:
                 asyncio.set_event_loop(None)
                 loop.close()
-        except Exception as e:
+        except (RuntimeError, OSError, ValueError) as e:
             logger.error(f"Auto-claim Qwen quota failed: {e}")
 
     scheduler.add_job(
@@ -168,7 +168,7 @@ def add_schedule(req: ScheduleRequest):
                 (task_id, "scan_all_following", req.cron_expr, req.enabled)
             )
             conn.commit()
-        except Exception as e:
+        except (sqlite3.Error, OSError, ValueError) as e:
             raise HTTPException(status_code=400, detail=str(e))
     _sync_scheduler()
     return {"status": "success", "task_id": task_id}
