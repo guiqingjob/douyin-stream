@@ -13,6 +13,7 @@ from playwright.async_api import async_playwright
 
 from .auth_state import resolve_qwen_auth_state_for_playwright
 from .config import load_config
+from .export_utils import FlowDebugArtifacts, _get_video_title_from_db, build_export_output_path, save_debug_artifacts
 from .http import api_json, download_file
 from .oss_upload import upload_file_to_oss
 from .quota import get_quota_snapshot, record_quota_consumption
@@ -25,12 +26,6 @@ class FlowResult:
     gen_record_id: str
     export_path: Path
     remote_deleted: bool
-
-
-@dataclass(frozen=True, slots=True)
-class FlowDebugArtifacts:
-    transcript_path: Path
-    doc_edit_path: Path
 
 
 def build_upload_tag(file_path: str | Path, mime_type: str) -> dict[str, Any]:
@@ -160,74 +155,6 @@ async def export_file(context: Any, gen_record_id: str, export_config: ExportCon
     raise RuntimeError(f"Export did not produce a downloadable URL for exportTaskId={export_task_id}")
 
 
-def _get_video_title_from_db(video_path: Path) -> str | None:
-    """从文件名提取标题（下载时已清洗）"""
-    stem = Path(video_path).stem
-    
-    # 如果文件名已经是清洗后的标题（长度适中，无 aweme_id），直接使用
-    # aweme_id 通常是 19 位数字
-    import re
-    if re.search(r'\d{15,}', stem):
-        # 文件名包含 aweme_id，需要从数据库查询
-        pass
-    else:
-        # 文件名已经是清洗后的标题
-        clean = stem.strip()
-        if len(clean) > 5 and len(clean) < 65:
-            return clean
-    
-    return None
-
-
-def build_export_output_path(
-    *,
-    input_path: str | Path,
-    output_dir: str | Path,
-    export_config: ExportConfig,
-    run_stamp: str | None = None,
-    title: str | None = None,
-) -> Path:
-    """构建导出文件路径
-    
-    Args:
-        input_path: 输入文件路径
-        output_dir: 输出目录
-        export_config: 导出配置
-        run_stamp: 时间戳
-        title: 视频标题（如果提供，用作文件名）
-    """
-    stamp = run_stamp or now_stamp()
-    
-    if title:
-        # 清理标题中的非法字符
-        import re
-        clean_title = re.sub(r'[<>:"/\\|?*]', '', title).strip()
-        # 限制长度
-        if len(clean_title) > 50:
-            clean_title = clean_title[:50] + "..."
-        filename = f"{clean_title}{export_config.extension}"
-    else:
-        source_path = Path(input_path)
-        filename = f"{source_path.stem}-{stamp}{export_config.extension}"
-    
-    return Path(output_dir).resolve() / filename
-
-
-def save_debug_artifacts(
-    *,
-    output_dir: str | Path,
-    output_base: str,
-    run_stamp: str,
-    transcript_json: Any,
-    doc_edit_json: Any,
-) -> FlowDebugArtifacts:
-    root = Path(output_dir).resolve()
-    ensure_dir(root)
-    transcript_path = root / f"{output_base}-{run_stamp}-transcript.json"
-    doc_edit_path = root / f"{output_base}-{run_stamp}-doc-edit.json"
-    transcript_path.write_text(json.dumps(transcript_json, indent=2), encoding="utf-8")
-    doc_edit_path.write_text(json.dumps(doc_edit_json, indent=2), encoding="utf-8")
-    return FlowDebugArtifacts(transcript_path=transcript_path, doc_edit_path=doc_edit_path)
 
 
 def record_flow_quota_usage(
