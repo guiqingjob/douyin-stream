@@ -83,11 +83,15 @@ def _update_last_fetch_time(uid: str, nickname: str = ""):
                 "UPDATE creators SET last_fetch_time = ? WHERE uid = ?",
                 (now, uid)
             )
-            # 兼容旧表
+            # 兼容旧表（仅在表存在时更新）
             cursor.execute(
-                "UPDATE OR IGNORE douyin_users SET last_fetch_time = ? WHERE sec_uid = ?",
-                (now, uid)
+                "SELECT name FROM sqlite_master WHERE type='table' AND name='douyin_users'"
             )
+            if cursor.fetchone():
+                cursor.execute(
+                    "UPDATE douyin_users SET last_fetch_time = ? WHERE sec_uid = ?",
+                    (now, uid)
+                )
             conn.commit()
     except (sqlite3.Error, OSError) as e:
         logger.error(f"更新 last_fetch_time 失败: {e}")

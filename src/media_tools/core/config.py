@@ -22,7 +22,7 @@ class ConfigError(Exception):
 # --- Runtime config backed by SystemSettings ---
 
 _RUNTIME_DEFAULTS: dict[str, str] = {
-    "concurrency": "5",
+    "concurrency": "10",
     "auto_transcribe": "false",
     "auto_delete": "true",
     "api_key": "",
@@ -149,7 +149,7 @@ class AppConfig:
     # Runtime settings (SystemSettings)
     @property
     def concurrency(self) -> int:
-        return get_runtime_setting_int("concurrency", 5)
+        return get_runtime_setting_int("concurrency", 10)
 
     @property
     def auto_transcribe(self) -> bool:
@@ -271,7 +271,7 @@ class PipelineConfig:
     def concurrency(self) -> int:
         if self._concurrency is not None:
             return self._concurrency
-        return _safe_int_env("PIPELINE_CONCURRENCY", 5)
+        return _safe_int_env("PIPELINE_CONCURRENCY", 10)
 
 
 _pipeline_config = PipelineConfig()
