@@ -136,9 +136,44 @@ app.include_router(settings.router)
 app.include_router(douyin.router)
 app.include_router(scheduler.router)
 
+import shutil
+
+from media_tools.db.core import get_db_connection
+from media_tools.repositories.task_repository import TaskRepository
+
+
 @app.get("/api/health")
 def health_check():
-    return {"status": "ok"}
+    result = {"status": "ok"}
+
+    # DB 连接状态
+    try:
+        with get_db_connection() as conn:
+            conn.execute("SELECT 1")
+        result["db"] = "ok"
+    except Exception as e:
+        result["db"] = f"error: {e}"
+        result["status"] = "degraded"
+
+    # 磁盘空间
+    try:
+        stat = shutil.disk_usage(".")
+        result["disk"] = {
+            "total_gb": round(stat.total / (1024**3), 2),
+            "free_gb": round(stat.free / (1024**3), 2),
+            "used_percent": round((stat.used / stat.total) * 100, 1),
+        }
+    except OSError as e:
+        result["disk"] = f"error: {e}"
+
+    # 活跃任务数
+    try:
+        active = TaskRepository.find_active()
+        result["active_tasks"] = len(active)
+    except Exception as e:
+        result["active_tasks"] = f"error: {e}"
+
+    return result
 
 if __name__ == "__main__":
     uvicorn.run(app, host="127.0.0.1", port=8000)
