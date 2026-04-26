@@ -93,15 +93,18 @@ export const useStore = create<StoreState>((set, get) => ({
   fetchInitialTasks: async () => {
     try {
       const history = await getTaskHistory();
-      // merge 而非 replace：保留 WS 已推送的更新（WS 更新可能比 REST 更新）
+      // 以 REST 返回的列表为基准，WS 更新覆盖其中的进度
       set((state) => {
-        const wsUpdated = new Map(state.tasks.map(t => [t.task_id, t]));
-        for (const t of history) {
-          if (!wsUpdated.has(t.task_id)) {
-            wsUpdated.set(t.task_id, t);
+        const historyMap = new Map(history.map(t => [t.task_id, t]));
+        const merged = history.map((t) => {
+          const wsTask = state.tasks.find(s => s.task_id === t.task_id);
+          // WS 的进度更新更实时，优先采用
+          if (wsTask && wsTask.update_time && t.update_time) {
+            return new Date(wsTask.update_time) > new Date(t.update_time) ? wsTask : t;
           }
-        }
-        return { tasks: Array.from(wsUpdated.values()) };
+          return wsTask && wsTask.progress > t.progress ? wsTask : t;
+        });
+        return { tasks: merged };
       });
     } catch (error) {
       console.error("Failed to fetch initial task history", error);

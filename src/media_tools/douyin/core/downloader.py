@@ -429,19 +429,23 @@ def _sync_media_assets(uid: str, nickname: str, folder_name: str):
                 video_path = ""
                 video_status = "pending"
 
-                # 方法1：通过aweme_id匹配
+                # 方法1：通过aweme_id匹配 + 校验文件存在
                 if aweme_id in file_lookup:
-                    video_path = file_lookup[aweme_id]
-                    video_status = "downloaded"
+                    candidate = file_lookup[aweme_id]
+                    if (downloads_path / candidate).exists():
+                        video_path = candidate
+                        video_status = "downloaded"
                 else:
-                    # 方法2：通过中文关键词匹配
+                    # 方法2：通过中文关键词匹配 + 校验文件存在
                     clean_title = _clean_video_title(desc)
                     chinese_words = re.findall(r'[\u4e00-\u9fa5]{2,}', clean_title)
-                    for word in chinese_words[:3]:  # 取前3个关键词
+                    for word in chinese_words[:3]:
                         if word in keyword_lookup:
-                            video_path = keyword_lookup[word]
-                            video_status = "downloaded"
-                            break
+                            candidate = keyword_lookup[word]
+                            if (downloads_path / candidate).exists():
+                                video_path = candidate
+                                video_status = "downloaded"
+                                break
 
                 # 插入或更新 media_assets 表
                 cursor.execute("""

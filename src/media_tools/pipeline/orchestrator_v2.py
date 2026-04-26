@@ -79,10 +79,6 @@ class OrchestratorV2:
         self._export_gate = export_gate or asyncio.Semaphore(
             getattr(self.config, 'export_concurrency', 2)
         )
-        # 共享 Playwright APIContext（并发转写共用一个浏览器实例）
-        self._shared_api: Any | None = None
-        self._shared_api_refcount = 0
-        self._api_lock = asyncio.Lock()
 
         # 确定认证路径
         if self.auth_state_path is None:
@@ -91,34 +87,6 @@ class OrchestratorV2:
                 self.auth_state_path = transcribe_config.paths.auth_state_path
             except (OSError, TypeError, ValueError) as e:
                 logger.warning(f"无法加载认证配置，将使用默认路径: {e}")
-
-    async def _get_shared_api(self, auth_state_path: Path) -> Any:
-        """获取或创建共享 Playwright APIContext（并发转写共用一个浏览器实例）"""
-        async with self._api_lock:
-            if self._shared_api is None:
-                from media_tools.transcribe.auth_state import resolve_qwen_auth_state_for_playwright
-                from playwright.async_api import async_playwright
-                resolved = resolve_qwen_auth_state_for_playwright(auth_state_path)
-                pw = await async_playwright().__aenter__()
-                self._shared_api = await pw.request.new_context(
-                    storage_state=resolved.storage_state  # type: ignore[arg-type]
-                )
-                self._shared_playwright = pw
-            self._shared_api_refcount += 1
-            return self._shared_api
-
-    async def _release_shared_api(self) -> None:
-        """释放共享 APIContext（引用计数归零时关闭）"""
-        async with self._api_lock:
-            self._shared_api_refcount = max(0, self._shared_api_refcount - 1)
-            if self._shared_api_refcount == 0 and self._shared_api is not None:
-                try:
-                    await self._shared_api.dispose()
-                    if hasattr(self, '_shared_playwright'):
-                        await self._shared_playwright.__aexit__(None, None, None)
-                except (RuntimeError, OSError) as e:
-                    logger.warning(f"关闭共享 Playwright 失败: {e}")
-                self._shared_api = None
 
     def _fire_progress(
         self,
@@ -206,24 +174,6 @@ class OrchestratorV2:
             logger.warning(f"标记Qwen账号状态失败: {e}")
             return
 
-    async def _mark_qwen_account_status_async(self, account_id: str, status: str) -> None:
-        if not account_id:
-            return
-        try:
-            from media_tools.db.core import get_db_connection
-
-            def _do_update():
-                with get_db_connection() as conn:
-                    conn.execute(
-                        "UPDATE Accounts_Pool SET status=? WHERE platform='qwen' AND account_id=?",
-                        (status, account_id),
-                    )
-
-            await asyncio.to_thread(_do_update)
-        except sqlite3.Error as e:
-            logger.warning(f"标记Qwen账号状态(异步)失败: {e}")
-            return
-
     def _mark_qwen_account_used(self, account_id: str) -> None:
         if not account_id:
             return
@@ -237,24 +187,6 @@ class OrchestratorV2:
                 )
         except sqlite3.Error as e:
             logger.warning(f"标记Qwen账号使用失败: {e}")
-            return
-
-    async def _mark_qwen_account_used_async(self, account_id: str) -> None:
-        if not account_id:
-            return
-        try:
-            from media_tools.db.core import get_db_connection
-
-            def _do_update():
-                with get_db_connection() as conn:
-                    conn.execute(
-                        "UPDATE Accounts_Pool SET last_used=CURRENT_TIMESTAMP WHERE platform='qwen' AND account_id=?",
-                        (account_id,),
-                    )
-
-            await asyncio.to_thread(_do_update)
-        except sqlite3.Error as e:
-            logger.warning(f"标记Qwen账号使用(异步)失败: {e}")
             return
 
     async def _transcribe_single_video(
@@ -306,35 +238,28 @@ class OrchestratorV2:
                 if self._account_pool is None and resolved_accounts:
                     self._account_pool = AccountPool(resolved_accounts, [0] * len(resolved_accounts))
 
-            # 从账号池互斥获取账号（并发转写不会打到同一账号）
+            # 依次尝试账号池中的账号
             accounts_tried = set()
-            max_attempts = (self._account_pool.remaining() if self._account_pool else 1) * 2
+            max_attempts = len(self._account_pool._accounts) if self._account_pool else 1
 
             for _ in range(max_attempts):
                 if self._account_pool is None:
                     break
 
-                account = await self._account_pool.acquire()
+                account = self._account_pool.get_account()
                 if account is None:
-                    # 所有账号都被占用，等待后重试
-                    await asyncio.sleep(2)
-                    continue
+                    break
 
                 account_id = str(account.get("account_id", "") or "")
                 if account_id in accounts_tried:
-                    self._account_pool.release(account_id)
                     continue
                 accounts_tried.add(account_id)
 
                 auth_state_path = account.get("auth_state_path")
                 if auth_state_path is None:
-                    self._account_pool.release(account_id)
                     continue
 
                 try:
-                    # 获取共享 Playwright APIContext（避免每个任务启动独立浏览器）
-                    shared_api = await self._get_shared_api(Path(auth_state_path))
-
                     result = await run_real_flow(
                         file_path=video_path,
                         auth_state_path=auth_state_path,
@@ -343,19 +268,15 @@ class OrchestratorV2:
                         should_delete=self.config.delete_after_export,
                         account_id=account_id,
                         title=video_title,
-                        shared_api=shared_api,
                         export_gate=self._export_gate,
                     )
-                    await self._mark_qwen_account_used_async(account_id)
+                    self._mark_qwen_account_used(account_id)
 
                     if self.config.remove_video and not self.config.keep_original:
                         video_path.unlink()
                         logger.info(f"已删除原视频: {video_path}")
 
                     duration = time.time() - start_time
-                    # 成功：释放账号占用，减少共享 API 引用
-                    self._account_pool.release(account_id)
-                    await self._release_shared_api()
                     return PipelineResultV2(
                         success=True,
                         video_path=video_path,
@@ -363,13 +284,10 @@ class OrchestratorV2:
                         duration=duration,
                     )
                 except Exception as e:  # classify_error 设计为处理任意异常类型
-                    # 失败：释放账号占用，让其他任务可以使用该账号
-                    self._account_pool.release(account_id)
-                    await self._release_shared_api()
                     last_error = e
                     last_error_type = classify_error(e)
                     if last_error_type == ErrorType.AUTH and account_id:
-                        await self._mark_qwen_account_status_async(account_id, "expired")
+                        self._mark_qwen_account_status(account_id, "expired")
                         logger.warning(f"账号 {account_id} 认证过期，尝试下一个账号")
                         continue
                     # 其他错误，记录并继续尝试下一个账号
@@ -380,7 +298,7 @@ class OrchestratorV2:
             return PipelineResultV2(
                 success=False,
                 video_path=video_path,
-                error=str(last_error or "no available account"),
+                error=str(last_error) if last_error else "no available account",
                 error_type=last_error_type,
                 duration=duration,
             )

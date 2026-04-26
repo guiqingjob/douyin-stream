@@ -48,5 +48,9 @@ class LocalTranscribeRequest(BaseModel):
     directory_root: str | None = None
 
 
+class CreatorTranscribeRequest(BaseModel):
+    uid: str
+
+
 class ScanDirectoryRequest(BaseModel):
     directory: str

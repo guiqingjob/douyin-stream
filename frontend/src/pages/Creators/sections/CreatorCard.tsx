@@ -1,4 +1,4 @@
-import { ExternalLink, Download, HardDriveDownload, Loader2, RefreshCcw, Trash2 } from 'lucide-react';
+import { ExternalLink, Download, HardDriveDownload, Loader2, RefreshCcw, Trash2, FileText } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
@@ -11,6 +11,8 @@ interface CreatorCardProps {
   downloadingCreators: Record<string, 'incremental' | 'full' | null>;
   isDeleting: boolean;
   onDownload: (uid: string, nickname: string, mode: 'incremental' | 'full') => void;
+  onTranscribe: (uid: string, nickname: string) => void;
+  transcribingUids: Set<string>;
   onDelete: (uid: string) => void;
   settings?: any;
 }
@@ -36,6 +38,8 @@ export function CreatorCard({
   downloadingCreators,
   isDeleting,
   onDownload,
+  onTranscribe,
+  transcribingUids,
   onDelete,
   settings,
 }: CreatorCardProps) {
@@ -148,6 +152,18 @@ export function CreatorCard({
           {downloadingCreators[creator.uid] === 'full' ? <Loader2 className="size-4 animate-spin" /> : <HardDriveDownload className="size-4" />}
           全量
         </Button>
+        {(creator.transcript_pending_count ?? 0) > 0 && (
+          <Button
+            variant="secondary"
+            size="sm"
+            onClick={() => onTranscribe(creator.uid, creator.nickname)}
+            disabled={transcribingUids.has(creator.uid)}
+            className="flex-1"
+          >
+            {transcribingUids.has(creator.uid) ? <Loader2 className="size-4 animate-spin" /> : <FileText className="size-4" />}
+            转写
+          </Button>
+        )}
       </div>
 
       {/* Footer */}

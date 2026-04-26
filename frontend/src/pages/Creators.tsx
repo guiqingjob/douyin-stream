@@ -36,6 +36,7 @@ export default function Creators() {
     downloadingCreators,
     confirmDelete,
     deletingUids,
+    transcribingUids,
     newCreatorUrl,
     isAdding,
     scheduleTask,
@@ -44,6 +45,7 @@ export default function Creators() {
     handleAddCreator,
     handleUnfollow,
     handleDownload,
+    handleTranscribe,
     handleFullSyncNow,
     handleToggleSchedule,
   } = useCreatorsActions({
@@ -121,6 +123,8 @@ export default function Creators() {
                 downloadingCreators={downloadingCreators}
                 isDeleting={deletingUids.has(creator.uid)}
                 onDownload={handleDownload}
+                onTranscribe={handleTranscribe}
+                transcribingUids={transcribingUids}
                 onDelete={(uid) => setConfirmDelete({ uid, nickname: creator.nickname || creator.uid })}
                 settings={settings}
               />

@@ -10,6 +10,7 @@ import {
   triggerFullSyncFollowing,
   type ScheduleTask,
 } from '@/lib/api';
+import { triggerCreatorTranscribe } from '@/services/discovery';
 
 interface UseCreatorsActionsParams {
   storeFetchCreators: (force?: boolean) => Promise<any>;
@@ -26,6 +27,7 @@ export function useCreatorsActions({
   const [downloadingCreators, setDownloadingCreators] = useState<Record<string, 'incremental' | 'full' | null>>({});
   const [confirmDelete, setConfirmDelete] = useState<{ uid: string; nickname: string } | null>(null);
   const [deletingUids, setDeletingUids] = useState<Set<string>>(new Set());
+  const [transcribingUids, setTranscribingUids] = useState<Set<string>>(new Set());
   const [newCreatorUrl, setNewCreatorUrl] = useState('');
   const [isAdding, setIsAdding] = useState(false);
   const [scheduleTask, setScheduleTask] = useState<ScheduleTask | null>(null);
@@ -109,6 +111,26 @@ export function useCreatorsActions({
     }
   };
 
+  const handleTranscribe = async (uid: string, nickname: string) => {
+    if (transcribingUids.has(uid)) return;
+    setTranscribingUids((prev) => new Set(prev).add(uid));
+    try {
+      const result = await triggerCreatorTranscribe(uid);
+      toast.success(`已开始转写 ${nickname || uid} 的 ${result.file_count} 个待处理素材`, {
+        description: `任务 ID: ${result.task_id}`,
+      });
+      await fetchInitialTasks();
+    } catch {
+      // interceptor already toasts
+    } finally {
+      setTranscribingUids((prev) => {
+        const next = new Set(prev);
+        next.delete(uid);
+        return next;
+      });
+    }
+  };
+
   const handleFullSyncNow = async () => {
     try {
       const result = await triggerFullSyncFollowing();
@@ -139,6 +161,7 @@ export function useCreatorsActions({
     downloadingCreators,
     confirmDelete,
     deletingUids,
+    transcribingUids,
     newCreatorUrl,
     isAdding,
     scheduleTask,
@@ -147,6 +170,7 @@ export function useCreatorsActions({
     handleAddCreator,
     handleUnfollow,
     handleDownload,
+    handleTranscribe,
     handleFullSyncNow,
     handleToggleSchedule,
   };
