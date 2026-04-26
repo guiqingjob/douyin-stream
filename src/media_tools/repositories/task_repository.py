@@ -188,6 +188,7 @@ class TaskRepository:
         task_id: str,
         progress: float,
         msg: str,
+        task_type: str = "pipeline",
         result_summary: dict | None = None,
         subtasks: list | None = None,
     ) -> None:
@@ -203,7 +204,7 @@ class TaskRepository:
                        progress = excluded.progress,
                        payload = excluded.payload,
                        update_time = excluded.update_time""",
-                (task_id, "pipeline", progress, payload_str, now, now),
+                (task_id, task_type, progress, payload_str, now, now),
             )
 
     @staticmethod

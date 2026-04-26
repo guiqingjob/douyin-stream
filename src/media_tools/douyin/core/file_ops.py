@@ -5,7 +5,6 @@ import logging
 import re
 import shutil
 import sqlite3
-from datetime import datetime
 from pathlib import Path
 
 from media_tools.db.core import resolve_safe_path
@@ -72,16 +71,16 @@ def _reorganize_files(nickname: str, uid: str) -> str | None:
 
 
 def _update_last_fetch_time(uid: str, nickname: str = ""):
-    """更新 SQLite 中的 last_fetch_time"""
+    """更新 SQLite 中的 last_fetch_time — 使用 UTC CURRENT_TIMESTAMP 保持一致性"""
     try:
         from media_tools.db.core import get_db_connection
         with get_db_connection() as conn:
             cursor = conn.cursor()
-            now = datetime.now().isoformat()
-            # 更新 creators 表
+            # 使用 CURRENT_TIMESTAMP（UTC），与 creator_sync.py 保持一致
+            # 不再用 datetime.now().isoformat()（本地时间，会导致时区不一致）
             cursor.execute(
-                "UPDATE creators SET last_fetch_time = ? WHERE uid = ?",
-                (now, uid)
+                "UPDATE creators SET last_fetch_time = CURRENT_TIMESTAMP WHERE uid = ?",
+                (uid,)
             )
             # 兼容旧表（仅在表存在时更新）
             cursor.execute(
@@ -89,8 +88,8 @@ def _update_last_fetch_time(uid: str, nickname: str = ""):
             )
             if cursor.fetchone():
                 cursor.execute(
-                    "UPDATE douyin_users SET last_fetch_time = ? WHERE sec_uid = ?",
-                    (now, uid)
+                    "UPDATE douyin_users SET last_fetch_time = CURRENT_TIMESTAMP WHERE sec_uid = ?",
+                    (uid,)
                 )
             conn.commit()
     except (sqlite3.Error, OSError) as e:
