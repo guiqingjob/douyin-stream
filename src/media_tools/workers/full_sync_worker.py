@@ -5,6 +5,7 @@ from media_tools.douyin.core.downloader import download_by_uid
 from media_tools.douyin.core.following_mgr import list_users
 from media_tools.services.task_ops import update_task_progress, _merge_payload_from_db, notify_task_update
 from media_tools.services.task_state import _task_heartbeat
+from media_tools.workers.creator_sync import _build_interval_from_last_fetch
 
 
 async def _background_full_sync_worker(task_id: str, mode: str = "incremental", batch_size: int | None = None, original_params: dict | None = None):
@@ -26,15 +27,28 @@ async def _background_full_sync_worker(task_id: str, mode: str = "incremental", 
         creator_success = 0
         creator_failed = 0
         new_video_count = 0
-        skip_existing = (original_params or {}).get("_resumed") or mode != "full"
+        skip_existing = True  # 始终跳过已存在的
 
         for index, user in enumerate(users, 1):
             uid = user.get("uid") or ""
             name = user.get("nickname") or user.get("name") or uid or f"creator-{index}"
             await _progress_fn((index - 1) / total, f"正在同步 {name} ({index}/{total}) [{mode}]", stage="downloading")
+
+            # 增量模式：根据 last_fetch_time 计算 interval
+            interval = None
+            if mode == "incremental":
+                with get_db_connection() as conn:
+                    cursor = conn.execute(
+                        "SELECT last_fetch_time FROM creators WHERE uid = ?",
+                        (uid,),
+                    )
+                    row = cursor.fetchone()
+                    last_fetch = (row["last_fetch_time"] if isinstance(row, dict) else row[0]) if row else None
+                interval = _build_interval_from_last_fetch(last_fetch)
+
             try:
                 dl_task = asyncio.create_task(
-                    asyncio.to_thread(download_by_uid, uid, batch_size, skip_existing, task_id)
+                    asyncio.to_thread(download_by_uid, uid, batch_size, skip_existing, task_id, interval)
                 )
 
                 async def _poll_creator():

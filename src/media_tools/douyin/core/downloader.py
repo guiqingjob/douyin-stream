@@ -872,7 +872,7 @@ async def download_aweme_by_url(url: str):
     }
 
 
-def download_by_uid(uid, max_counts=None, skip_existing: bool = True, task_id: str | None = None):
+def download_by_uid(uid, max_counts=None, skip_existing: bool = True, task_id: str | None = None, interval: str | None = None):
     """
     通过 UID 下载博主视频
 
@@ -880,6 +880,7 @@ def download_by_uid(uid, max_counts=None, skip_existing: bool = True, task_id: s
         uid: 用户 UID
         max_counts: 最大下载数量
         task_id: 关联的任务 ID（用于取消检测）
+        interval: 时间范围，格式 "2026-01-01|2026-04-26"
 
     Returns:
         是否成功
@@ -901,7 +902,7 @@ def download_by_uid(uid, max_counts=None, skip_existing: bool = True, task_id: s
     name = user.get("nickname", user.get("name", "未知"))
     logger.info(info(f"博主: {name} (UID: {uid})"))
 
-    result = download_by_url(url, max_counts, skip_existing=skip_existing, task_id=task_id)
+    result = download_by_url(url, max_counts, skip_existing=skip_existing, task_id=task_id, interval=interval)
 
     return result
 
