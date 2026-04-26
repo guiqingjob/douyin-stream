@@ -34,6 +34,14 @@ from .task_control import (
 logger = get_logger("bilibili")
 
 
+@dataclass
+class UploaderInfo:
+    """B站 UP 主信息"""
+    nickname: str
+    mid: str
+    homepage_url: str = ""
+
+
 # 扩展进度回调：支持详细进度信息
 DownloadProgress = dict[str, Any]
 ProgressCallback = Callable[[float, str, DownloadProgress], Any]
