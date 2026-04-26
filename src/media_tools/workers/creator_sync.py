@@ -53,7 +53,9 @@ async def background_creator_download_worker(
         batch_label = requested_batch_size if requested_batch_size is not None else ("全部" if platform == "bilibili" else douyin_batch_size)
         await _progress_fn(0.05, f"开始同步 {display_name} 的视频（{mode}，每批 {batch_label} 个）...", stage="initializing")
 
-        skip_existing = (original_params or {}).get("_resumed") or mode != "full"
+        # 全量模式也应该跳过已下载的视频，通过"没有新文件"自然终止循环
+        # 之前 full 模式设 skip_existing=False 导致只下第一批就 break
+        skip_existing = True
         total_downloaded = 0
         batch_num = 1
         completed_batches = 0
