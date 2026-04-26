@@ -81,19 +81,28 @@ export const useStore = create<StoreState>((set, get) => ({
         }
       }
 
-      const creatorRelatedTypes = ['pipeline', 'download', 'batch_pipeline'];
+      const creatorRelatedTypes = ['pipeline', 'download', 'batch_pipeline', 'creator_sync_incremental', 'creator_sync_full', 'full_sync_incremental', 'full_sync_full'];
       const shouldResetCreators = isCompleted && completedType ? creatorRelatedTypes.includes(completedType) : false;
 
       return {
         tasks: updatedTasks,
-        ...(isCompleted ? { lastCompletedTaskTime: Date.now(), lastCompletedTaskType: completedType, ...(shouldResetCreators ? { creatorsLoadedAt: 0 } : {}) } : {})
+        ...(isCompleted ? { lastCompletedTaskTime: Date.now(), lastCompletedTaskType: completedType, ...(shouldResetCreators ? { creatorsLoadedAt: 0, assetsLoadedAt: 0 } : { assetsLoadedAt: 0 }) } : {})
       };
     });
   },
   fetchInitialTasks: async () => {
     try {
       const history = await getTaskHistory();
-      set({ tasks: history });
+      // merge 而非 replace：保留 WS 已推送的更新（WS 更新可能比 REST 更新）
+      set((state) => {
+        const wsUpdated = new Map(state.tasks.map(t => [t.task_id, t]));
+        for (const t of history) {
+          if (!wsUpdated.has(t.task_id)) {
+            wsUpdated.set(t.task_id, t);
+          }
+        }
+        return { tasks: Array.from(wsUpdated.values()) };
+      });
     } catch (error) {
       console.error("Failed to fetch initial task history", error);
     }
