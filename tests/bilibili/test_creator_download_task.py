@@ -20,7 +20,8 @@ class BilibiliCreatorDownloadTaskTests(unittest.IsolatedAsyncioTestCase):
               sec_user_id TEXT,
               nickname TEXT,
               platform TEXT,
-              sync_status TEXT
+              sync_status TEXT,
+              last_fetch_time DATETIME
             )
             """
         )

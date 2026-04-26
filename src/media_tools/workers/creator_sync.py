@@ -4,6 +4,7 @@ from __future__ import annotations
 import asyncio
 import logging
 import sqlite3
+from datetime import UTC, datetime, timedelta
 from typing import Any
 
 from media_tools.core.config import get_runtime_setting_bool
@@ -20,6 +21,36 @@ from media_tools.workers.transcribe import transcribe_files
 logger = logging.getLogger(__name__)
 
 
+def _build_interval_from_last_fetch(last_fetch_time: str | None) -> str | None:
+    """根据 last_fetch_time 构建 F2 interval 参数
+
+    F2 interval 格式: "2026-01-15|2026-04-26"
+    - last_fetch_time 为 None → 返回 None（退化全量）
+    - last_fetch_time 距今超过 180 天 → 返回 None（时间太久，直接全量更高效）
+    - 否则 → 返回 "last_fetch_date|today"
+    """
+    if not last_fetch_time:
+        return None
+
+    try:
+        # 兼容多种日期格式
+        fetch_dt = datetime.fromisoformat(last_fetch_time.replace("Z", "+00:00"))
+        if fetch_dt.tzinfo is None:
+            fetch_dt = fetch_dt.replace(tzinfo=UTC)
+        now = datetime.now(UTC)
+
+        if (now - fetch_dt) > timedelta(days=180):
+            logger.info(f"last_fetch_time 距今超过 180 天，退化为全量模式")
+            return None
+
+        start_date = fetch_dt.strftime("%Y-%m-%d")
+        end_date = now.strftime("%Y-%m-%d")
+        return f"{start_date}|{end_date}"
+    except (ValueError, OSError) as e:
+        logger.warning(f"解析 last_fetch_time 失败: {e}")
+        return None
+
+
 async def background_creator_download_worker(
     task_id: str,
     uid: str,
@@ -27,7 +58,16 @@ async def background_creator_download_worker(
     batch_size: int | None = None,
     original_params: dict | None = None,
 ):
-    """创作者同步 Worker - 下载 + 自动转写"""
+    """创作者同步 Worker - 下载 + 自动转写
+
+    mode:
+      - incremental: 基于 last_fetch_time 的时间范围增量同步
+        有 last_fetch_time → F2 interval 参数限制时间范围，只拉取上次同步后发布的新视频
+        无 last_fetch_time → 退化为全量模式
+      - full: 拉取博主全部视频（F2 max_counts=None，内部翻页拉完所有）
+    batch_size:
+      用户指定时优先使用，覆盖 mode 的默认行为
+    """
 
     async def _progress_fn(p, m, result_summary=None, subtasks=None, stage=""):
         await update_task_progress(task_id, p, m, f"creator_sync_{mode}", result_summary, subtasks, stage)
@@ -48,132 +88,131 @@ async def background_creator_download_worker(
         sec_user_id = (creator_row.get("sec_user_id") if isinstance(creator_row, dict) else creator_row["sec_user_id"]) or ""
         display_name = (creator_row.get("nickname") if isinstance(creator_row, dict) else creator_row["nickname"]) or uid
 
-        requested_batch_size = batch_size
-        douyin_batch_size = batch_size or 50
-        batch_label = requested_batch_size if requested_batch_size is not None else ("全部" if platform == "bilibili" else douyin_batch_size)
-        await _progress_fn(0.05, f"开始同步 {display_name} 的视频（{mode}，每批 {batch_label} 个）...", stage="initializing")
+        # 查询 last_fetch_time（增量模式需要）
+        last_fetch_time = None
+        if mode == "incremental":
+            with get_db_connection() as conn:
+                cursor = conn.execute(
+                    "SELECT last_fetch_time FROM creators WHERE uid = ?",
+                    (uid,),
+                )
+                row = cursor.fetchone()
+                if row:
+                    last_fetch_time = row["last_fetch_time"] if isinstance(row, dict) else row[0]
 
-        # 全量模式也应该跳过已下载的视频，通过"没有新文件"自然终止循环
-        # 之前 full 模式设 skip_existing=False 导致只下第一批就 break
+        # 确定下载参数
+        max_counts = None
+        interval = None
+
+        if batch_size is not None:
+            # 用户显式指定 batch_size，优先使用
+            max_counts = batch_size
+            mode_label = f"每批 {batch_size} 个"
+        elif mode == "full":
+            max_counts = None
+            mode_label = "全部"
+        else:
+            # 增量模式：基于时间范围
+            interval = _build_interval_from_last_fetch(last_fetch_time)
+            if interval:
+                mode_label = f"增量（{interval}）"
+            else:
+                # 无 last_fetch_time 或距今太久，退化为全量
+                mode_label = "增量（退化全量）"
+
+        await _progress_fn(0.05, f"开始同步 {display_name} 的视频（{mode_label}）...", stage="initializing")
+
         skip_existing = True
         total_downloaded = 0
-        batch_num = 1
-        completed_batches = 0
         all_new_files: list[str] = []
         last_result: dict[str, Any] = {}
         transcribe_stats = {"success_count": 0, "failed_count": 0, "total": 0}
         all_subtasks: list[dict] = []
 
-        while True:
-            current_batch_size = requested_batch_size if platform == "bilibili" else douyin_batch_size
-            await _progress_fn(0.1, f"第 {batch_num} 批：下载中（最多 {current_batch_size or '全部'} 个）...", stage="downloading")
+        await _progress_fn(0.1, f"下载中...", stage="downloading")
 
-            if platform == "bilibili":
-                from media_tools.bilibili.core.downloader import download_up_by_url
+        if platform == "bilibili":
+            from media_tools.bilibili.core.downloader import download_up_by_url
 
-                mid = sec_user_id or uid.split(":", 1)[-1]
-                url = f"https://space.bilibili.com/{mid}"
-                try:
-                    result = await asyncio.to_thread(download_up_by_url, url, current_batch_size, skip_existing, None, task_id)
-                except (RuntimeError, OSError, ValueError) as e:
-                    error_msg = str(e)
-                    if "412" in error_msg or "blocked" in error_msg.lower():
-                        await _progress_fn(0.5, f"B站请求被拦截(412)，请更换IP或稍后重试", stage="downloading")
-                        raise RuntimeError(f"B站请求被拦截(412)，请更换IP或稍后重试: {error_msg}")
-                    raise
-                completed_batches += 1
-                if isinstance(result, dict):
-                    last_result = result
-                new_files = (result.get("new_files") or []) if isinstance(result, dict) else []
+            mid = sec_user_id or uid.split(":", 1)[-1]
+            url = f"https://space.bilibili.com/{mid}"
+            try:
+                result = await asyncio.to_thread(download_up_by_url, url, max_counts, skip_existing, None, task_id)
+            except (RuntimeError, OSError, ValueError) as e:
+                error_msg = str(e)
+                if "412" in error_msg or "blocked" in error_msg.lower():
+                    await _progress_fn(0.5, f"B站请求被拦截(412)，请更换IP或稍后重试", stage="downloading")
+                    raise RuntimeError(f"B站请求被拦截(412)，请更换IP或稍后重试: {error_msg}")
+                raise
+            if isinstance(result, dict):
+                last_result = result
+            new_files = (result.get("new_files") or []) if isinstance(result, dict) else []
 
-                auto_transcribe = get_runtime_setting_bool("auto_transcribe")
-                auto_delete = get_runtime_setting_bool("auto_delete")
-                if auto_transcribe and new_files:
-                    tr = await transcribe_files(task_id, _progress_fn, new_files, display_name, auto_delete)
-                    transcribe_stats["success_count"] += tr.get("success_count", 0)
-                    transcribe_stats["failed_count"] += tr.get("failed_count", 0)
-                    transcribe_stats["total"] += tr.get("total", 0)
-                    all_subtasks.extend(tr.get("subtasks", []))
+        else:
+            from media_tools.douyin.core.downloader import download_by_url
 
-                total_downloaded += len(new_files)
-                all_new_files.extend(new_files)
-                break
-
+            if sec_user_id.startswith("MS4w"):
+                url = f"https://www.douyin.com/user/{sec_user_id}"
             else:
-                from media_tools.douyin.core.downloader import download_by_url
+                url = f"https://www.douyin.com/user/{uid}"
 
-                if sec_user_id.startswith("MS4w"):
-                    url = f"https://www.douyin.com/user/{sec_user_id}"
-                else:
-                    url = f"https://www.douyin.com/user/{uid}"
+            dl_task = asyncio.create_task(
+                asyncio.to_thread(download_by_url, url, max_counts, False, skip_existing, task_id, interval)
+            )
 
-                dl_task = asyncio.create_task(
-                    asyncio.to_thread(download_by_url, url, current_batch_size, False, skip_existing, task_id)
-                )
+            async def _poll():
+                while True:
+                    await asyncio.sleep(5)
+                    info = get_download_progress(task_id)
+                    if info:
+                        d = info.get("downloaded", 0)
+                        s = info.get("skipped", 0)
+                        details = info.get("details", [])
+                        subtasks = [
+                            {"title": d_.get("title", "未知")[:60], "status": d_.get("status", "unknown")}
+                            for d_ in details[-50:]
+                        ]
+                        await update_task_progress(
+                            task_id,
+                            0.1 + 0.6 * min(d / 100, 1.0),
+                            f"已下载 {d} 个，跳过 {s} 个",
+                            f"creator_sync_{mode}",
+                            subtasks=subtasks,
+                            stage="downloading",
+                        )
 
-                async def _poll():
-                    while True:
-                        await asyncio.sleep(5)
-                        info = get_download_progress(task_id)
-                        if info:
-                            d = info.get("downloaded", 0)
-                            s = info.get("skipped", 0)
-                            p = info.get("page", batch_num)
-                            details = info.get("details", [])
-                            subtasks = [
-                                {"title": d_.get("title", "未知")[:60], "status": d_.get("status", "unknown")}
-                                for d_ in details[-50:]
-                            ]
-                            await update_task_progress(
-                                task_id,
-                                0.1 + 0.3 * min(d / max(current_batch_size or 50, 1), 1.0),
-                                f"第 {p} 批：已下载 {d} 个，跳过 {s} 个",
-                                f"creator_sync_{mode}",
-                                subtasks=subtasks,
-                                stage="downloading",
-                            )
-
-                poll_task = asyncio.create_task(_poll())
+            poll_task = asyncio.create_task(_poll())
+            try:
+                result = await dl_task
+            finally:
+                poll_task.cancel()
                 try:
-                    result = await dl_task
-                finally:
-                    poll_task.cancel()
-                    try:
-                        await poll_task
-                    except asyncio.CancelledError:
-                        pass
-                    clear_download_progress(task_id)
+                    await poll_task
+                except asyncio.CancelledError:
+                    pass
+                clear_download_progress(task_id)
 
-                completed_batches += 1
-                if isinstance(result, dict):
-                    last_result = result
+            if isinstance(result, dict):
+                last_result = result
 
-                if not isinstance(result, dict) or not result.get("success"):
-                    logger.warning(f"下载批次 {batch_num} 失败: {result}")
-                    break
+            if not isinstance(result, dict) or not result.get("success"):
+                logger.warning(f"下载失败: {result}")
+                raise RuntimeError(f"下载失败: {result}")
 
-                new_files = (result.get("new_files") or []) if isinstance(result, dict) else []
+            new_files = (result.get("new_files") or []) if isinstance(result, dict) else []
 
-                auto_transcribe = get_runtime_setting_bool("auto_transcribe")
-                auto_delete = get_runtime_setting_bool("auto_delete")
-                if auto_transcribe and new_files:
-                    tr = await transcribe_files(task_id, _progress_fn, new_files, display_name, auto_delete)
-                    transcribe_stats["success_count"] += tr.get("success_count", 0)
-                    transcribe_stats["failed_count"] += tr.get("failed_count", 0)
-                    transcribe_stats["total"] += tr.get("total", 0)
-                    all_subtasks.extend(tr.get("subtasks", []))
+        # 自动转写
+        auto_transcribe = get_runtime_setting_bool("auto_transcribe")
+        auto_delete = get_runtime_setting_bool("auto_delete")
+        if auto_transcribe and new_files:
+            tr = await transcribe_files(task_id, _progress_fn, new_files, display_name, auto_delete)
+            transcribe_stats["success_count"] += tr.get("success_count", 0)
+            transcribe_stats["failed_count"] += tr.get("failed_count", 0)
+            transcribe_stats["total"] += tr.get("total", 0)
+            all_subtasks.extend(tr.get("subtasks", []))
 
-            if not skip_existing:
-                break
-
-            if not new_files:
-                break
-
-            total_downloaded += len(new_files)
-            all_new_files.extend(new_files)
-            batch_num += 1
-
-            await _progress_fn(0.9, f"第 {batch_num - 1} 批完成（累计 {total_downloaded} 个），继续下一批...", stage="downloading")
+        total_downloaded = len(new_files)
+        all_new_files.extend(new_files)
 
         # 更新创作者信息
         if uploader := last_result.get("uploader"):
@@ -205,15 +244,14 @@ async def background_creator_download_worker(
         if transcribe_stats["total"] > 0:
             msg = f"{display_name} 同步完成：下载 {total_downloaded} 个，转写成功 {transcribe_stats['success_count']} 个，失败 {transcribe_stats['failed_count']} 个"
         else:
-            msg = f"{display_name} 同步完成：共 {total_downloaded} 个新视频（{completed_batches} 批，{mode}）"
+            msg = f"{display_name} 同步完成：共 {total_downloaded} 个新视频（{mode}）"
         with get_db_connection() as conn:
             payload_str = _merge_payload_from_db(conn, task_id, msg, result_summary, all_subtasks or None)
             conn.execute("UPDATE task_queue SET status='COMPLETED', progress=1.0, payload=? WHERE task_id=?", (payload_str, task_id))
-            if mode == "incremental":
-                conn.execute(
-                    "UPDATE creators SET last_fetch_time = CURRENT_TIMESTAMP WHERE uid = ?",
-                    (uid,)
-                )
+            conn.execute(
+                "UPDATE creators SET last_fetch_time = CURRENT_TIMESTAMP WHERE uid = ?",
+                (uid,)
+            )
             conn.commit()
         await notify_task_update(task_id, 1.0, msg, "COMPLETED", f"creator_sync_{mode}", result_summary, all_subtasks or None, stage="completed")
     except asyncio.CancelledError:

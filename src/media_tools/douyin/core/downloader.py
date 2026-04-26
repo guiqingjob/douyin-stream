@@ -462,13 +462,15 @@ def _sync_media_assets(uid: str, nickname: str, folder_name: str):
     except (sqlite3.Error, OSError) as e:
         logger.error(f"同步 media_assets 失败: {e}")
 
-async def _download_with_stats(url: str, max_counts: int | None = None, skip_existing: bool = True):
+async def _download_with_stats(url: str, max_counts: int | None = None, skip_existing: bool = True, interval: str | None = None):
     """
     使用 F2 API 下载视频并保存统计数据
 
     Args:
         url: 用户主页 URL
         max_counts: 最大下载数量
+        skip_existing: 跳过已下载视频
+        interval: 时间范围，格式 "2026-01-01|2026-04-26"，F2 按此范围翻页拉取
     """
     from f2.apps.douyin.db import AsyncUserDB
     from f2.apps.douyin.handler import DouyinHandler
@@ -480,6 +482,10 @@ async def _download_with_stats(url: str, max_counts: int | None = None, skip_exi
     if max_counts:
         kwargs["max_counts"] = max_counts
         logger.info(f"限制下载数量: {max_counts}")
+
+    if interval:
+        kwargs["interval"] = interval
+        logger.info(f"时间范围: {interval}")
 
     config = get_config()
     downloads_path = config.get_download_path()
@@ -701,7 +707,7 @@ async def _download_with_stats(url: str, max_counts: int | None = None, skip_exi
     }
 
 
-def download_by_url_sync(url, max_counts=None, skip_existing: bool = True):
+def download_by_url_sync(url, max_counts=None, skip_existing: bool = True, interval: str | None = None):
     """同步包装器：通过 URL 下载单个博主的视频"""
     try:
         # 检查是否已有运行中的事件循环
@@ -709,7 +715,7 @@ def download_by_url_sync(url, max_counts=None, skip_existing: bool = True):
             loop = asyncio.get_running_loop()
         except RuntimeError:
             loop = None
-        
+
         if loop and loop.is_running():
             # 如果已有事件循环，创建任务并等待
             import warnings
@@ -727,13 +733,13 @@ def download_by_url_sync(url, max_counts=None, skip_existing: bool = True):
             )
         else:
             # 没有运行中的循环，可以安全使用 asyncio.run()
-            return asyncio.run(_download_with_stats(url, max_counts, skip_existing=skip_existing))
+            return asyncio.run(_download_with_stats(url, max_counts, skip_existing=skip_existing, interval=interval))
     except (RuntimeError, OSError, ValueError) as e:
         logger.info(error(f"下载出错: {e}"))
         return False
 
 
-def download_by_url(url, max_counts: int | None = None, disable_auto_transcribe=False, skip_existing: bool = True, task_id: str | None = None):
+def download_by_url(url, max_counts: int | None = None, disable_auto_transcribe=False, skip_existing: bool = True, task_id: str | None = None, interval: str | None = None):
     """
     通过 URL 下载单个博主的视频
 
@@ -742,6 +748,7 @@ def download_by_url(url, max_counts: int | None = None, disable_auto_transcribe=
         max_counts: 最大下载数量
         disable_auto_transcribe: 是否禁用自动转写
         task_id: 关联的任务 ID（用于取消检测）
+        interval: 时间范围，格式 "2026-01-01|2026-04-26"
 
     Returns:
         dict: 包含 success, uid, nickname, new_files 的字典，或 False
@@ -750,12 +757,14 @@ def download_by_url(url, max_counts: int | None = None, disable_auto_transcribe=
     logger.info(info(f"博主 URL: {url}"))
     if max_counts:
         logger.info(info(f"最大下载数量: {max_counts}"))
+    if interval:
+        logger.info(info(f"时间范围: {interval}"))
     logger.info()
 
     logger.info(info("开始下载..."))
     logger.info()
 
-    result = download_by_url_sync(url, max_counts, skip_existing=skip_existing)
+    result = download_by_url_sync(url, max_counts, skip_existing=skip_existing, interval=interval)
 
     if result:
         logger.info(success("下载完成！"))
