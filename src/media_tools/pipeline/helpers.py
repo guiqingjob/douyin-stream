@@ -81,8 +81,8 @@ def _lookup_creator_folder(video_path: Path) -> str | None:
             if row and row[0]:
                 return _clean_title_for_export(row[0])
 
-            # 方法3：从 video_metadata 表的 creator_name 字段
-            cursor.execute("SELECT creator_name FROM video_metadata WHERE aweme_id = ?", (aweme_id,))
+            # 方法3：从 video_metadata 表的 nickname 字段（之前错误地查了 creator_name）
+            cursor.execute("SELECT nickname FROM video_metadata WHERE aweme_id = ?", (aweme_id,))
             row = cursor.fetchone()
             if row and row[0]:
                 return _clean_title_for_export(row[0])

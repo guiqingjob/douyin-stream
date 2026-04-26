@@ -261,13 +261,28 @@ def _rename_videos_in_downloads(nickname: str, uid: str, downloads_path: Path) -
             processed_count = 0
             db_updated = False
 
-            # 递归查找下载目录下的所有视频文件（过滤下载失败的垃圾文件）
+            # 只扫描当前博主的目录和 F2 临时目录（douyin/post/），
+            # 绝不 rglob 整个 downloads_path，避免把其他博主的文件移过来
             MIN_VIDEO_BYTES = 10240  # 10KB
-            for f in downloads_path.rglob("*.mp4"):
+            scan_dirs = [user_dir]
+            # F2 临时目录（下载后尚未整理的文件）
+            f2_temp = downloads_path / "douyin" / "post"
+            if f2_temp.is_dir():
+                scan_dirs.append(f2_temp)
+            # downloads_path 根目录（旧版 F2 可能直接下载到这里）
+            for f_in_root in downloads_path.glob("*.mp4"):
+                scan_dirs.append(f_in_root)
+
+            files_to_process: list[Path] = []
+            for scan_dir in scan_dirs:
+                if scan_dir.is_file():
+                    files_to_process.append(scan_dir)
+                elif scan_dir.is_dir():
+                    for f in scan_dir.rglob("*.mp4"):
+                        files_to_process.append(f)
+
+            for f in files_to_process:
                 if f.stat().st_size < MIN_VIDEO_BYTES:
-                    continue
-                # 跳过 douyin/post 临时目录
-                if "/douyin/post/" in str(f):
                     continue
 
                 stem = f.stem
@@ -350,12 +365,9 @@ def _rename_videos_in_downloads(nickname: str, uid: str, downloads_path: Path) -
                     )
                     db_updated = True
                 else:
-                    # 无法匹配，直接移动到目标目录
-                    if f.parent != user_dir:
-                        dest = user_dir / f.name
-                        if not dest.exists():
-                            shutil.move(str(f), str(dest))
-                            processed_count += 1
+                    # 无法匹配 aweme_id，跳过——绝不移动无法确认归属的文件
+                    # 之前的逻辑会把所有未匹配 mp4 移入当前博主目录，造成跨博主污染
+                    pass
 
             if processed_count > 0:
                 logger.info(info(f"  [整理] 已处理 {processed_count} 个文件到 {folder_name}/（{renamed_count} 个已重命名）"))
