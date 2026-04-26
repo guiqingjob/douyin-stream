@@ -32,7 +32,7 @@ function CreatorListSkeleton() {
   )
 }
 
-// Asset card skeleton - matches Inbox asset card layout
+// Asset card skeleton
 function AssetCardSkeleton() {
   return (
     <div className="rounded-[var(--radius-card)] border border-border/40 bg-card p-4">
