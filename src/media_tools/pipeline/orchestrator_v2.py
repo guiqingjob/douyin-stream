@@ -96,7 +96,7 @@ class OrchestratorV2:
         """获取或创建共享 Playwright APIContext（并发转写共用一个浏览器实例）"""
         async with self._api_lock:
             if self._shared_api is None:
-                from media_tools.transcribe.runtime import resolve_qwen_auth_state_for_playwright
+                from media_tools.transcribe.auth_state import resolve_qwen_auth_state_for_playwright
                 from playwright.async_api import async_playwright
                 resolved = resolve_qwen_auth_state_for_playwright(auth_state_path)
                 pw = await async_playwright().__aenter__()
