@@ -76,8 +76,14 @@ async def poll_until_done(context: Any, gen_record_id: str, timeout_seconds: flo
             response = await api_json(context, url, payload)
             for batch in response.get("data", {}).get("batchRecord", []):
                 for record in batch.get("recordList", []):
-                    if record.get("genRecordId") == gen_record_id and record.get("recordStatus") == 30:
-                        return record
+                    if record.get("genRecordId") == gen_record_id:
+                        status = record.get("recordStatus")
+                        if status == 30:
+                            return record
+                        # 转写失败状态：立即报错，不等超时
+                        if status in (40, 41):
+                            fail_reason = record.get("failReason") or record.get("errorMessage") or f"recordStatus={status}"
+                            raise RuntimeError(f"转写失败: {fail_reason}")
             await asyncio.sleep(5)
 
     try:

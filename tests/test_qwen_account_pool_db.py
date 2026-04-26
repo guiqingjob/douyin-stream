@@ -151,6 +151,7 @@ def test_orchestrator_tries_multiple_qwen_accounts(monkeypatch, tmp_path) -> Non
     from pathlib import Path
     from media_tools.pipeline.orchestrator_v2 import OrchestratorV2
     from media_tools.pipeline.config import PipelineConfig
+    from media_tools.pipeline.models import AccountPool
 
     class _AuthErr(Exception):
         pass
@@ -175,10 +176,20 @@ def test_orchestrator_tries_multiple_qwen_accounts(monkeypatch, tmp_path) -> Non
     cfg = PipelineConfig(account_id="")
     orch = OrchestratorV2(config=cfg, auth_state_path=Path("dummy.json"))
 
-    orch._resolve_qwen_execution_accounts = lambda: [  # type: ignore[attr-defined]
+    # 正确初始化账号池（使用 acquire/release 互斥机制）
+    accounts = [
         {"account_id": "a1", "auth_state_path": Path("a1.json")},
         {"account_id": "a2", "auth_state_path": Path("a2.json")},
     ]
+    orch._account_pool = AccountPool(accounts, [0, 0])
+
+    # 模拟 _get_shared_api 和 _release_shared_api（避免启动真实 Playwright）
+    async def _fake_get_shared_api(auth_state_path):
+        return None
+    async def _fake_release_shared_api():
+        pass
+    orch._get_shared_api = _fake_get_shared_api  # type: ignore[attr-defined]
+    orch._release_shared_api = _fake_release_shared_api  # type: ignore[attr-defined]
 
     p = tmp_path / "a.mp3"
     p.write_bytes(b"ok")

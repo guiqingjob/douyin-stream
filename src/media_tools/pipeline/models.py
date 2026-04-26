@@ -15,17 +15,22 @@ logger = logging.getLogger(__name__)
 
 
 class AccountPool:
-    """账号轮换池 - 按余额权重分配任务，余额多的分配更多"""
+    """账号轮换池 - 按余额权重分配任务，余额多的分配更多
+
+    支持互斥占用：acquire() 获取一个未被占用的账号，release() 归还。
+    并发转写时同一账号不会被分配给多个任务。
+    """
 
     def __init__(self, accounts: list[dict[str, Any]], balances: list[int] | None = None):
         self._accounts = accounts
         self._balances = balances or [0] * len(accounts)
         self._current = 0
         self._lock = asyncio.Lock()
+        self._in_use: set[str] = set()  # account_ids 当前正在使用
         logger.info(f"初始化加权账号池，共 {len(accounts)} 个账号，总余额 {sum(self._balances)}")
 
     def get_account(self) -> dict[str, Any] | None:
-        """按权重分配账号（余额多的分配更多）"""
+        """按权重分配账号（余额多的分配更多），不考虑占用状态"""
         import random
 
         if not self._accounts:
@@ -42,9 +47,43 @@ class AccountPool:
         return selected
 
     async def acquire(self) -> dict[str, Any] | None:
-        """异步获取一个账号（线程安全）"""
+        """异步获取一个未被占用的账号（互斥）
+
+        优先选余额高的未占用账号；全部占用时返回 None。
+        """
         async with self._lock:
-            return self.get_account()
+            import random
+
+            if not self._accounts:
+                return None
+
+            # 筛选未占用账号
+            available = [
+                (i, a) for i, a in enumerate(self._accounts)
+                if str(a.get("account_id", "")) not in self._in_use
+            ]
+
+            if not available:
+                return None
+
+            indices, accounts = zip(*available)
+            balances = [self._balances[i] for i in indices]
+            total = sum(balances)
+
+            if total > 0:
+                selected = random.choices(accounts, weights=balances, k=1)[0]
+            else:
+                # 轮询：跳过已占用的，推进指针
+                selected = accounts[self._current % len(accounts)]
+                self._current = (self._current + 1) % len(accounts)
+
+            account_id = str(selected.get("account_id", ""))
+            self._in_use.add(account_id)
+            return selected
+
+    def release(self, account_id: str) -> None:
+        """释放账号占用"""
+        self._in_use.discard(account_id)
 
     def remaining(self) -> int:
         return len(self._accounts)

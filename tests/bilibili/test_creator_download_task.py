@@ -63,7 +63,10 @@ class BilibiliCreatorDownloadTaskTests(unittest.IsolatedAsyncioTestCase):
         tmp_video.write_bytes(b"ok")
 
         fake_config = SimpleNamespace(is_auto_transcribe=lambda: True, is_auto_delete_video=lambda: True)
-        orchestrator = SimpleNamespace(transcribe_with_retry=AsyncMock(return_value=SimpleNamespace(success=True)))
+        from media_tools.pipeline.models import BatchReport
+        report = BatchReport(total=1, success=1, failed=0)
+        report.results.append({"video_path": str(tmp_video), "success": True, "error": None, "error_type": "none"})
+        orchestrator = SimpleNamespace(transcribe_batch=AsyncMock(return_value=report))
 
         with patch("media_tools.workers.creator_sync.get_db_connection", return_value=conn), patch(
             "media_tools.workers.creator_sync.update_task_progress",
@@ -80,7 +83,7 @@ class BilibiliCreatorDownloadTaskTests(unittest.IsolatedAsyncioTestCase):
         ):
             await background_creator_download_worker(task_id, creator_uid, "incremental")
 
-        orchestrator.transcribe_with_retry.assert_awaited_once()
+        orchestrator.transcribe_batch.assert_awaited_once()
         self.assertFalse(tmp_video.exists())
 
 

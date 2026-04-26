@@ -16,56 +16,50 @@ async def transcribe_files(task_id: str, _progress_fn, new_files: list, display_
     await _progress_fn(0.6, f"下载完成，准备转写 {len(new_files)} 个视频...", stage="transcribing")
     pipeline_config = load_pipeline_config()
     orchestrator = create_orchestrator(pipeline_config, creator_folder_override=display_name)
-    delete_after = auto_delete
     total = len(new_files)
     subtasks: list[dict] = []
-
     video_paths = [Path(f) for f in new_files]
-    completed_count = 0
-    success_count = 0
-    failed_count = 0
-    lock = asyncio.Lock()
 
-    semaphore = asyncio.Semaphore(pipeline_config.concurrency)
+    # 使用 orchestrator 的 transcribe_batch 统一并发控制
+    # （共享 Playwright、账号互斥、导出限流）
+    try:
+        report = await orchestrator.transcribe_batch(video_paths, resume=False)
+    except (OSError, RuntimeError) as exc:
+        logger.error(f"批量转写失败: {exc}")
+        for vp in video_paths:
+            subtasks.append({"title": vp.stem[:60], "status": "failed", "error": str(exc)})
+        return {
+            "success_count": 0,
+            "failed_count": total,
+            "total": total,
+            "subtasks": subtasks,
+            "result_summary": {"success": 0, "failed": total, "skipped": 0, "total": total},
+        }
 
-    async def _process_one(video_path: Path) -> None:
-        nonlocal completed_count, success_count, failed_count
-        title = video_path.stem[:60]
-        transcribe_ok = False
-        error_msg = ""
-        try:
-            async with semaphore:
-                result = await orchestrator.transcribe_with_retry(video_path)
-                transcribe_ok = bool(getattr(result, "success", False))
-        except (RuntimeError, OSError, ValueError) as e:
-            error_msg = str(e)
-            logger.warning(f"转写失败 {video_path}: {e}")
+    # 从 report 构建统计和子任务列表
+    success_count = report.success
+    failed_count = report.failed
 
-        async with lock:
-            completed_count += 1
-            if transcribe_ok:
-                success_count += 1
-                subtasks.append({"title": title, "status": "completed"})
-            else:
-                failed_count += 1
-                subtasks.append({"title": title, "status": "failed", "error": error_msg or "转写失败"})
+    for r in report.results:
+        title = Path(r.get("video_path", "")).stem[:60]
+        if r.get("success"):
+            subtasks.append({"title": title, "status": "completed"})
+        else:
+            error_msg = r.get("error", "转写失败")
+            error_type = r.get("error_type", "unknown")
+            subtasks.append({"title": title, "status": "failed", "error": f"[{error_type}] {error_msg}"})
 
-            await _progress_fn(
-                0.6 + 0.3 * (completed_count / total),
-                f"正在转写 ({completed_count}/{total})",
-                subtasks=list(subtasks),
-                stage="transcribing",
-            )
-
-        if delete_after and transcribe_ok:
-            try:
-                video_path.unlink()
-            except FileNotFoundError:
-                pass
-            except OSError as e:
-                logger.error(f"删除转写后视频失败: {video_path}, {e}")
-
-    await asyncio.gather(*[_process_one(p) for p in video_paths])
+    # 删除已成功转写的源视频
+    if auto_delete:
+        for r in report.results:
+            if r.get("success"):
+                vp = Path(r.get("video_path", ""))
+                try:
+                    vp.unlink()
+                except FileNotFoundError:
+                    pass
+                except OSError as e:
+                    logger.error(f"删除转写后视频失败: {vp}, {e}")
 
     result_summary = {
         "success": success_count,
