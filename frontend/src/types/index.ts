@@ -41,6 +41,21 @@ export interface Task {
   update_time?: string;
 }
 
+export type PipelineStage = 'download' | 'upload' | 'transcribe' | 'export' | 'finalize' | string;
+
+export interface PipelineExportProgress {
+  progress?: 0 | 1 | number;
+  file?: string;
+  status?: string | number;
+}
+
+export interface PipelineProgress {
+  stage?: PipelineStage;
+  file?: string;
+  status?: string;
+  export?: PipelineExportProgress;
+}
+
 export interface ScheduleTask {
   task_id: string;
   task_type: string;

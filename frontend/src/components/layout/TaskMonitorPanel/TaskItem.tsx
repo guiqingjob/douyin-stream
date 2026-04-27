@@ -14,6 +14,7 @@ import {
 import { cancelTask, rerunTask, setAutoRetry, deleteTask, recoverAwemeAndTranscribe } from '@/lib/api';
 import { Badge } from '@/components/ui/badge';
 import type { Task } from '@/lib/api';
+import type { PipelineProgress } from '@/types';
 
 type TaskSubtask = {
   title: string;
@@ -26,13 +27,58 @@ type TaskSubtask = {
 
 const EMPTY_SUBTASKS: TaskSubtask[] = [];
 
-function parsePayload(payload?: string): Record<string, unknown> | null {
+type TaskPayload = {
+  msg?: string;
+  stage?: string;
+  pipeline_progress?: PipelineProgress;
+  subtasks?: unknown;
+  missing_items?: unknown;
+  result_summary?: unknown;
+  uid?: string;
+  creator_uid?: string;
+};
+
+const PIPELINE_STAGE_ORDER = ['download', 'upload', 'transcribe', 'export', 'finalize'] as const;
+type PipelineStageKey = (typeof PIPELINE_STAGE_ORDER)[number];
+
+const PIPELINE_STAGE_LABEL: Record<PipelineStageKey, string> = {
+  download: '下载',
+  upload: '上传',
+  transcribe: '转写',
+  export: '导出',
+  finalize: '收尾',
+};
+
+function parsePayload(payload?: string): TaskPayload | null {
   if (!payload) return null;
   try {
-    return JSON.parse(payload);
+    const parsed = JSON.parse(payload);
+    if (!parsed || typeof parsed !== 'object' || Array.isArray(parsed)) return null;
+    return parsed as TaskPayload;
   } catch {
     return null;
   }
+}
+
+function normalizePipelineStage(raw?: string): PipelineStageKey | null {
+  if (!raw) return null;
+  const value = raw.trim().toLowerCase();
+  if (value === 'download' || value === 'downloading') return 'download';
+  if (value === 'upload' || value === 'uploading') return 'upload';
+  if (value === 'transcribe' || value === 'transcribing') return 'transcribe';
+  if (value === 'export' || value === 'exporting') return 'export';
+  if (value === 'finalize' || value === 'finalizing') return 'finalize';
+  if (value === 'initializing') return 'download';
+  if (value === 'completed') return 'finalize';
+  return null;
+}
+
+function inferPipelineStageFromProgress(progress: number): PipelineStageKey {
+  if (progress < 0.25) return 'download';
+  if (progress < 0.45) return 'upload';
+  if (progress < 0.8) return 'transcribe';
+  if (progress < 0.95) return 'export';
+  return 'finalize';
 }
 
 interface TaskItemProps {
@@ -50,6 +96,13 @@ export function TaskItem({ task, onRetry, isExpanded, onToggleExpand }: TaskItem
   const isRunning = state === 'running';
   const isPaused = state === 'paused';
   const isFailed = state === 'failed' || state === 'stale';
+  const parsed = useMemo(() => parsePayload(task.payload), [task.payload]);
+  const pipelineProgress = parsed?.pipeline_progress;
+  const rawStage = (pipelineProgress?.stage as string | undefined) || parsed?.stage;
+  const showPipelineUI = task.task_type === 'pipeline' || task.task_type === 'download' || task.task_type === 'local_transcribe';
+  const normalizedStage = showPipelineUI
+    ? normalizePipelineStage(rawStage) ?? inferPipelineStageFromProgress(typeof task.progress === 'number' ? task.progress : 0)
+    : null;
 
   return (
     <div className="rounded-[var(--radius-card)] border border-border/60 bg-card p-4 apple-shadow-md">
@@ -72,7 +125,7 @@ export function TaskItem({ task, onRetry, isExpanded, onToggleExpand }: TaskItem
             >
               {getTaskStatusLabel(task)}
             </Badge>
-            <TaskStageBadge task={task} isRunning={isRunning} />
+            {normalizedStage ? <TaskStageBadge stage={normalizedStage} isRunning={isRunning} /> : null}
             {duration && (
               <span className="text-[11px] text-muted-foreground tabular-nums">{duration}</span>
             )}
@@ -90,6 +143,15 @@ export function TaskItem({ task, onRetry, isExpanded, onToggleExpand }: TaskItem
 
       {(isRunning || isPaused) && (
         <div className="mt-3 space-y-2">
+          {normalizedStage ? (
+            <TaskPipelineSegments
+              stage={normalizedStage}
+              isFailed={isFailed}
+              isRunning={isRunning}
+              isPaused={isPaused}
+              pipelineProgress={pipelineProgress}
+            />
+          ) : null}
           <div className="flex items-center justify-between text-xs">
             <span className="text-muted-foreground">{message}</span>
             <span className="font-medium text-primary tabular-nums">{Math.round((task.progress || 0) * 100)}%</span>
@@ -119,20 +181,76 @@ export function TaskItem({ task, onRetry, isExpanded, onToggleExpand }: TaskItem
   );
 }
 
-function TaskStageBadge({ task, isRunning }: { task: Task; isRunning: boolean }) {
-  const parsed = parsePayload(task.payload);
-  const stage = parsed?.stage as string | undefined;
-  if (!stage || !isRunning) return null;
-  const stageLabel: Record<string, string> = {
-    initializing: '初始化',
-    downloading: '下载中',
-    transcribing: '转写中',
-    finalizing: '收尾中',
-  };
+function TaskStageBadge({ stage, isRunning }: { stage: PipelineStageKey; isRunning: boolean }) {
+  if (!isRunning) return null;
   return (
     <span className="text-[11px] rounded-md bg-primary/10 px-2 py-0.5 text-primary">
-      {stageLabel[stage] || stage}
+      {PIPELINE_STAGE_LABEL[stage]}
     </span>
+  );
+}
+
+function TaskPipelineSegments({
+  stage,
+  isFailed,
+  isRunning,
+  isPaused,
+  pipelineProgress,
+}: {
+  stage: PipelineStageKey;
+  isFailed: boolean;
+  isRunning: boolean;
+  isPaused: boolean;
+  pipelineProgress?: PipelineProgress;
+}) {
+  const activeIndex = PIPELINE_STAGE_ORDER.indexOf(stage);
+
+  const exportProgressRaw = pipelineProgress?.export?.progress;
+  const exportProgress =
+    typeof exportProgressRaw === 'number'
+      ? exportProgressRaw
+      : typeof exportProgressRaw === 'boolean'
+        ? exportProgressRaw
+          ? 1
+          : 0
+        : undefined;
+  const exportFile = pipelineProgress?.export?.file ?? pipelineProgress?.file;
+  const exportStatus = pipelineProgress?.export?.status ?? pipelineProgress?.status;
+  const showExportMeta = exportProgress != null || !!exportFile || exportStatus != null;
+
+  return (
+    <div className="space-y-1" data-testid="pipeline-stage-segments">
+      <div className="flex items-center gap-1" data-testid="pipeline-stage-segments-line">
+        {PIPELINE_STAGE_ORDER.map((key, idx) => {
+          const isCompleted = idx < activeIndex || (!isFailed && !isRunning && !isPaused);
+          const isActive = idx === activeIndex && (isRunning || isPaused);
+          const tone = isFailed && (idx === activeIndex || activeIndex === -1) ? 'destructive' : 'primary';
+          const base =
+            isCompleted
+              ? 'bg-success/70'
+              : isActive
+                ? tone === 'destructive'
+                  ? 'bg-destructive'
+                  : 'bg-primary'
+                : 'bg-muted';
+          return (
+            <div
+              key={key}
+              className={cn('h-1.5 flex-1 rounded-full transition-colors', base)}
+              data-testid="pipeline-stage-segment"
+              data-stage={key}
+            />
+          );
+        })}
+      </div>
+      {showExportMeta && (
+        <div className="flex min-w-0 items-center gap-2 text-[11px] text-muted-foreground">
+          <span className="shrink-0">导出 {exportProgress != null ? `${exportProgress}/1` : '—/1'}</span>
+          {exportFile ? <span className="min-w-0 truncate font-mono">{exportFile}</span> : null}
+          {exportStatus != null ? <span className="shrink-0">{String(exportStatus)}</span> : null}
+        </div>
+      )}
+    </div>
   );
 }
 

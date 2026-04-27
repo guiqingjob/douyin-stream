@@ -198,7 +198,7 @@ export const useStore = create<StoreState>((set, get) => ({
           update_time: new Date().toISOString(),
         };
         const msg = typeof data.msg === 'string' ? data.msg : '';
-        if ('msg' in data || data.subtasks || data.result_summary || data.stage) {
+        if ('msg' in data || data.subtasks || data.result_summary || data.stage || data.pipeline_progress) {
           const existing = get().tasks.find((t) => t.task_id === data.task_id);
           let payload: Record<string, unknown> = {};
           if (existing?.payload) {
@@ -214,7 +214,23 @@ export const useStore = create<StoreState>((set, get) => ({
           if (msg) payload.msg = msg;
           if (data.subtasks) payload.subtasks = data.subtasks;
           if (data.result_summary) payload.result_summary = data.result_summary;
-          if (data.stage) payload.stage = data.stage;
+          if (data.pipeline_progress && typeof data.pipeline_progress === 'object' && !Array.isArray(data.pipeline_progress)) {
+            const existingProgress = payload.pipeline_progress;
+            const base =
+              existingProgress && typeof existingProgress === 'object' && !Array.isArray(existingProgress)
+                ? (existingProgress as Record<string, unknown>)
+                : {};
+            payload.pipeline_progress = { ...base, ...(data.pipeline_progress as Record<string, unknown>) };
+          }
+          if (data.stage) {
+            payload.stage = data.stage;
+            const existingProgress = payload.pipeline_progress;
+            const base =
+              existingProgress && typeof existingProgress === 'object' && !Array.isArray(existingProgress)
+                ? (existingProgress as Record<string, unknown>)
+                : {};
+            payload.pipeline_progress = { ...base, stage: data.stage };
+          }
           update.payload = JSON.stringify(payload);
         }
         if (data.status === 'FAILED' && msg) {

@@ -100,6 +100,36 @@ describe('TaskItem', () => {
     expect(screen.getByRole('button', { name: '删除' })).toBeInTheDocument()
   })
 
+  it('renders 5-stage segments and export meta', () => {
+    render(
+      <TaskItem
+        task={{
+          task_id: 'running-export-1',
+          task_type: 'pipeline',
+          status: 'RUNNING',
+          progress: 0.85,
+          payload: JSON.stringify({
+            msg: 'x',
+            pipeline_progress: {
+              stage: 'export',
+              export: { progress: 0, file: 'out.md', status: 'polling' },
+            },
+          }),
+          error_msg: '',
+          update_time: new Date().toISOString(),
+        }}
+        onRetry={vi.fn()}
+        isExpanded={false}
+        onToggleExpand={vi.fn()}
+      />
+    )
+
+    expect(screen.getByText('导出 0/1')).toBeInTheDocument()
+    expect(screen.getByText('out.md')).toBeInTheDocument()
+    expect(screen.getByText('polling')).toBeInTheDocument()
+    expect(screen.getAllByTestId('pipeline-stage-segment')).toHaveLength(5)
+  })
+
   it('shows 文件异常 and 重下并转写 for corrupt_file manual_required', () => {
     render(
       <TaskItem
