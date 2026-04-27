@@ -54,3 +54,9 @@ class CreatorTranscribeRequest(BaseModel):
 
 class ScanDirectoryRequest(BaseModel):
     directory: str
+
+
+class RecoverAwemeTranscribeRequest(BaseModel):
+    creator_uid: str
+    aweme_id: str
+    title: str = ""

@@ -17,6 +17,7 @@ from media_tools.api.schemas import (
     LocalTranscribeRequest,
     CreatorTranscribeRequest,
     ScanDirectoryRequest,
+    RecoverAwemeTranscribeRequest,
 )
 from media_tools.workers.task_dispatcher import _start_task_worker, _create_task, _retry_task_worker
 from media_tools.douyin.core.cancel_registry import set_cancel_event, clear_cancel_event
@@ -313,6 +314,20 @@ async def trigger_creator_transcribe(req: CreatorTranscribeRequest):
         file_count = 0
 
     return {"task_id": task_id, "status": "started", "file_count": file_count}
+
+
+@router.post("/recover/aweme")
+async def trigger_recover_aweme_transcribe(req: RecoverAwemeTranscribeRequest):
+    task_id = str(uuid.uuid4())
+    await _create_task(
+        task_id,
+        "recover_aweme_transcribe",
+        {"creator_uid": req.creator_uid, "aweme_id": req.aweme_id, "title": req.title},
+    )
+    from media_tools.workers.aweme_recover_worker import recover_aweme_transcribe
+
+    _register_background_task(task_id, recover_aweme_transcribe(task_id, req.creator_uid, req.aweme_id, req.title))
+    return {"task_id": task_id, "status": "started"}
 
 
 @router.post("/transcribe/select-folder")
