@@ -23,3 +23,7 @@ def test_add_and_delete_bilibili_account() -> None:
     del_resp = client.delete(f"/api/v1/settings/bilibili/accounts/{account_id}")
     assert del_resp.status_code == 200
 
+
+def test_delete_bilibili_account_404_when_missing() -> None:
+    resp = client.delete("/api/v1/settings/bilibili/accounts/does-not-exist")
+    assert resp.status_code == 404

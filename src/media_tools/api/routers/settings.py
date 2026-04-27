@@ -33,9 +33,9 @@ class BilibiliAccountRequest(BaseModel):
     remark: str = ""
 
 class GlobalSettingsRequest(BaseModel):
-    concurrency: int
-    auto_delete: bool
-    auto_transcribe: bool
+    concurrency: int | None = None
+    auto_delete: bool | None = None
+    auto_transcribe: bool | None = None
 
 class RemarkRequest(BaseModel):
     remark: str
@@ -158,9 +158,16 @@ def add_bilibili_account(req: BilibiliAccountRequest):
 def delete_bilibili_account(account_id: str):
     try:
         with get_db_connection() as conn:
-            conn.execute("DELETE FROM Accounts_Pool WHERE account_id=? AND platform='bilibili'", (account_id,))
+            cursor = conn.execute(
+                "DELETE FROM Accounts_Pool WHERE account_id=? AND platform='bilibili'",
+                (account_id,),
+            )
+            if cursor.rowcount == 0:
+                raise HTTPException(status_code=404, detail="Account not found")
             conn.commit()
         return {"status": "success"}
+    except HTTPException:
+        raise
     except (sqlite3.Error, OSError, ValueError) as e:
         raise HTTPException(status_code=400, detail=str(e))
 
@@ -197,9 +204,14 @@ async def claim_qwen_quota_endpoint():
 @router.post("/global")
 def update_global_settings(req: GlobalSettingsRequest):
     try:
-        set_runtime_setting("concurrency", req.concurrency)
-        set_runtime_setting("auto_delete", req.auto_delete)
-        set_runtime_setting("auto_transcribe", req.auto_transcribe)
+        if req.concurrency is None and req.auto_delete is None and req.auto_transcribe is None:
+            raise HTTPException(status_code=400, detail="No fields to update")
+        if req.concurrency is not None:
+            set_runtime_setting("concurrency", req.concurrency)
+        if req.auto_delete is not None:
+            set_runtime_setting("auto_delete", req.auto_delete)
+        if req.auto_transcribe is not None:
+            set_runtime_setting("auto_transcribe", req.auto_transcribe)
         return {"status": "success"}
     except (ValueError, sqlite3.Error, OSError) as e:
         raise HTTPException(status_code=400, detail=str(e))
