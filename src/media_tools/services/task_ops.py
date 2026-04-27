@@ -5,6 +5,7 @@ import sqlite3
 from datetime import datetime, timedelta
 from media_tools.api.websocket_manager import manager
 from media_tools.db.core import get_db_connection
+from media_tools.services.auto_retry import schedule_auto_retry
 
 logger = logging.getLogger(__name__)
 STALE_TASK_HOURS = 2
@@ -35,26 +36,6 @@ def cleanup_stale_tasks(conn: sqlite3.Connection):
         "DELETE FROM task_queue WHERE status IN ('COMPLETED', 'FAILED', 'CANCELLED') AND update_time < ?",
         (delete_cutoff,),
     )
-
-    deleted_assets = conn.execute("SELECT asset_id FROM media_assets WHERE video_status='deleted'").fetchall()
-    if deleted_assets:
-        deleted_ids = [row[0] for row in deleted_assets]
-        placeholders = ",".join("?" * len(deleted_ids))
-        conn.execute(f"DELETE FROM assets_fts WHERE asset_id IN ({placeholders})", deleted_ids)
-        conn.execute(f"DELETE FROM media_assets WHERE asset_id IN ({placeholders})", deleted_ids)
-        logger.info(f"Cleaned up {len(deleted_ids)} deleted media assets")
-
-    stale_pending_cutoff = (datetime.now() - timedelta(days=30)).isoformat()
-    stale_assets = conn.execute(
-        "SELECT asset_id FROM media_assets WHERE transcript_status='pending' AND create_time < ?",
-        (stale_pending_cutoff,)
-    ).fetchall()
-    if stale_assets:
-        stale_ids = [row[0] for row in stale_assets]
-        placeholders = ",".join("?" * len(stale_ids))
-        conn.execute(f"DELETE FROM assets_fts WHERE asset_id IN ({placeholders})", stale_ids)
-        conn.execute(f"DELETE FROM media_assets WHERE asset_id IN ({placeholders})", stale_ids)
-        logger.info(f"Cleaned up {len(stale_ids)} stale pending media assets")
 
     conn.commit()
 
@@ -140,17 +121,27 @@ async def update_task_progress(
         now = datetime.now().isoformat()
         with get_db_connection() as conn:
             conn.row_factory = sqlite3.Row
+            row = conn.execute(
+                "SELECT status FROM task_queue WHERE task_id = ?",
+                (task_id,),
+            ).fetchone()
+            if row and row["status"] in ("COMPLETED", "FAILED", "CANCELLED"):
+                return
+
             payload_str = _merge_payload_from_db(conn, task_id, msg, result_summary, subtasks)
-            conn.execute(
-                """INSERT INTO task_queue (task_id, task_type, status, progress, payload, create_time, update_time)
-                   VALUES (?, ?, 'RUNNING', ?, ?, ?, ?)
-                   ON CONFLICT(task_id) DO UPDATE SET
-                       status = 'RUNNING',
-                       progress = excluded.progress,
-                       payload = excluded.payload,
-                       update_time = excluded.update_time""",
-                (task_id, task_type, progress, payload_str, now, now)
-            )
+            if row is None:
+                conn.execute(
+                    """INSERT INTO task_queue (task_id, task_type, status, progress, payload, create_time, update_time)
+                       VALUES (?, ?, 'RUNNING', ?, ?, ?, ?)""",
+                    (task_id, task_type, progress, payload_str, now, now),
+                )
+            else:
+                conn.execute(
+                    """UPDATE task_queue
+                       SET status='RUNNING', progress=?, payload=?, update_time=?
+                       WHERE task_id=? AND status IN ('PENDING', 'RUNNING', 'PAUSED')""",
+                    (progress, payload_str, now, task_id),
+                )
         await notify_task_update(task_id, progress, msg, "RUNNING", task_type, result_summary, subtasks, stage)
     except (sqlite3.Error, OSError, RuntimeError) as e:
         logger.error(f"Error updating task: {e}")
@@ -181,16 +172,19 @@ async def _complete_task(
     result_summary: dict | None = None,
     subtasks: list | None = None,
 ) -> None:
+    progress = 1.0 if status == "COMPLETED" else 0.0
     try:
         with get_db_connection() as conn:
             payload_str = _merge_payload_from_db(conn, task_id, msg, result_summary, subtasks)
             conn.execute(
-                "UPDATE task_queue SET status=?, progress=1.0, payload=?, error_msg=? WHERE task_id=?",
-                (status, payload_str, error_msg, task_id),
+                "UPDATE task_queue SET status=?, progress=?, payload=?, error_msg=? WHERE task_id=?",
+                (status, progress, payload_str, error_msg, task_id),
             )
     except (sqlite3.Error, OSError, RuntimeError) as e:
         logger.error(f"Failed to complete task {task_id} in DB: {e}")
-    await notify_task_update(task_id, 1.0, msg, status, task_type, result_summary, subtasks)
+    await notify_task_update(task_id, progress, msg, status, task_type, result_summary, subtasks)
+    if status == "FAILED":
+        schedule_auto_retry(task_id)
 
 
 async def _fail_task(task_id: str, task_type: str, error: str) -> None:
@@ -203,3 +197,4 @@ async def _fail_task(task_id: str, task_type: str, error: str) -> None:
     except (sqlite3.Error, OSError) as e:
         logger.error(f"Failed to fail task {task_id} in DB: {e}")
     await notify_task_update(task_id, 0.0, str(error), "FAILED", task_type)
+    schedule_auto_retry(task_id)
