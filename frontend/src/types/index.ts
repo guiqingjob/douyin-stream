@@ -37,6 +37,7 @@ export interface Task {
   progress: number;
   payload: string;
   error_msg?: string;
+  auto_retry?: boolean | number;
   update_time?: string;
 }
 

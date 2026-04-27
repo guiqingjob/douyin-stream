@@ -11,7 +11,7 @@ import {
   getTaskStatusLabel,
   taskTypeLabel,
 } from '@/lib/task-utils';
-import { rerunTask, setAutoRetry, deleteTask, recoverAwemeAndTranscribe } from '@/lib/api';
+import { cancelTask, rerunTask, setAutoRetry, deleteTask, recoverAwemeAndTranscribe } from '@/lib/api';
 import { Badge } from '@/components/ui/badge';
 import type { Task } from '@/lib/api';
 
@@ -19,6 +19,7 @@ type TaskSubtask = {
   title: string;
   status: string;
   error?: string;
+  reason?: string;
   aweme_id?: string;
   creator_uid?: string;
 };
@@ -49,7 +50,6 @@ export function TaskItem({ task, onRetry, isExpanded, onToggleExpand }: TaskItem
   const isRunning = state === 'running';
   const isPaused = state === 'paused';
   const isFailed = state === 'failed' || state === 'stale';
-  const hasParsedPayload = !!parsePayload(task.payload);
 
   return (
     <div className="rounded-[var(--radius-card)] border border-border/60 bg-card p-4 apple-shadow-md">
@@ -81,10 +81,9 @@ export function TaskItem({ task, onRetry, isExpanded, onToggleExpand }: TaskItem
         </div>
         <TaskActions
           task={task}
-          state={state}
           isRunning={isRunning}
+          isPaused={isPaused}
           isFailed={isFailed}
-          hasParsedPayload={hasParsedPayload}
           onRetry={onRetry}
         />
       </div>
@@ -140,64 +139,93 @@ function TaskStageBadge({ task, isRunning }: { task: Task; isRunning: boolean })
 function TaskActions({
   task,
   isRunning,
+  isPaused,
   isFailed,
-  hasParsedPayload,
   onRetry,
 }: {
   task: Task;
-  state: string;
   isRunning: boolean;
+  isPaused: boolean;
   isFailed: boolean;
-  hasParsedPayload: boolean;
   onRetry: (task: Task) => void;
 }) {
+  const autoRetryEnabled = !!task.auto_retry;
+  const canStop = isRunning || isPaused;
+
   return (
     <div className="mt-0.5 flex items-center gap-2">
-      {isFailed && hasParsedPayload && (
-        <>
-          <button
-            onClick={() => onRetry(task)}
-            className="flex h-8 items-center gap-1 rounded-md px-3 text-xs font-medium text-primary transition-colors duration-200 hover:bg-primary/10"
-            title="重试（新建任务）"
-          >
-            <RotateCw className="size-3.5" />
-            重试
-          </button>
-          <button
-            onClick={async () => {
-              try {
-                await rerunTask(task.task_id);
-                toast.success('任务已重新运行');
-              } catch {
-                // interceptor already toasts
-              }
-            }}
-            className="flex h-8 items-center gap-1 rounded-md px-3 text-xs font-medium text-primary transition-colors duration-200 hover:bg-primary/10"
-            title="用同一任务ID重新运行（断点续传）"
-          >
-            <RotateCw className="size-3.5" />
-            继续
-          </button>
-          <button
-            onClick={async () => {
-              try {
-                await setAutoRetry(task.task_id, true);
-                toast.success('已启用自动重试');
-              } catch {
-                // interceptor already toasts
-              }
-            }}
-            className="flex h-8 items-center gap-1 rounded-md px-3 text-xs font-medium text-primary transition-colors duration-200 hover:bg-primary/10"
-            title="失败后自动重试"
-          >
-            <RotateCw className="size-3.5" />
-            自动
-          </button>
-        </>
+      {isFailed && (
+        <button
+          onClick={() => onRetry(task)}
+          className="flex h-8 items-center gap-1 rounded-md px-3 text-xs font-medium text-primary transition-colors duration-200 hover:bg-primary/10"
+          title="重试（重新提交一个新任务）"
+        >
+          <RotateCw className="size-3.5" />
+          重试
+        </button>
       )}
+
+      {isPaused && (
+        <button
+          onClick={async () => {
+            try {
+              await rerunTask(task.task_id);
+              const { fetchInitialTasks } = useStore.getState();
+              await fetchInitialTasks();
+              toast.success('任务已恢复运行');
+            } catch {
+              // interceptor already toasts
+            }
+          }}
+          className="flex h-8 items-center gap-1 rounded-md px-3 text-xs font-medium text-primary transition-colors duration-200 hover:bg-primary/10"
+          title="恢复此任务（继续使用同一任务ID）"
+        >
+          <RotateCw className="size-3.5" />
+          恢复
+        </button>
+      )}
+
+      {isFailed && (
+        <button
+          onClick={async () => {
+            const next = !autoRetryEnabled;
+            try {
+              await setAutoRetry(task.task_id, next);
+              const { fetchInitialTasks } = useStore.getState();
+              await fetchInitialTasks();
+              toast.success(next ? '自动重试已启用' : '自动重试已关闭');
+            } catch {
+              // interceptor already toasts
+            }
+          }}
+          className="flex h-8 items-center rounded-md px-3 text-xs font-medium text-primary transition-colors duration-200 hover:bg-primary/10"
+          title="失败/过期后自动重试"
+        >
+          自动重试: {autoRetryEnabled ? '开' : '关'}
+        </button>
+      )}
+
+      {canStop && (
+        <button
+          onClick={async () => {
+            try {
+              await cancelTask(task.task_id);
+              const { fetchInitialTasks } = useStore.getState();
+              await fetchInitialTasks();
+              toast.success('任务已停止');
+            } catch {
+              // interceptor already toasts
+            }
+          }}
+          className="flex h-8 items-center rounded-md px-3 text-xs font-medium text-muted-foreground transition-colors duration-200 hover:bg-muted hover:text-foreground"
+          title="停止任务"
+        >
+          停止
+        </button>
+      )}
+
       {isRunning && <Loader2 className="size-4 animate-spin text-primary" />}
       {getTaskDisplayState(task) === 'success' && <CheckCircle2 className="size-4 text-success" />}
-      {isFailed && <XCircle className="size-4 text-destructive" />}
       <button
         onClick={async () => {
           try {
@@ -209,10 +237,11 @@ function TaskActions({
             // interceptor already toasts
           }
         }}
-        className="flex h-8 w-8 items-center justify-center rounded-md text-muted-foreground transition-colors duration-200 hover:bg-destructive/10 hover:text-destructive"
-        title="删除任务"
+        className="flex h-8 items-center gap-1 rounded-md px-3 text-xs font-medium text-destructive transition-colors duration-200 hover:bg-destructive/10"
+        title="删除任务（不可恢复）"
       >
         <Trash2 className="size-3.5" />
+        删除
       </button>
     </div>
   );
@@ -267,19 +296,21 @@ function TaskSubtasks({
     return raw.filter((item) => item && typeof item === 'object' && !Array.isArray(item)) as Array<{
       aweme_id?: unknown;
       title?: unknown;
+      reason?: unknown;
     }>;
   }, [parsed]);
 
   const enhancedSubtasks = useMemo(() => {
     if (!subtasks.length) return [];
     if (!missingItems.length && !creatorUidFromPayload) return subtasks;
-    const byTitle = new Map<string, string[]>();
+    const byTitle = new Map<string, Array<{ awemeId: string; reason?: string }>>();
     for (const item of missingItems) {
       const title = typeof item.title === 'string' ? item.title : '';
       const awemeId = typeof item.aweme_id === 'string' ? item.aweme_id : '';
+      const reason = typeof item.reason === 'string' ? item.reason : '';
       if (!title || !awemeId) continue;
       const list = byTitle.get(title) ?? [];
-      list.push(awemeId);
+      list.push({ awemeId, reason: reason || undefined });
       byTitle.set(title, list);
     }
 
@@ -291,11 +322,19 @@ function TaskSubtasks({
       }
 
       let awemeId = sub.aweme_id;
+      let reason =
+        typeof sub.reason === 'string' && sub.reason
+          ? sub.reason
+          : typeof sub.error === 'string' && sub.error
+            ? sub.error
+            : undefined;
       if (!awemeId && sub.title) {
         const list = byTitle.get(sub.title);
         if (list && list.length) {
           const used = usedByTitle.get(sub.title) ?? 0;
-          awemeId = list[Math.min(used, list.length - 1)];
+          const selected = list[Math.min(used, list.length - 1)];
+          awemeId = selected?.awemeId;
+          if (!reason && selected?.reason) reason = selected.reason;
           usedByTitle.set(sub.title, used + 1);
         }
       }
@@ -304,6 +343,7 @@ function TaskSubtasks({
         ...sub,
         aweme_id: awemeId,
         creator_uid: sub.creator_uid ?? creatorUidFromPayload,
+        reason,
       };
     });
   }, [creatorUidFromPayload, missingItems, subtasks]);
@@ -329,6 +369,20 @@ function TaskSubtasks({
           {enhancedSubtasks.map((sub, idx) => {
             const canRecover = sub.status === 'manual_required' && !!sub.creator_uid && !!sub.aweme_id;
             const isRecovering = !!sub.aweme_id && recoveringAwemeId === sub.aweme_id;
+            const manualReason =
+              sub.status === 'manual_required'
+                ? typeof sub.reason === 'string' && sub.reason
+                  ? sub.reason
+                  : typeof sub.error === 'string' && sub.error
+                    ? sub.error
+                    : undefined
+                : undefined;
+            const isCorruptFile = manualReason === 'corrupt_file';
+            const reasonLabel = isCorruptFile ? '文件异常' : '';
+            const actionLabel = isCorruptFile ? '重下并转写' : '补齐并转写';
+            const successToast = isCorruptFile ? '已创建重下并转写任务' : '已创建补齐任务';
+            const actionTitle = isCorruptFile ? '创建重下并转写任务' : '创建补齐并转写任务';
+            const shouldShowErrorText = !!sub.error && !(sub.status === 'manual_required' && sub.error === 'corrupt_file');
             return (
             <div
               key={idx}
@@ -345,16 +399,28 @@ function TaskSubtasks({
                 <XCircle className="size-3.5 text-destructive shrink-0 mt-0.5" />
               )}
               <div className="min-w-0 flex-1">
-                <span className={cn(
-                  'block truncate',
-                  sub.status === 'completed' ? 'text-foreground/80' :
-                  sub.status === 'skipped' ? 'text-muted-foreground' :
-                  sub.status === 'pending' ? 'text-primary' :
-                  'text-destructive'
-                )}>
-                  {sub.title || '未命名'}
-                </span>
-                {sub.error && (
+                <div className="flex min-w-0 items-center gap-1.5">
+                  <span
+                    className={cn(
+                      'block truncate',
+                      sub.status === 'completed'
+                        ? 'text-foreground/80'
+                        : sub.status === 'skipped'
+                          ? 'text-muted-foreground'
+                          : sub.status === 'pending'
+                            ? 'text-primary'
+                            : 'text-destructive'
+                    )}
+                  >
+                    {sub.title || '未命名'}
+                  </span>
+                  {reasonLabel && (
+                    <span className="shrink-0 rounded-md bg-destructive/10 px-1.5 py-0.5 text-[10px] font-medium text-destructive">
+                      {reasonLabel}
+                    </span>
+                  )}
+                </div>
+                {shouldShowErrorText && (
                   <span className="block truncate text-[10px] text-destructive/80 mt-0.5">{sub.error}</span>
                 )}
               </div>
@@ -373,7 +439,7 @@ function TaskSubtasks({
                       await recoverAwemeAndTranscribe(creatorUid, awemeId, sub.title || '');
                       const { fetchInitialTasks } = useStore.getState();
                       await fetchInitialTasks();
-                      toast.success('已创建补齐任务');
+                      toast.success(successToast);
                     } catch {
                       // interceptor already toasts
                     } finally {
@@ -384,10 +450,10 @@ function TaskSubtasks({
                     'flex h-7 items-center gap-1 rounded-md px-2 text-[11px] font-medium text-primary transition-colors duration-200',
                     canRecover && !isRecovering ? 'hover:bg-primary/10' : 'cursor-not-allowed opacity-50'
                   )}
-                  title={canRecover ? '创建补齐并转写任务' : '缺少 aweme_id 或 creator_uid，无法创建补齐任务'}
+                  title={canRecover ? actionTitle : '缺少 aweme_id 或 creator_uid，无法创建补齐任务'}
                 >
                   {isRecovering ? <Loader2 className="size-3 animate-spin" /> : <RotateCw className="size-3" />}
-                  补齐并转写
+                  {actionLabel}
                 </button>
               )}
             </div>

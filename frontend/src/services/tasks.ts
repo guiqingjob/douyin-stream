@@ -21,6 +21,11 @@ export const resumeTask = async (taskId: string, signal?: AbortSignal): Promise<
   return response.data;
 };
 
+export const cancelTask = async (taskId: string, signal?: AbortSignal): Promise<{ status: string; message: string }> => {
+  const response = await apiClient.post(`/tasks/${taskId}/cancel`, null, { signal });
+  return response.data;
+};
+
 export const rerunTask = async (taskId: string, signal?: AbortSignal): Promise<{ task_id: string; status: string; message: string }> => {
   const response = await apiClient.post(`/tasks/${taskId}/rerun`, null, { signal });
   return response.data;
