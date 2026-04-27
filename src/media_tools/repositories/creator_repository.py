@@ -4,7 +4,7 @@ from __future__ import annotations
 import sqlite3
 from typing import Any
 
-from media_tools.db.core import get_db_connection
+from media_tools.db.core import get_db_connection, get_table_columns
 
 
 class CreatorRepository:
@@ -48,7 +48,7 @@ class CreatorRepository:
         """创建创作者"""
         with get_db_connection() as conn:
             # 检查是否有 homepage_url 列
-            columns = {row[1] for row in conn.execute("PRAGMA table_info(creators)").fetchall()}
+            columns = get_table_columns(conn, "creators")
             if "homepage_url" in columns:
                 conn.execute(
                     "INSERT OR IGNORE INTO creators (uid, sec_user_id, nickname, homepage_url, platform, sync_status) VALUES (?, ?, ?, ?, ?, 'active')",
@@ -69,7 +69,7 @@ class CreatorRepository:
     ) -> None:
         """更新创作者信息"""
         with get_db_connection() as conn:
-            columns = {row[1] for row in conn.execute("PRAGMA table_info(creators)").fetchall()}
+            columns = get_table_columns(conn, "creators")
             if homepage_url is not None and "homepage_url" in columns:
                 conn.execute(
                     "UPDATE creators SET sec_user_id = ?, nickname = ?, homepage_url = ? WHERE uid = ?",

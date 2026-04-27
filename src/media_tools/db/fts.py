@@ -9,10 +9,11 @@ logger = logging.getLogger(__name__)
 
 def _ensure_fts_table(conn: sqlite3.Connection) -> None:
     """Create assets_fts FTS5 virtual table if it doesn't exist."""
-    cursor = conn.cursor()
-    cursor.execute("PRAGMA table_info(assets_fts)")
-    if cursor.fetchall():
+    from .core import get_table_columns
+
+    if get_table_columns(conn, "assets_fts"):
         return
+    cursor = conn.cursor()
     cursor.execute("""
         CREATE VIRTUAL TABLE assets_fts USING fts5(
             asset_id UNINDEXED,

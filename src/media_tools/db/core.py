@@ -177,10 +177,9 @@ def _ensure_column(conn: sqlite3.Connection, table: str, column: str, column_def
     safe_table = _check_table_name(table)
     safe_column = validate_identifier(column, "column_name")
 
-    cursor = conn.cursor()
-    cursor.execute(f"PRAGMA table_info({safe_table})")
-    existing = {row[1] for row in cursor.fetchall()}
+    existing = get_table_columns(conn, safe_table)
     if safe_column not in existing:
+        cursor = conn.cursor()
         cursor.execute(f"ALTER TABLE {safe_table} ADD COLUMN {safe_column} {column_def}")
 
 
