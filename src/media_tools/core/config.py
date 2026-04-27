@@ -275,7 +275,13 @@ class PipelineConfig:
     def concurrency(self) -> int:
         if self._concurrency is not None:
             return self._concurrency
-        return _safe_int_env("PIPELINE_CONCURRENCY", 10)
+        env_value = os.environ.get("PIPELINE_CONCURRENCY", "").strip()
+        if env_value:
+            try:
+                return int(env_value)
+            except ValueError:
+                pass
+        return get_runtime_setting_int("concurrency", 10)
 
 
 _pipeline_config = PipelineConfig()

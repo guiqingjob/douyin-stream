@@ -38,11 +38,75 @@ class _FakeOrchestrator:
         return _Result(success=True)
 
 
-def test_pipeline_config_default_concurrency_is_10() -> None:
+def test_pipeline_config_default_concurrency_is_10(monkeypatch, tmp_path) -> None:
+    import sqlite3
+    from contextlib import contextmanager
+
     from media_tools.pipeline.config import load_pipeline_config
+
+    db_path = tmp_path / "settings.db"
+    conn = sqlite3.connect(str(db_path))
+    conn.execute("CREATE TABLE SystemSettings (key TEXT PRIMARY KEY, value TEXT)")
+    conn.commit()
+
+    @contextmanager
+    def _get_conn():  # noqa: ANN001
+        yield conn
+
+    monkeypatch.setattr("media_tools.core.config.get_db_connection", _get_conn)
+    monkeypatch.delenv("PIPELINE_CONCURRENCY", raising=False)
 
     config = load_pipeline_config()
     assert config.concurrency == 10
+    conn.close()
+
+
+def test_pipeline_config_concurrency_uses_system_settings(monkeypatch, tmp_path) -> None:
+    import sqlite3
+    from contextlib import contextmanager
+
+    from media_tools.pipeline.config import load_pipeline_config
+
+    db_path = tmp_path / "settings.db"
+    conn = sqlite3.connect(str(db_path))
+    conn.execute("CREATE TABLE SystemSettings (key TEXT PRIMARY KEY, value TEXT)")
+    conn.execute("INSERT INTO SystemSettings (key, value) VALUES ('concurrency', '3')")
+    conn.commit()
+
+    @contextmanager
+    def _get_conn():  # noqa: ANN001
+        yield conn
+
+    monkeypatch.setattr("media_tools.core.config.get_db_connection", _get_conn)
+    monkeypatch.delenv("PIPELINE_CONCURRENCY", raising=False)
+
+    config = load_pipeline_config()
+    assert config.concurrency == 3
+    conn.close()
+
+
+def test_pipeline_config_concurrency_env_overrides_system_settings(monkeypatch, tmp_path) -> None:
+    import sqlite3
+    from contextlib import contextmanager
+
+    from media_tools.pipeline.config import load_pipeline_config
+
+    db_path = tmp_path / "settings.db"
+    conn = sqlite3.connect(str(db_path))
+    conn.execute("CREATE TABLE SystemSettings (key TEXT PRIMARY KEY, value TEXT)")
+    conn.execute("INSERT INTO SystemSettings (key, value) VALUES ('concurrency', '3')")
+    conn.commit()
+
+    @contextmanager
+    def _get_conn():  # noqa: ANN001
+        yield conn
+
+    monkeypatch.setattr("media_tools.core.config.get_db_connection", _get_conn)
+    monkeypatch.setenv("PIPELINE_CONCURRENCY", "7")
+
+    config = load_pipeline_config()
+    assert config.concurrency == 7
+    conn.close()
 
 
 def test_local_transcribe_uses_batch_transcribe(monkeypatch) -> None:
