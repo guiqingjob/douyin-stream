@@ -38,6 +38,7 @@ from media_tools.services.task_state import (
     _register_background_task,
 )
 from media_tools.services.local_asset_service import _register_local_assets
+from media_tools.services.pipeline_progress import build_pipeline_progress
 from media_tools.services.transcript_reconciler import reconcile_transcripts
 from media_tools.services.file_browser import select_folder, scan_directory
 
@@ -84,7 +85,30 @@ def get_task_history():
     try:
         with get_db_connection() as conn:
             cleanup_stale_tasks(conn)
-        return TaskRepository.list_recent(50)
+        tasks = TaskRepository.list_recent(50)
+        for task in tasks:
+            pipeline_progress = build_pipeline_progress(
+                str(task.get("task_type") or ""),
+                str(task.get("status") or ""),
+                task.get("progress"),
+            )
+            if not pipeline_progress:
+                continue
+
+            payload_raw = task.get("payload")
+            payload: dict[str, Any] = {}
+            if isinstance(payload_raw, str) and payload_raw:
+                try:
+                    parsed = json.loads(payload_raw)
+                except (json.JSONDecodeError, TypeError, ValueError):
+                    parsed = {}
+                if isinstance(parsed, dict):
+                    payload = parsed
+
+            payload["pipeline_progress"] = pipeline_progress
+            task["payload"] = json.dumps(payload, ensure_ascii=False)
+
+        return tasks
     except sqlite3.Error:
         logger.exception("get_task_history failed")
         raise HTTPException(status_code=500, detail="获取任务历史失败")
