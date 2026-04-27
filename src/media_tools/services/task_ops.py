@@ -193,6 +193,18 @@ async def update_task_progress(
                 return
 
             payload_str = _merge_payload_from_db(conn, task_id, msg, result_summary, subtasks)
+            if stage:
+                try:
+                    parsed = json.loads(payload_str) if payload_str else {}
+                except (json.JSONDecodeError, TypeError, ValueError):
+                    parsed = {}
+                if isinstance(parsed, dict):
+                    pipeline_progress = parsed.get("pipeline_progress")
+                    if not isinstance(pipeline_progress, dict):
+                        pipeline_progress = {}
+                    pipeline_progress["stage"] = stage
+                    parsed["pipeline_progress"] = pipeline_progress
+                    payload_str = json.dumps(parsed, ensure_ascii=False)
             if row is None:
                 conn.execute(
                     """INSERT INTO task_queue (task_id, task_type, status, progress, payload, create_time, update_time)

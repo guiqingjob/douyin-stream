@@ -41,19 +41,36 @@ export interface Task {
   update_time?: string;
 }
 
-export type PipelineStage = 'download' | 'upload' | 'transcribe' | 'export' | 'finalize' | string;
+export type PipelineProgressStage =
+  | 'list'
+  | 'audit'
+  | 'download'
+  | 'upload'
+  | 'transcribe'
+  | 'export'
+  | 'done'
+  | 'failed'
+  | string;
 
-export interface PipelineExportProgress {
-  progress?: 0 | 1 | number;
-  file?: string;
-  status?: string | number;
+export interface PipelineProgressCounter {
+  done: number;
+  total: number;
+}
+
+export interface PipelineProgressExport {
+  done: 0 | 1;
+  total: 1;
+  file?: string | null;
+  status?: string | number | null;
 }
 
 export interface PipelineProgress {
-  stage?: PipelineStage;
-  file?: string;
-  status?: string;
-  export?: PipelineExportProgress;
+  stage: PipelineProgressStage;
+  list?: PipelineProgressCounter;
+  audit?: { missing: number };
+  download?: PipelineProgressCounter;
+  transcribe?: PipelineProgressCounter;
+  export?: PipelineProgressExport;
 }
 
 export interface ScheduleTask {

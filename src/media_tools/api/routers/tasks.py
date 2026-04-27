@@ -87,14 +87,6 @@ def get_task_history():
             cleanup_stale_tasks(conn)
         tasks = TaskRepository.list_recent(50)
         for task in tasks:
-            pipeline_progress = build_pipeline_progress(
-                str(task.get("task_type") or ""),
-                str(task.get("status") or ""),
-                task.get("progress"),
-            )
-            if not pipeline_progress:
-                continue
-
             payload_raw = task.get("payload")
             payload: dict[str, Any] = {}
             if isinstance(payload_raw, str) and payload_raw:
@@ -105,8 +97,15 @@ def get_task_history():
                 if isinstance(parsed, dict):
                     payload = parsed
 
-            payload["pipeline_progress"] = pipeline_progress
-            task["payload"] = json.dumps(payload, ensure_ascii=False)
+            pipeline_progress = build_pipeline_progress(
+                str(task.get("task_type") or ""),
+                str(task.get("status") or ""),
+                task.get("progress"),
+                payload,
+            )
+            if pipeline_progress:
+                payload["pipeline_progress"] = pipeline_progress
+                task["payload"] = json.dumps(payload, ensure_ascii=False)
 
         return tasks
     except sqlite3.Error:
@@ -167,6 +166,25 @@ def get_task_status(task_id: str):
             cleanup_stale_tasks(conn)
         task = TaskRepository.find_by_id(task_id)
         if task:
+            payload_raw = task.get("payload")
+            payload: dict[str, Any] = {}
+            if isinstance(payload_raw, str) and payload_raw:
+                try:
+                    parsed = json.loads(payload_raw)
+                except (json.JSONDecodeError, TypeError, ValueError):
+                    parsed = {}
+                if isinstance(parsed, dict):
+                    payload = parsed
+
+            pipeline_progress = build_pipeline_progress(
+                str(task.get("task_type") or ""),
+                str(task.get("status") or ""),
+                task.get("progress"),
+                payload,
+            )
+            if pipeline_progress:
+                payload["pipeline_progress"] = pipeline_progress
+                task["payload"] = json.dumps(payload, ensure_ascii=False)
             return task
         raise HTTPException(status_code=404, detail="任务不存在")
     except sqlite3.Error:

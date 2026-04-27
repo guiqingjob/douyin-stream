@@ -13,7 +13,7 @@ async def transcribe_files(task_id: str, _progress_fn, new_files: list, display_
     from media_tools.pipeline.config import load_pipeline_config
     from media_tools.pipeline.orchestrator_v2 import create_orchestrator
 
-    await _progress_fn(0.6, f"下载完成，准备转写 {len(new_files)} 个视频...", stage="transcribing")
+    await _progress_fn(0.6, f"下载完成，准备转写 {len(new_files)} 个视频...", stage="transcribe")
     pipeline_config = load_pipeline_config()
     orchestrator = create_orchestrator(pipeline_config, creator_folder_override=display_name)
     total = len(new_files)
@@ -72,7 +72,7 @@ async def transcribe_files(task_id: str, _progress_fn, new_files: list, display_
         f"转写完成：成功 {success_count} 个，失败 {failed_count} 个",
         result_summary=result_summary,
         subtasks=subtasks,
-        stage="transcribing",
+        stage="transcribe",
     )
     return {
         "success_count": success_count,

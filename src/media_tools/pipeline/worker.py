@@ -28,7 +28,7 @@ async def run_local_transcribe(file_paths: list[str], update_progress_fn=None, d
     failed_count = 0
     total = len(valid_paths)
 
-    await call_progress(update_progress_fn, 0.0, f"准备转写 {total} 个文件（并发 {config.concurrency}）")
+    await call_progress(update_progress_fn, 0.0, f"准备转写 {total} 个文件（并发 {config.concurrency}）", stage="transcribe")
     try:
         report = await orchestrator.transcribe_batch(valid_paths, resume=True)
     except (OSError, asyncio.TimeoutError, RuntimeError) as exc:
@@ -97,6 +97,7 @@ async def run_local_transcribe(file_paths: list[str], update_progress_fn=None, d
             update_progress_fn,
             completed / total,
             f"已处理 {completed}/{total}",
+            stage="transcribe",
         )
 
     # 构建子任务列表
@@ -125,7 +126,7 @@ async def run_pipeline_for_user(url: str, max_counts: int, update_progress_fn, d
     from media_tools.pipeline.config import load_pipeline_config
     from media_tools.pipeline.orchestrator_v2 import create_orchestrator
 
-    await call_progress(update_progress_fn, 0.1, "正在下载视频...")
+    await call_progress(update_progress_fn, 0.1, "正在下载视频...", stage="download")
 
     # 1. Download - 使用 router（会自动选择 yt-dlp 或回退到 F2）
     platform = resolve_platform(url)
@@ -147,7 +148,7 @@ async def run_pipeline_for_user(url: str, max_counts: int, update_progress_fn, d
             )
     except asyncio.TimeoutError:
         logger.error(f"下载超时 (task_id={task_id}): {url}")
-        await call_progress(update_progress_fn, 1.0, "下载超时，请检查网络或链接是否可用")
+        await call_progress(update_progress_fn, 1.0, "下载超时，请检查网络或链接是否可用", stage="failed")
         return {"success_count": 0, "failed_count": 0, "error": "下载超时"}
     except asyncio.CancelledError:
         logger.info(f"下载任务被取消 (task_id={task_id})")
@@ -155,16 +156,16 @@ async def run_pipeline_for_user(url: str, max_counts: int, update_progress_fn, d
 
     # 检查是否被取消（下载完成后）
     if isinstance(dl_result, dict) and dl_result.get("cancelled"):
-        await call_progress(update_progress_fn, 1.0, "任务已取消")
+        await call_progress(update_progress_fn, 1.0, "任务已取消", stage="failed")
         return {"success_count": 0, "failed_count": 0, "cancelled": True}
 
     new_files = dl_result.get('new_files', []) if isinstance(dl_result, dict) else []
 
     if not new_files:
-        await call_progress(update_progress_fn, 1.0, "没有下载到新视频")
+        await call_progress(update_progress_fn, 1.0, "没有下载到新视频", stage="done")
         return {"success_count": 0, "failed_count": 0}
 
-    await call_progress(update_progress_fn, 0.4, f"下载完成，准备转写 {len(new_files)} 个视频...")
+    await call_progress(update_progress_fn, 0.4, f"下载完成，准备转写 {len(new_files)} 个视频...", stage="transcribe")
 
     # 2. Transcribe (并发批量转写)
     config = load_pipeline_config()
@@ -177,7 +178,10 @@ async def run_pipeline_for_user(url: str, max_counts: int, update_progress_fn, d
     # 使用批量并发转写
     def _progress_callback(current: int, total: int, video_path: Path, status: str):
         progress = 0.4 + 0.6 * (current / total) if total > 0 else 0.4
-        result = update_progress_fn(progress, status)
+        try:
+            result = update_progress_fn(progress, status, "transcribe")
+        except TypeError:
+            result = update_progress_fn(progress, status)
         if inspect.isawaitable(result):
             create_managed_task(result)
         elif result is not None:
@@ -213,7 +217,7 @@ async def run_pipeline_for_user(url: str, max_counts: int, update_progress_fn, d
                 except OSError as e:
                     logger.error(f"删除视频失败 (DB已更新): {path}, {e}")
 
-    await call_progress(update_progress_fn, 1.0, f"流水线完成: 成功 {success_count}, 失败 {failed_count}")
+    await call_progress(update_progress_fn, 1.0, f"流水线完成: 成功 {success_count}, 失败 {failed_count}", stage="done")
 
     # 构建子任务列表（O(N) Map 查找替代 O(N*M) 双重循环）
     subtasks = []
@@ -254,7 +258,7 @@ async def run_batch_pipeline(video_urls: list[str], update_progress_fn, delete_a
 
     # Download phase
     for i, url in enumerate(video_urls):
-        await call_progress(update_progress_fn, 0.4 * (i / total), f"正在下载 ({i+1}/{total})")
+        await call_progress(update_progress_fn, 0.4 * (i / total), f"正在下载 ({i+1}/{total})", stage="download")
         try:
             dl_result = await asyncio.wait_for(
                 asyncio.to_thread(download_router, url, 1, True, True, task_id),
@@ -278,7 +282,10 @@ async def run_batch_pipeline(video_urls: list[str], update_progress_fn, delete_a
     # 使用批量并发转写
     def _progress_callback(current: int, total: int, video_path: Path, status: str):
         progress = 0.4 + 0.6 * (current / total) if total > 0 else 0.4
-        result = update_progress_fn(progress, status)
+        try:
+            result = update_progress_fn(progress, status, "transcribe")
+        except TypeError:
+            result = update_progress_fn(progress, status)
         if inspect.isawaitable(result):
             create_managed_task(result)
         elif result is not None:
@@ -326,7 +333,7 @@ async def run_download_only(video_urls: list[str], update_progress_fn, task_id: 
     failed_count = 0
 
     for i, url in enumerate(video_urls):
-        await call_progress(update_progress_fn, i / total, f"正在下载 ({i+1}/{total})")
+        await call_progress(update_progress_fn, i / total, f"正在下载 ({i+1}/{total})", stage="download")
         try:
             result = await asyncio.wait_for(
                 asyncio.to_thread(download_router, url, 1, True, True, task_id),
