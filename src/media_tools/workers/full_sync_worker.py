@@ -43,9 +43,11 @@ async def _background_full_sync_worker(task_id: str, mode: str = "incremental", 
                     last_fetch = (row["last_fetch_time"] if isinstance(row, dict) else row[0]) if row else None
                 interval = _build_interval_from_last_fetch(last_fetch)
 
+            existing_source = "file" if mode == "full" else "file+db"
+
             try:
                 dl_task = asyncio.create_task(
-                    asyncio.to_thread(download_by_uid, uid, batch_size, skip_existing, task_id, interval)
+                    asyncio.to_thread(download_by_uid, uid, batch_size, skip_existing, task_id, interval, existing_source)
                 )
 
                 async def _poll_creator():

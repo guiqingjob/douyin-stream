@@ -157,8 +157,10 @@ async def background_creator_download_worker(
             else:
                 url = f"https://www.douyin.com/user/{uid}"
 
+            existing_source = "file" if mode == "full" else "file+db"
+
             dl_task = asyncio.create_task(
-                asyncio.to_thread(download_by_url, url, max_counts, False, skip_existing, task_id, interval)
+                asyncio.to_thread(download_by_url, url, max_counts, False, skip_existing, task_id, interval, existing_source)
             )
 
             async def _poll():
@@ -230,19 +232,21 @@ async def background_creator_download_worker(
                         status_map[str(asset_id)] = str(video_status or "")
 
                     for aweme_id, title in videos:
-                        if status_map.get(aweme_id) != "downloaded":
+                        video_status = status_map.get(aweme_id) or ""
+                        if video_status != "downloaded":
+                            reason = "未找到已下载文件"
                             reconcile_missing += 1
                             missing_items.append(
                                 {
                                     "aweme_id": aweme_id,
                                     "title": title,
                                     "status": "manual_required",
-                                    "reason": "未找到已下载文件",
+                                    "reason": reason,
                                     "attempts": 0,
                                 }
                             )
                             missing_subtasks.append(
-                                {"title": title, "status": "manual_required", "error": "未找到已下载文件"}
+                                {"title": title, "status": "manual_required", "error": reason}
                             )
 
                     if missing_items:
