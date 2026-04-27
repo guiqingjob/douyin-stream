@@ -58,27 +58,6 @@ def check_package_installed(package_name):
         return False, str(e)
 
 
-def check_playwright_browsers():
-    """
-    检查 Playwright 浏览器内核是否安装
-
-    Returns:
-        (is_ok, message) 元组
-    """
-    # 检查 Playwright 浏览器缓存目录
-    home = Path.home()
-    cache_dir = home / ".cache" / "ms-playwright"
-
-    if cache_dir.exists():
-        # 检查是否有 chromium
-        chromium_dirs = list(cache_dir.glob("chromium-*"))
-        if chromium_dirs:
-            return True, "已安装"
-        return False, "未安装 chromium（运行 python -m playwright install chromium）"
-
-    return False, "未安装（运行 python -m playwright install chromium）"
-
-
 def check_ffmpeg():
     """
     检查 ffmpeg 是否安装
@@ -130,8 +109,6 @@ def check_all():
     checks = [
         ("Python 版本", check_python_version),
         ("f2", lambda: check_package_installed("f2")),
-        ("playwright", lambda: check_package_installed("playwright")),
-        ("Playwright 浏览器", check_playwright_browsers),
         ("ffmpeg", check_ffmpeg),
         ("配置文件", check_config),
     ]
@@ -157,9 +134,8 @@ def check_all():
         logger.info()
         logger.info(info("安装指南:"))
         logger.info("  1. pip install -r requirements.txt")
-        logger.info("  2. python -m playwright install chromium")
-        logger.info("  3. brew install ffmpeg  (macOS)")
-        logger.info("  4. 运行登录功能配置 Cookie")
+        logger.info("  2. brew install ffmpeg  (macOS)")
+        logger.info("  3. 运行登录功能配置 Cookie")
 
     logger.info()
     return all_passed, results

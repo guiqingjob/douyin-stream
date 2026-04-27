@@ -57,6 +57,7 @@ async def collect_account_statuses() -> list[dict[str, Any]]:
             try:
                 quota = await get_quota_snapshot(
                     auth_state_path=account.auth_state_path,
+                    account_id=account.account_id,
                     referer="https://www.qianwen.com/equity",
                 )
             except (RuntimeError, OSError, ConnectionError, TimeoutError) as error:

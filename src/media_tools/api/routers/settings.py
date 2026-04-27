@@ -267,6 +267,82 @@ def delete_qwen_account(account_id: str):
     except (sqlite3.Error, OSError, ValueError) as e:
         raise HTTPException(status_code=400, detail=str(e))
 
+@router.post("/qwen/accounts/rehydrate")
+def rehydrate_qwen_accounts():
+    try:
+        with get_db_connection() as conn:
+            conn.row_factory = sqlite3.Row
+            rows = conn.execute(
+                "SELECT account_id, cookie_data, auth_state_path FROM Accounts_Pool WHERE platform='qwen'",
+            ).fetchall()
+
+            results: list[dict[str, str]] = []
+            updated = 0
+            skipped = 0
+            failed = 0
+
+            for row in rows:
+                account_id = str(row["account_id"] or "")
+                cookie_data = str(row["cookie_data"] or "").strip()
+                existing_path = str(row["auth_state_path"] or "").strip()
+                auth_state_path = Path(existing_path) if existing_path else build_qwen_auth_state_path_for_account(account_id)
+
+                if not cookie_data:
+                    skipped += 1
+                    results.append(
+                        {
+                            "account_id": account_id,
+                            "status": "skipped",
+                            "reason": "empty-cookie",
+                            "auth_state_path": str(auth_state_path),
+                        }
+                    )
+                    continue
+
+                try:
+                    save_qwen_cookie_string(cookie_data, auth_state_path, sync_db=False)
+                except (ValueError, OSError, sqlite3.Error) as exc:
+                    failed += 1
+                    results.append(
+                        {
+                            "account_id": account_id,
+                            "status": "failed",
+                            "reason": str(exc),
+                            "auth_state_path": str(auth_state_path),
+                        }
+                    )
+                    continue
+
+                updated += 1
+                results.append(
+                    {
+                        "account_id": account_id,
+                        "status": "updated",
+                        "reason": "",
+                        "auth_state_path": str(auth_state_path),
+                    }
+                )
+
+                if not existing_path:
+                    conn.execute(
+                        "UPDATE Accounts_Pool SET auth_state_path=?, status='active' WHERE account_id=? AND platform='qwen'",
+                        (str(auth_state_path), account_id),
+                    )
+
+            conn.commit()
+
+        return {
+            "status": "success",
+            "updated": updated,
+            "skipped": skipped,
+            "failed": failed,
+            "results": results,
+        }
+    except HTTPException:
+        raise
+    except (sqlite3.Error, OSError, ValueError) as e:
+        raise HTTPException(status_code=400, detail=str(e))
+
 @router.put("/qwen/accounts/{account_id}/remark")
 def update_qwen_account_remark(account_id: str, req: RemarkRequest):
     try:

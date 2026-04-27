@@ -41,3 +41,16 @@ def load_qwen_accounts_from_db() -> list[DbQwenAccount]:
         )
     return accounts
 
+
+def load_qwen_cookie_data_for_account(account_id: str) -> str:
+    selected = str(account_id or "").strip()
+    if not selected:
+        return ""
+    with get_db_connection() as conn:
+        row = conn.execute(
+            "SELECT cookie_data FROM Accounts_Pool WHERE platform='qwen' AND account_id=?",
+            (selected,),
+        ).fetchone()
+    if not row:
+        return ""
+    return str(row[0] or "").strip()

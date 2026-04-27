@@ -57,7 +57,10 @@ async def get_qwen_account_status() -> dict:
 
             if status == "active" and resolved_auth_state_path:
                 try:
-                    snapshot = await get_quota_snapshot(auth_state_path=Path(resolved_auth_state_path))
+                    snapshot = await get_quota_snapshot(
+                        auth_state_path=Path(resolved_auth_state_path),
+                        account_id=account_id,
+                    )
                     remaining_hours = remaining_hours_from_snapshot(snapshot)
                 except (RuntimeError, OSError, ValueError, TypeError) as e:
                     logger.warning(f"获取 Qwen 额度失败: account_id={account_id}, error={e}")

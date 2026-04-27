@@ -8,11 +8,9 @@ import json
 import re
 import uuid
 
-from playwright.async_api import async_playwright
-
-from .auth_state import resolve_qwen_auth_state_for_playwright
+from .auth_state import resolve_qwen_cookie_string
 from .config import load_config
-from .http import api_json
+from .http import RequestsApiContext, api_json
 from .runtime import ensure_dir
 
 
@@ -126,26 +124,32 @@ def merge_equity_claim_record(
 async def get_quota_snapshot(
     *,
     auth_state_path: str | Path,
+    account_id: str = "",
+    cookie_string: str = "",
     referer: str = "https://www.qianwen.com/discover/audioread",
 ) -> QuotaSnapshot:
-    resolved = resolve_qwen_auth_state_for_playwright(auth_state_path)
+    headers = {
+        "referer": referer,
+        "platform": "QIANWEN",
+        "request-id": str(uuid.uuid4()),
+        "bx-v": "2.5.36",
+    }
 
-    async with async_playwright() as playwright:
-        api = await playwright.request.new_context(storage_state=resolved.storage_state)  # type: ignore[arg-type]
-        try:
-            quota_json = await api_json(
-                api,
-                "https://api.qianwen.com/growth/user/benefit/base",
-                {"requestId": str(uuid.uuid4())},
-                {
-                    "referer": referer,
-                    "platform": "QIANWEN",
-                    "request-id": str(uuid.uuid4()),
-                    "bx-v": "2.5.36",
-                },
-            )
-        finally:
-            await api.dispose()
+    quota_json: Any
+    resolved_cookie = cookie_string.strip() or resolve_qwen_cookie_string(
+        auth_state_path=auth_state_path,
+        account_id=account_id,
+    )
+    api = RequestsApiContext(cookie_string=resolved_cookie)
+    try:
+        quota_json = await api_json(
+            api,
+            "https://api.qianwen.com/growth/user/benefit/base",
+            {"requestId": str(uuid.uuid4())},
+            headers,
+        )
+    finally:
+        await api.dispose()
 
     data = quota_json.get("data", []) if isinstance(quota_json, dict) else []
     tingwu_benefit = {}
@@ -216,28 +220,24 @@ def get_daily_quota_record(account_id: str) -> dict[str, Any]:
     return build_daily_record(records.get(account_key(account_id), {}).get(today_key()))
 
 
-async def visit_equity_page(auth_state_path: str | Path) -> None:
-    resolved = resolve_qwen_auth_state_for_playwright(auth_state_path)
-
-    async with async_playwright() as playwright:
-        # 修复：尝试使用Chrome，如果不可用则回退到默认浏览器
-        try:
-            browser = await playwright.chromium.launch(channel="chrome", headless=True)
-        except (RuntimeError, OSError):
-            # Chrome不可用时回退到默认浏览器
-            browser = await playwright.chromium.launch(headless=True)
-        try:
-            context = await browser.new_context(storage_state=resolved.storage_state)  # type: ignore[arg-type]
-            page = await context.new_page()
-            await page.goto("https://www.qianwen.com/equity", wait_until="domcontentloaded")
-            try:
-                await page.wait_for_load_state("networkidle", timeout=15000)
-            except RuntimeError:
-                pass
-            await page.wait_for_timeout(3000)
-            await context.close()
-        finally:
-            await browser.close()
+async def trigger_equity_claim_via_api(*, cookie_string: str) -> dict[str, Any]:
+    api = RequestsApiContext(cookie_string=cookie_string)
+    try:
+        payload = {}
+        headers = {
+            "referer": "https://www.qianwen.com/equity",
+            "platform": "QIANWEN",
+            "bx-v": "2.5.36",
+        }
+        result = await api_json(
+            api,
+            "https://api.qianwen.com/growth/user/task/benefit/center/list",
+            payload,
+            headers,
+        )
+    finally:
+        await api.dispose()
+    return result if isinstance(result, dict) else {"raw": result}
 
 
 def has_claimed_equity_today(account_id: str) -> bool:
@@ -281,13 +281,21 @@ async def claim_equity_quota(
             after_snapshot=None,
         )
 
+    cookie_string = resolve_qwen_cookie_string(auth_state_path=auth_state_path, account_id=account_id)
+
     before_snapshot = await get_quota_snapshot(
         auth_state_path=auth_state_path,
+        account_id=account_id,
+        cookie_string=cookie_string,
         referer="https://www.qianwen.com/equity",
     )
-    await visit_equity_page(auth_state_path)
+
+    await trigger_equity_claim_via_api(cookie_string=cookie_string)
+
     after_snapshot = await get_quota_snapshot(
         auth_state_path=auth_state_path,
+        account_id=account_id,
+        cookie_string=cookie_string,
         referer="https://www.qianwen.com/equity",
     )
     _write_equity_claim_record(

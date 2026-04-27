@@ -9,12 +9,10 @@ from typing import Any
 from media_tools.logger import get_logger
 logger = get_logger(__name__)
 
-from playwright.async_api import async_playwright
-
-from .auth_state import resolve_qwen_auth_state_for_playwright
+from .auth_state import resolve_qwen_cookie_string
 from .config import load_config
 from .export_utils import FlowDebugArtifacts, _get_video_title_from_db, build_export_output_path, save_debug_artifacts
-from .http import api_json, download_file
+from .http import RequestsApiContext, api_json, download_file
 from .oss_upload import upload_file_to_oss
 from .quota import get_quota_snapshot, record_quota_consumption
 from .runtime import ExportConfig, ensure_dir, guess_mime_type, now_stamp
@@ -190,6 +188,7 @@ async def run_real_flow(
     export_config: ExportConfig,
     should_delete: bool = False,
     account_id: str = "",
+    cookie_string: str = "",
     export_gate: asyncio.Semaphore | None = None,
     title: str | None = None,
     shared_api: Any | None = None,
@@ -204,7 +203,11 @@ async def run_real_flow(
     output_dir = Path(download_dir).resolve()
     mime_type = guess_mime_type(input_path)
     stats = input_path.stat()
-    quota_before = await get_quota_snapshot(auth_state_path=auth_state_path)
+    quota_before = await get_quota_snapshot(
+        auth_state_path=auth_state_path,
+        account_id=account_id,
+        cookie_string=cookie_string,
+    )
     log = _make_flow_logger(input_path.name)
 
     async def _do_flow(api: Any) -> FlowResult:
@@ -329,7 +332,11 @@ async def run_real_flow(
             deleted = await delete_record(api, [token["recordId"]])
             log(f"delete status: {'success' if deleted else 'failed'}")
 
-        quota_after = await get_quota_snapshot(auth_state_path=auth_state_path)
+        quota_after = await get_quota_snapshot(
+            auth_state_path=auth_state_path,
+            account_id=account_id,
+            cookie_string=cookie_string,
+        )
         record_flow_quota_usage(
             account_id=account_id,
             before_snapshot=quota_before,
@@ -347,14 +354,15 @@ async def run_real_flow(
     if shared_api is not None:
         return await _do_flow(shared_api)
 
-    # 否则启动独立的 Playwright 实例（向后兼容单视频调用）
-    resolved_auth = resolve_qwen_auth_state_for_playwright(auth_state_path)
-    async with async_playwright() as pw:
-        api = await pw.request.new_context(storage_state=resolved_auth.storage_state)  # type: ignore[arg-type]
-        try:
-            return await _do_flow(api)
-        finally:
-            await api.dispose()
+    resolved_cookie = cookie_string.strip() or resolve_qwen_cookie_string(
+        auth_state_path=auth_state_path,
+        account_id=account_id,
+    )
+    api = RequestsApiContext(cookie_string=resolved_cookie)
+    try:
+        return await _do_flow(api)
+    finally:
+        await api.dispose()
 def _make_flow_logger(file_name: str):
     def log(message: str) -> None:
         logger.info(f"[{file_name}] {message}")

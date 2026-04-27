@@ -153,13 +153,57 @@ def is_valid_qwen_storage_state(value: object) -> bool:
     )
 
 
+def normalize_qwen_storage_state(value: object) -> dict[str, Any] | None:
+    if not isinstance(value, dict):
+        return None
+
+    cookies = value.get("cookies")
+    if not isinstance(cookies, list):
+        return None
+
+    normalized_cookies: list[dict[str, Any]] = []
+    for cookie in cookies:
+        if not isinstance(cookie, dict):
+            continue
+
+        name = str(cookie.get("name") or "").strip()
+        value_text = str(cookie.get("value") or "").strip()
+        if not name or not value_text:
+            continue
+
+        domain_raw = cookie.get("domain")
+        domain = domain_raw.strip() if isinstance(domain_raw, str) else ""
+        if not domain:
+            domain = QWEN_COOKIE_DOMAIN
+
+        path_raw = cookie.get("path")
+        path = path_raw.strip() if isinstance(path_raw, str) else ""
+        if not path:
+            path = "/"
+
+        normalized_cookie = dict(cookie)
+        normalized_cookie["name"] = name
+        normalized_cookie["value"] = value_text
+        normalized_cookie["domain"] = domain
+        normalized_cookie["path"] = path
+        normalized_cookies.append(normalized_cookie)
+
+    if not normalized_cookies:
+        return None
+
+    origins = value.get("origins")
+    normalized_origins = origins if isinstance(origins, list) else []
+    return {"cookies": normalized_cookies, "origins": normalized_origins}
+
+
 def read_qwen_storage_state_file(auth_state_path: str | Path) -> dict[str, Any] | None:
     path = _normalized_path(auth_state_path)
     try:
         parsed = json.loads(path.read_text(encoding="utf-8"))
     except (FileNotFoundError, OSError, json.JSONDecodeError):
         return None
-    return parsed if is_valid_qwen_storage_state(parsed) else None
+    normalized = normalize_qwen_storage_state(parsed)
+    return normalized if normalized is not None and is_valid_qwen_storage_state(normalized) else None
 
 
 def load_qwen_storage_state_from_db(db_path: str | Path | None = None) -> dict[str, Any] | None:
@@ -190,7 +234,8 @@ def load_qwen_storage_state_from_db(db_path: str | Path | None = None) -> dict[s
         logger.warning("Qwen 认证数据库记录不是合法 JSON，已忽略")
         return None
 
-    return parsed if is_valid_qwen_storage_state(parsed) else None
+    normalized = normalize_qwen_storage_state(parsed)
+    return normalized if normalized is not None and is_valid_qwen_storage_state(normalized) else None
 
 
 def has_qwen_auth_state(auth_state_path: str | Path | None = None) -> bool:
@@ -272,3 +317,46 @@ def save_qwen_cookie_string(
     state = build_qwen_storage_state_from_cookie_string(raw_cookie)
     persist_qwen_auth_state(state, auth_state_path, sync_db=sync_db)
     return state
+
+
+def cookie_string_from_storage_state(storage_state: Mapping[str, Any]) -> str:
+    cookies = storage_state.get("cookies")
+    if not isinstance(cookies, list):
+        return ""
+    pairs: list[str] = []
+    for cookie in cookies:
+        if not isinstance(cookie, dict):
+            continue
+        name = str(cookie.get("name") or "").strip()
+        value = str(cookie.get("value") or "").strip()
+        if not name or not value:
+            continue
+        pairs.append(f"{name}={value}")
+    return "; ".join(pairs)
+
+
+def resolve_qwen_cookie_string(*, auth_state_path: str | Path, account_id: str = "") -> str:
+    selected_account = str(account_id or "").strip()
+    if selected_account:
+        from .db_account_pool import load_qwen_cookie_data_for_account
+
+        cookie_data = load_qwen_cookie_data_for_account(selected_account)
+        if cookie_data:
+            return cookie_data
+
+    resolved = resolve_qwen_auth_state_for_playwright(auth_state_path)
+    storage_state = resolved.storage_state
+    if isinstance(storage_state, str):
+        try:
+            parsed = json.loads(storage_state)
+        except (TypeError, ValueError, json.JSONDecodeError):
+            return ""
+        normalized = normalize_qwen_storage_state(parsed)
+        if normalized is None:
+            return ""
+        return cookie_string_from_storage_state(normalized)
+
+    normalized = normalize_qwen_storage_state(storage_state)
+    if normalized is None:
+        return ""
+    return cookie_string_from_storage_state(normalized)
