@@ -28,7 +28,11 @@ export const updateQwenKey = async (cookieString: string, signal?: AbortSignal):
   return response.data;
 };
 
-export const addQwenAccount = async (cookieString: string, remark?: string, signal?: AbortSignal): Promise<unknown> => {
+export const addQwenAccount = async (
+  cookieString: string,
+  remark?: string,
+  signal?: AbortSignal
+): Promise<import('@/types').AddQwenAccountResponse> => {
   const response = await apiClient.post('/settings/qwen/accounts', { cookie_string: cookieString, remark: remark || '' }, { signal });
   return response.data;
 };

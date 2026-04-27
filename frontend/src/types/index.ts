@@ -85,3 +85,20 @@ export interface QwenStatusResponse {
   accounts: QwenStatusAccount[];
   message?: string;
 }
+
+export type QwenAccountValidationStatus = 'ok' | 'network_error' | 'auth_invalid';
+
+export interface QwenAccountValidationResult {
+  ok?: boolean;
+  status?: QwenAccountValidationStatus;
+  error_type?: string;
+  message?: string;
+  remaining_hours?: number;
+}
+
+export interface AddQwenAccountResponse {
+  status: string;
+  account_id?: string;
+  validation?: QwenAccountValidationResult | QwenAccountValidationStatus;
+  message?: string;
+}

@@ -15,6 +15,16 @@ import { rerunTask, setAutoRetry, deleteTask, recoverAwemeAndTranscribe } from '
 import { Badge } from '@/components/ui/badge';
 import type { Task } from '@/lib/api';
 
+type TaskSubtask = {
+  title: string;
+  status: string;
+  error?: string;
+  aweme_id?: string;
+  creator_uid?: string;
+};
+
+const EMPTY_SUBTASKS: TaskSubtask[] = [];
+
 function parsePayload(payload?: string): Record<string, unknown> | null {
   if (!payload) return null;
   try {
@@ -239,13 +249,11 @@ function TaskSubtasks({
   onToggleExpand: (taskId: string) => void;
 }) {
   const parsed = useMemo(() => parsePayload(task.payload), [task.payload]);
-  const subtasks = (parsed?.subtasks as Array<{
-    title: string;
-    status: string;
-    error?: string;
-    aweme_id?: string;
-    creator_uid?: string;
-  }> | undefined) ?? [];
+  const subtasks = useMemo(() => {
+    const raw = parsed?.subtasks;
+    if (!Array.isArray(raw)) return EMPTY_SUBTASKS;
+    return raw as TaskSubtask[];
+  }, [parsed]);
   const [recoveringAwemeId, setRecoveringAwemeId] = useState<string | null>(null);
   const creatorUidFromPayload =
     typeof parsed?.creator_uid === 'string'

@@ -27,7 +27,9 @@ export function parseTaskMessage(payload?: string) {
   try {
     const parsed = JSON.parse(payload);
     if (typeof parsed?.msg === 'string') return parsed.msg;
-  } catch {}
+  } catch {
+    return '';
+  }
   return '';
 }
 

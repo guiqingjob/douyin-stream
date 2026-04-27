@@ -56,6 +56,36 @@ export function useSettingsActions(state: SettingsState) {
   const [qwenRemainingHoursById, setQwenRemainingHoursById] = useState<Record<string, number>>({});
   const [isLoadingQwenStatus, setIsLoadingQwenStatus] = useState(false);
 
+  const getQwenAccountValidationStatus = (result: unknown): string | null => {
+    if (!result || typeof result !== 'object') return null;
+    const payload = result as Record<string, unknown>;
+    const rawValidation =
+      payload.validation ??
+      payload.validation_result ??
+      payload.validationResult ??
+      payload.validationStatus ??
+      payload.validate_result ??
+      payload.validateResult;
+
+    if (typeof rawValidation === 'string') return rawValidation;
+    if (rawValidation && typeof rawValidation === 'object') {
+      const nested = rawValidation as Record<string, unknown>;
+      const nestedStatus = nested.status ?? nested.result ?? nested.code;
+      if (typeof nestedStatus === 'string') return nestedStatus;
+
+      const ok = nested.ok;
+      if (typeof ok === 'boolean' && ok) return 'ok';
+
+      const errorType = nested.error_type ?? nested.errorType;
+      if (typeof errorType === 'string') {
+        if (errorType === 'network') return 'network_error';
+        if (errorType === 'auth') return 'auth_invalid';
+        return errorType;
+      }
+    }
+    return null;
+  };
+
   useEffect(() => {
     if (!state.settings?.status_summary.qwen_ready) return;
     queueMicrotask(() => setIsLoadingQwenStatus(true));
@@ -81,8 +111,15 @@ export function useSettingsActions(state: SettingsState) {
     state.setQwenCookieError('');
     state.setIsAddingQwen(true);
     try {
-      await addQwenAccount(state.qwenCookie, state.qwenRemark);
-      toast.success('Qwen 账号已添加');
+      const result = await addQwenAccount(state.qwenCookie, state.qwenRemark);
+      const validationStatus = getQwenAccountValidationStatus(result);
+      if (validationStatus === 'network_error') {
+        toast.warning('Qwen 账号已添加，但验证时网络异常');
+      } else if (validationStatus === 'auth_invalid') {
+        toast.error('Qwen Cookie 无效或已过期');
+      } else {
+        toast.success('Qwen 账号已添加');
+      }
       state.setQwenCookie('');
       state.setQwenRemark('');
       state.refreshSettings();
