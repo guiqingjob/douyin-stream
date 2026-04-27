@@ -1,18 +1,33 @@
 import asyncio
 import json
 import logging
+import os
 import sqlite3
 from datetime import datetime, timedelta
 from media_tools.api.websocket_manager import manager
 from media_tools.db.core import get_db_connection
+from media_tools.core.config import get_runtime_setting_int
 from media_tools.services.auto_retry import schedule_auto_retry
 
 logger = logging.getLogger(__name__)
-STALE_TASK_HOURS = 2
+DEFAULT_TASK_STALE_MINUTES = 20
 
 
-def cleanup_stale_tasks(conn: sqlite3.Connection):
-    cutoff = (datetime.now() - timedelta(hours=STALE_TASK_HOURS)).isoformat()
+def get_task_stale_minutes() -> int:
+    raw = os.environ.get("MEDIA_TOOLS_TASK_STALE_MINUTES", "").strip()
+    if raw:
+        try:
+            minutes = int(raw)
+            return minutes if minutes > 0 else DEFAULT_TASK_STALE_MINUTES
+        except ValueError:
+            return DEFAULT_TASK_STALE_MINUTES
+    return get_runtime_setting_int("task_stale_minutes", DEFAULT_TASK_STALE_MINUTES)
+
+
+def cleanup_stale_tasks(conn: sqlite3.Connection, stale_minutes: int | None = None):
+    minutes = stale_minutes if stale_minutes is not None else get_task_stale_minutes()
+    minutes = minutes if minutes > 0 else DEFAULT_TASK_STALE_MINUTES
+    cutoff = (datetime.now() - timedelta(minutes=minutes)).isoformat()
     conn.execute(
         """
         UPDATE task_queue

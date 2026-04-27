@@ -320,3 +320,31 @@ class TaskRepository:
             conn.execute(
                 "DELETE FROM task_queue WHERE status IN ('COMPLETED', 'FAILED', 'CANCELLED')",
             )
+
+    @staticmethod
+    def delete_all_except(task_ids_to_keep: set[str] | None = None) -> list[str]:
+        """删除除指定 task_id 外的所有任务，返回被删除的 task_id 列表。"""
+        keep = task_ids_to_keep or set()
+        with get_db_connection() as conn:
+            if keep:
+                placeholders = ",".join(["?"] * len(keep))
+                params = tuple(keep)
+                rows = conn.execute(
+                    f"SELECT task_id FROM task_queue WHERE task_id NOT IN ({placeholders})",
+                    params,
+                ).fetchall()
+                conn.execute(
+                    f"DELETE FROM task_queue WHERE task_id NOT IN ({placeholders})",
+                    params,
+                )
+            else:
+                rows = conn.execute("SELECT task_id FROM task_queue").fetchall()
+                conn.execute("DELETE FROM task_queue")
+
+        deleted: list[str] = []
+        for row in rows:
+            if isinstance(row, sqlite3.Row):
+                deleted.append(str(row["task_id"]))
+            else:
+                deleted.append(str(row[0]))
+        return deleted

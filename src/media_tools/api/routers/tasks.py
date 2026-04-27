@@ -20,7 +20,7 @@ from media_tools.api.schemas import (
     RecoverAwemeTranscribeRequest,
 )
 from media_tools.workers.task_dispatcher import _start_task_worker, _create_task, _retry_task_worker
-from media_tools.douyin.core.cancel_registry import set_cancel_event, clear_cancel_event
+from media_tools.douyin.core.cancel_registry import set_cancel_event, clear_cancel_event, clear_download_progress
 from media_tools.db.core import get_db_connection
 from media_tools.repositories.task_repository import TaskRepository
 from media_tools.core.config import get_runtime_setting_bool
@@ -52,7 +52,6 @@ from media_tools.workers.local_transcribe_worker import _background_local_transc
 
 router = APIRouter(prefix="/api/v1/tasks", tags=["tasks"])
 logger = logging.getLogger(__name__)
-STALE_TASK_HOURS = 2
 
 
 def _get_global_setting_bool(key: str, default: bool = False) -> bool:
@@ -83,6 +82,8 @@ def get_active_tasks():
 @router.get("/history")
 def get_task_history():
     try:
+        with get_db_connection() as conn:
+            cleanup_stale_tasks(conn)
         return TaskRepository.list_recent(50)
     except sqlite3.Error:
         logger.exception("get_task_history failed")
@@ -94,11 +95,20 @@ def clear_task_history():
     try:
         with get_db_connection() as conn:
             cleanup_stale_tasks(conn)
-        TaskRepository.clear_all_history()
+        active_task_ids = set(_active_tasks.keys())
+        deleted_task_ids = TaskRepository.delete_all_except(active_task_ids)
+        for task_id in deleted_task_ids:
+            clear_cancel_event(task_id)
+            clear_download_progress(task_id)
         return {"status": "success", "message": "历史任务已清除"}
     except (sqlite3.Error, OSError) as e:
         logger.exception("clear_task_history failed")
         raise HTTPException(status_code=500, detail=str(e))
+
+
+@router.delete("/clear")
+def clear_task_history_compat():
+    return clear_task_history()
 
 
 @router.delete("/{task_id}")
@@ -129,6 +139,8 @@ async def delete_task(task_id: str):
 @router.get("/{task_id}")
 def get_task_status(task_id: str):
     try:
+        with get_db_connection() as conn:
+            cleanup_stale_tasks(conn)
         task = TaskRepository.find_by_id(task_id)
         if task:
             return task
