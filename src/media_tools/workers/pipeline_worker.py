@@ -44,24 +44,19 @@ async def _background_pipeline_worker(task_id: str, req: Any):
         else:
             msg = f"成功转写 {s_count} 个视频，失败 {f_count} 个"
 
-        from media_tools.services.task_ops import _merge_payload_from_db
-        from media_tools.db.core import get_db_connection
-        with get_db_connection() as conn:
-            payload_str = _merge_payload_from_db(conn, task_id, msg, result_summary, subtasks)
-            conn.execute(
-                "UPDATE task_queue SET status=?, progress=1.0, payload=?, error_msg=? WHERE task_id=?",
-                (status, payload_str, error_msg, task_id)
-            )
-        from media_tools.services.task_ops import notify_task_update
-        await notify_task_update(task_id, 1.0, msg, status, "pipeline", result_summary, subtasks)
+        await _complete_task(
+            task_id,
+            "pipeline",
+            msg,
+            status=status,
+            error_msg=error_msg,
+            result_summary=result_summary,
+            subtasks=subtasks,
+        )
     except asyncio.CancelledError:
         raise
     except (RuntimeError, OSError) as e:
-        from media_tools.db.core import get_db_connection
-        with get_db_connection() as conn:
-            conn.execute("UPDATE task_queue SET status='FAILED', error_msg=? WHERE task_id=?", (str(e), task_id))
-        from media_tools.services.task_ops import notify_task_update
-        await notify_task_update(task_id, 0.0, str(e), "FAILED", "pipeline")
+        await _complete_task(task_id, "pipeline", str(e), status="FAILED", error_msg=str(e))
     finally:
         heartbeat.cancel()
         try:

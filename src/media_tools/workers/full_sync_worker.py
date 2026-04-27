@@ -3,7 +3,7 @@ from media_tools.db.core import get_db_connection
 from media_tools.douyin.core.cancel_registry import clear_download_progress, get_download_progress
 from media_tools.douyin.core.downloader import download_by_uid
 from media_tools.douyin.core.following_mgr import list_users
-from media_tools.services.task_ops import update_task_progress, _merge_payload_from_db, notify_task_update
+from media_tools.services.task_ops import update_task_progress, _complete_task
 from media_tools.services.task_state import _task_heartbeat
 from media_tools.workers.creator_sync import _build_interval_from_last_fetch
 
@@ -17,10 +17,7 @@ async def _background_full_sync_worker(task_id: str, mode: str = "incremental", 
         users = list_users()
         if not users:
             msg = "关注列表为空"
-            with get_db_connection() as conn:
-                payload_str = _merge_payload_from_db(conn, task_id, msg)
-                conn.execute("UPDATE task_queue SET status='COMPLETED', progress=1.0, payload=? WHERE task_id=?", (payload_str, task_id))
-            await notify_task_update(task_id, 1.0, msg, "COMPLETED", f"full_sync_{mode}")
+            await _complete_task(task_id, f"full_sync_{mode}", msg, status="COMPLETED")
             return
 
         total = len(users)
@@ -100,16 +97,11 @@ async def _background_full_sync_worker(task_id: str, mode: str = "incremental", 
             "total": total,
         }
         msg = f"全量同步完成：成功 {creator_success} 位，失败 {creator_failed} 位，新增 {new_video_count} 个视频（{mode}）"
-        with get_db_connection() as conn:
-            payload_str = _merge_payload_from_db(conn, task_id, msg, result_summary)
-            conn.execute("UPDATE task_queue SET status='COMPLETED', progress=1.0, payload=? WHERE task_id=?", (payload_str, task_id))
-        await notify_task_update(task_id, 1.0, msg, "COMPLETED", f"full_sync_{mode}", result_summary)
+        await _complete_task(task_id, f"full_sync_{mode}", msg, status="COMPLETED", result_summary=result_summary)
     except asyncio.CancelledError:
         raise
     except (RuntimeError, OSError) as e:
-        with get_db_connection() as conn:
-            conn.execute("UPDATE task_queue SET status='FAILED', error_msg=? WHERE task_id=?", (str(e), task_id))
-        await notify_task_update(task_id, 0.0, str(e), "FAILED", f"full_sync_{mode}")
+        await _complete_task(task_id, f"full_sync_{mode}", str(e), status="FAILED", error_msg=str(e))
     finally:
         heartbeat.cancel()
         try:

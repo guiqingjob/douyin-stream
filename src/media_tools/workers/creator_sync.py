@@ -10,12 +10,12 @@ from typing import Any
 from media_tools.core.config import get_runtime_setting_bool
 from media_tools.douyin.core.cancel_registry import clear_download_progress, get_download_progress
 from media_tools.services.task_ops import (
-    _merge_payload_from_db,
+    _complete_task,
     notify_task_update,
     update_task_progress,
 )
 from media_tools.services.task_state import _task_heartbeat
-from media_tools.db.core import get_db_connection
+from media_tools.db.core import get_db_connection, get_table_columns
 from media_tools.workers.transcribe import transcribe_files
 
 logger = logging.getLogger(__name__)
@@ -218,10 +218,7 @@ async def background_creator_download_worker(
         if uploader := last_result.get("uploader"):
             if uploader.get("nickname"):
                 with get_db_connection() as conn:
-                    creator_columns = {
-                        row["name"] if isinstance(row, sqlite3.Row) else row[1]
-                        for row in conn.execute("PRAGMA table_info(creators)").fetchall()
-                    }
+                    creator_columns = get_table_columns(conn, "creators")
                     if "homepage_url" in creator_columns:
                         conn.execute(
                             "UPDATE creators SET nickname = ?, homepage_url = ? WHERE uid = ?",
@@ -246,21 +243,24 @@ async def background_creator_download_worker(
         else:
             msg = f"{display_name} 同步完成：共 {total_downloaded} 个新视频（{mode}）"
         with get_db_connection() as conn:
-            payload_str = _merge_payload_from_db(conn, task_id, msg, result_summary, all_subtasks or None)
-            conn.execute("UPDATE task_queue SET status='COMPLETED', progress=1.0, payload=? WHERE task_id=?", (payload_str, task_id))
             conn.execute(
                 "UPDATE creators SET last_fetch_time = CURRENT_TIMESTAMP WHERE uid = ?",
                 (uid,)
             )
             conn.commit()
-        await notify_task_update(task_id, 1.0, msg, "COMPLETED", f"creator_sync_{mode}", result_summary, all_subtasks or None, stage="completed")
+        await _complete_task(
+            task_id,
+            f"creator_sync_{mode}",
+            msg,
+            status="COMPLETED",
+            result_summary=result_summary,
+            subtasks=all_subtasks or None,
+        )
     except asyncio.CancelledError:
         raise
     except (RuntimeError, OSError, sqlite3.Error) as e:
         logger.exception(f"creator_download_worker failed for {uid}")
-        with get_db_connection() as conn:
-            conn.execute("UPDATE task_queue SET status='FAILED', error_msg=? WHERE task_id=?", (str(e), task_id))
-        await notify_task_update(task_id, 0.0, str(e), "FAILED", f"creator_sync_{mode}")
+        await _complete_task(task_id, f"creator_sync_{mode}", str(e), status="FAILED", error_msg=str(e))
     finally:
         heartbeat.cancel()
         try:
