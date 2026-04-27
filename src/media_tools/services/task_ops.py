@@ -11,6 +11,7 @@ from media_tools.services.auto_retry import schedule_auto_retry
 
 logger = logging.getLogger(__name__)
 DEFAULT_TASK_STALE_MINUTES = 20
+UPLOAD_STAGE_STALE_MINUTES = 30
 
 
 def get_task_stale_minutes() -> int:
@@ -24,27 +25,75 @@ def get_task_stale_minutes() -> int:
     return get_runtime_setting_int("task_stale_minutes", DEFAULT_TASK_STALE_MINUTES)
 
 
+def _extract_payload_pipeline_stage(payload: str | None) -> str:
+    if not payload:
+        return ""
+    try:
+        parsed = json.loads(payload)
+    except (json.JSONDecodeError, TypeError, ValueError):
+        return ""
+    if not isinstance(parsed, dict):
+        return ""
+    pipeline_progress = parsed.get("pipeline_progress")
+    if not isinstance(pipeline_progress, dict):
+        return ""
+    stage = pipeline_progress.get("stage")
+    return stage.strip() if isinstance(stage, str) else ""
+
+
+def _get_stale_minutes_for_stage(stage: str, default_minutes: int) -> int:
+    normalized = stage.strip().lower()
+    if normalized == "upload":
+        return max(default_minutes, UPLOAD_STAGE_STALE_MINUTES)
+    return default_minutes
+
+
 def cleanup_stale_tasks(conn: sqlite3.Connection, stale_minutes: int | None = None):
-    minutes = stale_minutes if stale_minutes is not None else get_task_stale_minutes()
-    minutes = minutes if minutes > 0 else DEFAULT_TASK_STALE_MINUTES
-    cutoff = (datetime.now() - timedelta(minutes=minutes)).isoformat()
-    conn.execute(
+    default_minutes = stale_minutes if stale_minutes is not None else get_task_stale_minutes()
+    default_minutes = default_minutes if default_minutes > 0 else DEFAULT_TASK_STALE_MINUTES
+
+    now = datetime.now()
+    now_iso = now.isoformat()
+
+    conn.row_factory = sqlite3.Row
+    rows = conn.execute(
         """
-        UPDATE task_queue
-        SET
-            status = 'FAILED',
-            progress = 0.0,
-            error_msg = CASE
-                WHEN error_msg IS NULL OR error_msg = '' THEN '任务长时间没有更新，已自动标记为失败，请重新发起。'
-                ELSE error_msg
-            END,
-            update_time = ?
+        SELECT task_id, payload, update_time
+        FROM task_queue
         WHERE status IN ('PENDING', 'RUNNING')
           AND update_time IS NOT NULL
-          AND update_time < ?
-        """,
-        (datetime.now().isoformat(), cutoff),
-    )
+        """
+    ).fetchall()
+
+    for row in rows:
+        task_id = row["task_id"]
+        update_time_raw = row["update_time"]
+        try:
+            last_update = datetime.fromisoformat(str(update_time_raw))
+        except ValueError:
+            continue
+
+        stage = _extract_payload_pipeline_stage(row["payload"])
+        minutes = _get_stale_minutes_for_stage(stage, default_minutes)
+        if last_update >= (now - timedelta(minutes=minutes)):
+            continue
+
+        conn.execute(
+            """
+            UPDATE task_queue
+            SET
+                status = 'FAILED',
+                progress = 0.0,
+                error_msg = CASE
+                    WHEN error_msg IS NULL OR error_msg = '' THEN '任务长时间没有更新，已自动标记为失败，请重新发起。'
+                    ELSE error_msg
+                END,
+                update_time = ?
+            WHERE task_id = ?
+              AND status IN ('PENDING', 'RUNNING')
+            """,
+            (now_iso, task_id),
+        )
 
     delete_cutoff = (datetime.now() - timedelta(days=7)).isoformat()
     conn.execute(
