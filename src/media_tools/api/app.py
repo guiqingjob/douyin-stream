@@ -25,26 +25,15 @@ async def lifespan(app: FastAPI):
 
     # 启动时清理孤儿任务：服务重启后内存中的后台任务全部丢失，
     # 数据库里残留的 RUNNING/PENDING 任务实际上已经无人执行。
-    from media_tools.db.core import get_db_connection
-    import sqlite3
-    from datetime import datetime
     try:
+        from media_tools.db.core import get_db_connection
+        from media_tools.services.task_ops import cleanup_stale_tasks
+        import sqlite3
+
         with get_db_connection() as conn:
-            now = datetime.now().isoformat()
-            cursor = conn.execute(
-                """UPDATE task_queue
-                   SET status='FAILED',
-                       error_msg='服务重启导致任务中断，请重新发起',
-                       update_time=?
-                   WHERE status IN ('PENDING', 'RUNNING')""",
-                (now,),
-            )
-            orphaned = cursor.rowcount
-            conn.commit()
-            if orphaned > 0:
-                print(f"[startup] 已清理 {orphaned} 个孤儿任务（服务重启残留）")
+            cleanup_stale_tasks(conn)
     except (sqlite3.Error, OSError) as e:
-        print(f"[startup] 清理孤儿任务失败: {e}")
+        print(f"[startup] 清理任务状态失败: {e}")
 
     yield
     # Shutdown

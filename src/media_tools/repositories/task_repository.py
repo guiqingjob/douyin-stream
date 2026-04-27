@@ -262,6 +262,31 @@ class TaskRepository:
             )
 
     @staticmethod
+    def patch_payload(task_id: str, patch: dict[str, Any]) -> None:
+        if not patch:
+            return
+        now = datetime.now().isoformat()
+        with get_db_connection() as conn:
+            cursor = conn.execute("SELECT payload FROM task_queue WHERE task_id = ?", (task_id,))
+            row = cursor.fetchone()
+            existing_raw = row["payload"] if row and isinstance(row, sqlite3.Row) else (row[0] if row else None)
+
+            base: dict[str, Any] = {}
+            if existing_raw:
+                try:
+                    parsed = json.loads(str(existing_raw))
+                except (TypeError, ValueError, json.JSONDecodeError):
+                    parsed = {}
+                if isinstance(parsed, dict):
+                    base = parsed
+
+            base.update(patch)
+            conn.execute(
+                "UPDATE task_queue SET payload=?, update_time=? WHERE task_id=?",
+                (json.dumps(base, ensure_ascii=False), now, task_id),
+            )
+
+    @staticmethod
     def set_auto_retry(task_id: str, enabled: bool) -> None:
         """设置自动重试"""
         with get_db_connection() as conn:

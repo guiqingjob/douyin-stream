@@ -309,159 +309,32 @@ async def trigger_local_transcribe(req: LocalTranscribeRequest):
 
 @router.post("/transcribe/creator")
 async def trigger_creator_transcribe(req: CreatorTranscribeRequest):
-    """对指定博主所有待转写的素材发起转写任务"""
-    from media_tools.common.paths import get_download_path
-    from media_tools.services.asset_file_ops import _resolve_asset_video_file, get_source_url_column
-
-    download_dir = get_download_path()
-    file_paths: list[str] = []
-    not_found: list[str] = []
-
-    # 第一步：从 DB 查找待转写素材，解析视频文件路径
-    try:
-        with get_db_connection() as conn:
-            conn.row_factory = sqlite3.Row
-            source_url_select = get_source_url_column(conn)
-            cursor = conn.execute(
-                f"""SELECT asset_id, creator_uid, {source_url_select} video_path
-                    FROM media_assets
-                    WHERE creator_uid = ?
-                      AND video_status IN ('downloaded', 'pending')
-                      AND transcript_status IN ('pending', 'none', 'failed')
-                    """,
-                (req.uid,),
-            )
-            for row in cursor.fetchall():
-                resolved = _resolve_asset_video_file(
-                    creator_uid=row["creator_uid"],
-                    source_url=row["source_url"],
-                    video_path=row["video_path"],
-                    download_dir=download_dir,
-                )
-                if resolved and resolved.exists():
-                    file_paths.append(str(resolved))
-                else:
-                    # DB 路径与实际文件不一致（文件被移动/重命名），按文件名全盘搜索
-                    video_path = row["video_path"] or ""
-                    filename = Path(video_path).name if video_path else ""
-                    if filename:
-                        found = None
-                        stem = Path(filename).stem
-                        for match in download_dir.rglob(f"{stem}*.mp4"):
-                            if match.is_file():
-                                found = match
-                                break
-                        if not found:
-                            # 用更宽松的搜索：去掉扩展名，搜索所有视频格式
-                            for match in download_dir.rglob(f"{stem}*"):
-                                if match.is_file() and match.suffix.lower() in (".mp4", ".webm", ".mkv", ".avi", ".mov"):
-                                    found = match
-                                    break
-                        if found:
-                            file_paths.append(str(found))
-                            try:
-                                new_rel = str(found.relative_to(download_dir))
-                                conn.execute(
-                                    "UPDATE media_assets SET video_path = ? WHERE asset_id = ?",
-                                    (new_rel, row["asset_id"]),
-                                )
-                            except (ValueError, sqlite3.Error):
-                                pass
-                        else:
-                            not_found.append(filename)
-    except (sqlite3.Error, OSError) as e:
-        raise HTTPException(status_code=500, detail=f"查询待转写素材失败: {e}")
-
-    # 第二步：扫描下载目录，找到磁盘上存在但 DB 中没有记录或已标记完成的未转写文件
-    try:
-        # 获取博主的下载子目录
-        with get_db_connection() as conn:
-            conn.row_factory = sqlite3.Row
-            cursor = conn.execute(
-                "SELECT DISTINCT folder_path FROM media_assets WHERE creator_uid = ? AND folder_path IS NOT NULL",
-                (req.uid,),
-            )
-            folder_names = [row["folder_path"] for row in cursor.fetchall() if row["folder_path"]]
-
-            # 也查 nickname
-            cursor2 = conn.execute("SELECT nickname FROM creators WHERE uid = ?", (req.uid,))
-            nickname_row = cursor2.fetchone()
-            if nickname_row and nickname_row["nickname"]:
-                folder_names.append(nickname_row["nickname"])
-
-        # 收集 DB 中所有已转写完成和已有路径的文件名（stem）
-        completed_stems: set[str] = set()
-        with get_db_connection() as conn:
-            cursor = conn.execute(
-                "SELECT video_path FROM media_assets WHERE creator_uid = ? AND video_path IS NOT NULL AND video_path != ''",
-                (req.uid,),
-            )
-            for row in cursor.fetchall():
-                vp = row["video_path"] or ""
-                if vp:
-                    completed_stems.add(Path(vp).stem.rstrip("_0123456789"))
-
-        # 扫描文件夹找未在 DB 中的视频
-        for folder_name in folder_names:
-            folder = download_dir / folder_name
-            if not folder.is_dir():
-                continue
-            for f in folder.glob("*.mp4"):
-                base_stem = f.stem.rstrip("_0123456789")
-                if base_stem not in completed_stems:
-                    file_paths.append(str(f))
-                    # 注册到 DB
-                    try:
-                        from media_tools.db.core import get_db_connection as _get_conn
-                        import uuid as _uuid
-                        asset_id = str(_uuid.uuid5(_uuid.NAMESPACE_URL, str(f.resolve())))
-                        now = datetime.now().isoformat()
-                        with _get_conn() as conn:
-                            conn.execute(
-                                """INSERT OR IGNORE INTO media_assets
-                                   (asset_id, creator_uid, title, video_path, video_status, transcript_status, folder_path, create_time, update_time)
-                                   VALUES (?, ?, ?, ?, 'downloaded', 'pending', ?, ?, ?)""",
-                                (asset_id, req.uid, f.stem, str(f.relative_to(download_dir)), folder_name, now, now),
-                            )
-                    except (sqlite3.Error, OSError, ValueError):
-                        pass
-    except (sqlite3.Error, OSError) as e:
-        logger.warning(f"扫描下载目录失败: {e}")
-
-    if not file_paths:
-        if not_found:
-            raise HTTPException(status_code=404, detail=f"该博主有 {len(not_found)} 个待转写素材，但视频文件在磁盘上找不到（可能已被移动或删除）。可在设置中清理缺失素材。")
-        raise HTTPException(status_code=404, detail="该博主没有待转写的素材")
-
-    # 标记这些素材的 transcript_status 为 pending（如果之前是 none）
-    try:
-        with get_db_connection() as conn:
-            conn.execute(
-                """UPDATE media_assets SET transcript_status = 'pending'
-                   WHERE creator_uid = ? AND transcript_status = 'none'
-                      AND video_status IN ('downloaded', 'pending')""",
-                (req.uid,),
-            )
-    except sqlite3.Error:
-        pass
-
     task_id = str(uuid.uuid4())
     await _create_task(
         task_id,
         "local_transcribe",
-        {"file_paths": file_paths, "delete_after": False, "directory_root": None, "creator_uid": req.uid},
+        {"file_paths": [], "delete_after": False, "directory_root": None, "creator_uid": req.uid},
     )
+    from media_tools.workers.creator_transcribe_worker import background_creator_transcribe_worker
+    _register_background_task(task_id, background_creator_transcribe_worker(task_id, req.uid))
+    file_count = 0
+    try:
+        with get_db_connection() as conn:
+            cursor = conn.execute(
+                """SELECT COUNT(1)
+                   FROM media_assets
+                   WHERE creator_uid = ?
+                     AND video_status IN ('downloaded', 'pending')
+                     AND transcript_status IN ('pending', 'none', 'failed')""",
+                (req.uid,),
+            )
+            row = cursor.fetchone()
+            if row:
+                file_count = int(row[0] or 0)
+    except (sqlite3.Error, OSError, ValueError):
+        file_count = 0
 
-    class _CreatorTranscribeReq:
-        file_paths: list[str]
-        delete_after: bool = False
-        directory_root: str | None = None
-
-    fake_req = _CreatorTranscribeReq()
-    fake_req.file_paths = file_paths
-
-    _register_background_task(task_id, _background_local_transcribe_worker(task_id, fake_req))
-    return {"task_id": task_id, "status": "started", "file_count": len(file_paths)}
+    return {"task_id": task_id, "status": "started", "file_count": file_count}
 
 
 @router.post("/transcribe/select-folder")

@@ -206,6 +206,8 @@ tests/*
 !tests/test_local_transcribe_concurrency.py
 !tests/test_local_folder_grouping.py
 !tests/test_qwen_account_pool_db.py
+!tests/test_task_repository_patch_payload.py
+!tests/test_creator_transcribe_submit_returns.py
 tests/bilibili/**/__pycache__/
 .vite
 *.pipeline_state*.json
