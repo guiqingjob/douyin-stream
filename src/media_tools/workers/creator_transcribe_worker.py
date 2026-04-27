@@ -168,7 +168,7 @@ async def background_creator_transcribe_worker(task_id: str, uid: str) -> None:
     try:
         await update_task_progress(task_id, 0.01, "正在扫描待转写文件...", "local_transcribe", stage="scanning")
         file_paths, not_found = await asyncio.to_thread(_discover_creator_files, uid)
-    except Exception as e:
+    except (OSError, RuntimeError, ValueError, TypeError, sqlite3.Error) as e:
         await _fail_task(task_id, "local_transcribe", str(e))
         return
 

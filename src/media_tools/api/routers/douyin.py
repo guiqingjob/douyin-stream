@@ -10,7 +10,9 @@ try:
 
     DouyinHandler = _RealDouyinHandler
     SecUserIdFetcher = _RealSecUserIdFetcher
-except Exception as exc:  # pragma: no cover - depends on optional runtime dependency/network side effects
+except BaseException as exc:  # pragma: no cover - depends on optional runtime dependency/network side effects
+    if not isinstance(exc, Exception):
+        raise
     _f2_import_error = exc
 
     class DouyinHandler:  # type: ignore[no-redef]
