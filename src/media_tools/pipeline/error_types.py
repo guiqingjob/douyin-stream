@@ -22,8 +22,15 @@ def classify_error(error: Exception) -> ErrorType:
     error_msg = str(error).lower()
     error_type = type(error).__name__.lower()
 
+    if any(kw in error_msg for kw in ["ssl", "eof occurred", "unexpected eof", "eof"]):
+        return ErrorType.NETWORK
+    if "token-get" in error_msg or "get token" in error_msg:
+        return ErrorType.NETWORK
+
     # 认证错误
-    if any(kw in error_msg for kw in ["auth", "unauthorized", "401", "403", "token", "credential", "permission denied"]):
+    if any(kw in error_msg for kw in ["auth", "unauthorized", "401", "403", "credential", "permission denied"]):
+        return ErrorType.AUTH
+    if "token" in error_msg and any(kw in error_msg for kw in ["expired", "invalid", "unauthorized", "401", "403"]):
         return ErrorType.AUTH
 
     # 网络错误

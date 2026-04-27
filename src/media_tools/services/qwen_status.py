@@ -65,7 +65,6 @@ async def get_qwen_account_status() -> dict:
                 except (RuntimeError, OSError, ValueError, TypeError) as e:
                     logger.warning(f"获取 Qwen 额度失败: account_id={account_id}, error={e}")
                     remaining_hours = 0
-                    status = "invalid"
 
             if status != str(account["status"] or "active"):
                 status_updates.append((status, account_id))

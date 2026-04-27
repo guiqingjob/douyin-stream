@@ -23,6 +23,7 @@ def test_build_qwen_auth_state_path_for_account() -> None:
 
 def test_add_qwen_account_sets_auth_state_path(monkeypatch) -> None:
     import sqlite3
+    import asyncio
     from media_tools.api.routers import settings as settings_router
 
     conn = sqlite3.connect(":memory:")
@@ -40,14 +41,117 @@ def test_add_qwen_account_sets_auth_state_path(monkeypatch) -> None:
 
     monkeypatch.setattr("media_tools.api.routers.settings.save_qwen_cookie_string", _fake_save)
 
+    async def _fake_get_snapshot(*, auth_state_path, account_id="", **kwargs):  # noqa: ANN001
+        class _S:
+            remaining_upload = 60 * 375
+            used_upload = 0
+            total_upload = 0
+            raw = {}
+            gratis_upload = False
+            free = True
+
+        return _S()
+
+    monkeypatch.setattr("media_tools.api.routers.settings.get_quota_snapshot", _fake_get_snapshot)
+
     req = settings_router.QwenAccountRequest(cookie_string="x=y", remark="r")
-    result = settings_router.add_qwen_account(req)
+    result = asyncio.run(settings_router.add_qwen_account(req))
     account_id = result["account_id"]
     row = conn.execute("SELECT auth_state_path FROM Accounts_Pool WHERE account_id=?", (account_id,)).fetchone()
     assert row is not None
     assert row[0]
     assert "qwen-storage-state-" in row[0]
     assert called["auth_state_path"] == row[0]
+
+
+def test_add_qwen_account_returns_validation_ok_when_snapshot_succeeds(monkeypatch) -> None:
+    import sqlite3
+    import asyncio
+    from media_tools.api.routers import settings as settings_router
+
+    conn = sqlite3.connect(":memory:")
+    conn.execute(
+        "CREATE TABLE Accounts_Pool(account_id TEXT PRIMARY KEY, platform TEXT, cookie_data TEXT, remark TEXT, status TEXT DEFAULT 'active', auth_state_path TEXT DEFAULT '')"
+    )
+    conn.commit()
+    monkeypatch.setattr("media_tools.api.routers.settings.get_db_connection", lambda: conn)
+
+    monkeypatch.setattr("media_tools.api.routers.settings.save_qwen_cookie_string", lambda *args, **kwargs: {})  # noqa: ARG005
+
+    async def _fake_get_snapshot(*, auth_state_path, account_id="", **kwargs):  # noqa: ANN001
+        class _S:
+            remaining_upload = 60 * 10
+            used_upload = 0
+            total_upload = 0
+            raw = {}
+            gratis_upload = False
+            free = True
+
+        return _S()
+
+    monkeypatch.setattr("media_tools.api.routers.settings.get_quota_snapshot", _fake_get_snapshot)
+
+    req = settings_router.QwenAccountRequest(cookie_string="x=y", remark="r")
+    result = asyncio.run(settings_router.add_qwen_account(req))
+    assert result["status"] == "success"
+    assert result["validation"]["ok"] is True
+    assert result["validation"]["remaining_hours"] == 10
+
+
+def test_add_qwen_account_sets_status_expired_only_on_auth_error(monkeypatch) -> None:
+    import sqlite3
+    import asyncio
+    from media_tools.api.routers import settings as settings_router
+
+    conn = sqlite3.connect(":memory:")
+    conn.execute(
+        "CREATE TABLE Accounts_Pool(account_id TEXT PRIMARY KEY, platform TEXT, cookie_data TEXT, remark TEXT, status TEXT DEFAULT 'active', auth_state_path TEXT DEFAULT '')"
+    )
+    conn.commit()
+    monkeypatch.setattr("media_tools.api.routers.settings.get_db_connection", lambda: conn)
+    monkeypatch.setattr("media_tools.api.routers.settings.save_qwen_cookie_string", lambda *args, **kwargs: {})  # noqa: ARG005
+
+    async def _auth_fail_snapshot(*args, **kwargs):  # noqa: ANN001,ARG001
+        raise RuntimeError("401 unauthorized")
+
+    monkeypatch.setattr("media_tools.api.routers.settings.get_quota_snapshot", _auth_fail_snapshot)
+
+    req = settings_router.QwenAccountRequest(cookie_string="x=y", remark="r")
+    result = asyncio.run(settings_router.add_qwen_account(req))
+    account_id = result["account_id"]
+    assert result["validation"]["ok"] is False
+    assert result["validation"]["error_type"] == "auth"
+    row = conn.execute("SELECT status FROM Accounts_Pool WHERE account_id=?", (account_id,)).fetchone()
+    assert row is not None
+    assert row[0] == "expired"
+
+
+def test_add_qwen_account_does_not_set_status_expired_on_network_error(monkeypatch) -> None:
+    import sqlite3
+    import asyncio
+    from media_tools.api.routers import settings as settings_router
+
+    conn = sqlite3.connect(":memory:")
+    conn.execute(
+        "CREATE TABLE Accounts_Pool(account_id TEXT PRIMARY KEY, platform TEXT, cookie_data TEXT, remark TEXT, status TEXT DEFAULT 'active', auth_state_path TEXT DEFAULT '')"
+    )
+    conn.commit()
+    monkeypatch.setattr("media_tools.api.routers.settings.get_db_connection", lambda: conn)
+    monkeypatch.setattr("media_tools.api.routers.settings.save_qwen_cookie_string", lambda *args, **kwargs: {})  # noqa: ARG005
+
+    async def _network_fail_snapshot(*args, **kwargs):  # noqa: ANN001,ARG001
+        raise RuntimeError("token-get failed: EOF occurred in violation of protocol")
+
+    monkeypatch.setattr("media_tools.api.routers.settings.get_quota_snapshot", _network_fail_snapshot)
+
+    req = settings_router.QwenAccountRequest(cookie_string="x=y", remark="r")
+    result = asyncio.run(settings_router.add_qwen_account(req))
+    account_id = result["account_id"]
+    assert result["validation"]["ok"] is False
+    assert result["validation"]["error_type"] == "network"
+    row = conn.execute("SELECT status FROM Accounts_Pool WHERE account_id=?", (account_id,)).fetchone()
+    assert row is not None
+    assert row[0] == "active"
 
 
 def test_qwen_status_returns_remaining_hours_from_db(monkeypatch) -> None:

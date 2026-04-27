@@ -4,8 +4,10 @@ import uuid
 from pathlib import Path
 from fastapi import APIRouter, HTTPException
 from pydantic import BaseModel
+from media_tools.pipeline.error_types import ErrorType, classify_error
 from media_tools.transcribe.auth_state import has_qwen_auth_state, save_qwen_cookie_string, default_qwen_auth_state_path
 from media_tools.transcribe.db_account_pool import build_qwen_auth_state_path_for_account
+from media_tools.transcribe.quota import get_quota_snapshot, remaining_hours_from_snapshot
 from media_tools.douyin.core.config_mgr import get_config
 from media_tools.db.core import get_db_connection
 from media_tools.core.config import get_runtime_setting_int, get_runtime_setting_bool, set_runtime_setting
@@ -225,18 +227,41 @@ def update_qwen_key(req: QwenConfigRequest):
         raise HTTPException(status_code=400, detail=str(e))
 
 @router.post("/qwen/accounts")
-def add_qwen_account(req: QwenAccountRequest):
+async def add_qwen_account(req: QwenAccountRequest):
     try:
         account_id = str(uuid.uuid4())
         auth_state_path = build_qwen_auth_state_path_for_account(account_id)
         save_qwen_cookie_string(req.cookie_string, auth_state_path, sync_db=False)
+
+        status = "active"
+        validation: dict[str, object] = {
+            "ok": True,
+            "remaining_hours": 0,
+            "error_type": "",
+            "message": "",
+        }
+        try:
+            snapshot = await get_quota_snapshot(
+                auth_state_path=auth_state_path,
+                account_id=account_id,
+            )
+            validation["remaining_hours"] = remaining_hours_from_snapshot(snapshot)
+        except (RuntimeError, OSError, ValueError, TypeError) as exc:
+            et = classify_error(exc)
+            validation["ok"] = False
+            validation["error_type"] = et.value
+            validation["message"] = str(exc)
+            validation["remaining_hours"] = 0
+            if et == ErrorType.AUTH:
+                status = "expired"
+
         with get_db_connection() as conn:
             conn.execute(
-                "INSERT INTO Accounts_Pool (account_id, platform, cookie_data, remark, auth_state_path) VALUES (?, ?, ?, ?, ?)",
-                (account_id, "qwen", req.cookie_string, req.remark, str(auth_state_path)),
+                "INSERT INTO Accounts_Pool (account_id, platform, cookie_data, remark, auth_state_path, status) VALUES (?, ?, ?, ?, ?, ?)",
+                (account_id, "qwen", req.cookie_string, req.remark, str(auth_state_path), status),
             )
             conn.commit()
-        return {"status": "success", "account_id": account_id}
+        return {"status": "success", "account_id": account_id, "validation": validation}
     except (sqlite3.Error, OSError, ValueError) as e:
         raise HTTPException(status_code=400, detail=str(e))
 
