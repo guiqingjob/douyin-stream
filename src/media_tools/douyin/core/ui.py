@@ -7,6 +7,10 @@
 import sys
 from datetime import datetime
 
+from rich.console import Console
+
+console = Console()
+
 
 class Colors:
     """终端颜色代码"""
@@ -90,11 +94,11 @@ def separator(char="=", length=60):
 def print_header(title):
     """打印标题头"""
     width = 60
-    print()
-    print(separator("=", width))
-    print(f"  {bold(title)}")
-    print(separator("=", width))
-    print()
+    console.print()
+    console.print(separator("=", width))
+    console.print(f"  {bold(title)}")
+    console.print(separator("=", width))
+    console.print()
 
 
 def print_menu(items):
@@ -105,8 +109,8 @@ def print_menu(items):
         items: 列表，每个元素为 (key, description) 元组
     """
     for key, desc in items:
-        print(f"  {bold(key)}. {desc}")
-    print()
+        console.print(f"  {bold(key)}. {desc}")
+    console.print()
 
 
 def print_table(headers, rows):
@@ -126,15 +130,15 @@ def print_table(headers, rows):
 
     # 打印表头
     header_line = "  ".join(str(h).ljust(col_widths[i]) for i, h in enumerate(headers))
-    print(bold(header_line))
-    print(separator("-", sum(col_widths) + 2 * len(col_widths)))
+    console.print(bold(header_line))
+    console.print(separator("-", sum(col_widths) + 2 * len(col_widths)))
 
     # 打印数据行
     for row in rows:
         line = "  ".join(
             str(cell).ljust(col_widths[i]) for i, cell in enumerate(row)
         )
-        print(line)
+        console.print(line)
 
 
 class ProgressBar:
@@ -172,7 +176,7 @@ class ProgressBar:
         """完成"""
         self.current = self.total
         self._render()
-        print()  # 换行
+        sys.stdout.write("\n")
 
 
 def print_status(status, message):
@@ -185,13 +189,13 @@ def print_status(status, message):
     }
 
     func, icon = status_map.get(status, (info, "ℹ"))
-    print(f"  {func(f'{icon} {message}')}")
+    console.print(f"  {func(f'{icon} {message}')}")
 
 
 def print_key_value(key, value, indent=2):
     """打印键值对"""
     prefix = " " * indent
-    print(f"{prefix}{bold(key)}: {value}")
+    console.print(f"{prefix}{bold(key)}: {value}")
 
 
 def print_countdown(seconds, message="开始"):
@@ -203,7 +207,7 @@ def print_countdown(seconds, message="开始"):
         import time
 
         time.sleep(1)
-    print()
+    sys.stdout.write("\n")
 
 
 def format_size(bytes_size):
@@ -239,9 +243,9 @@ def format_duration(seconds):
 
 def print_footer(text=""):
     """打印脚注"""
-    print()
-    print(dim(separator("=", 60)))
+    console.print()
+    console.print(dim(separator("=", 60)))
     if text:
-        print(dim(text))
-    print(dim(f"更新时间: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}"))
-    print()
+        console.print(dim(text))
+    console.print(dim(f"更新时间: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}"))
+    console.print()

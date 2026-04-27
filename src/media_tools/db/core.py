@@ -124,7 +124,7 @@ class DBConnection:
     def __enter__(self) -> sqlite3.Connection:
         return self._conn
 
-    def __exit__(self, exc_type, exc_val, exc_tb) -> None:
+    def __exit__(self, exc_type, _exc_val, _exc_tb) -> None:
         """自动 commit/rollback + close"""
         if not self._keep_open:
             with DBConnection._open_count_lock:
@@ -401,4 +401,4 @@ from .path_utils import resolve_safe_path, resolve_query_value, local_asset_id  
 if __name__ == "__main__":
     db_path = "media_tools.db"
     init_db(db_path)
-    print("DB Init success")
+    logger.info("DB Init success")

@@ -33,7 +33,7 @@ async def lifespan(app: FastAPI):
         with get_db_connection() as conn:
             cleanup_stale_tasks(conn)
     except (sqlite3.Error, OSError) as e:
-        print(f"[startup] 清理任务状态失败: {e}")
+        logger.warning(f"startup cleanup failed: {e}")
 
     yield
     # Shutdown

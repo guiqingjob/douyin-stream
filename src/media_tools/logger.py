@@ -225,13 +225,17 @@ class MediaLogger:
 _logger: Optional[MediaLogger] = None
 
 
-def get_logger(name: str = "media_tools") -> MediaLogger:
-    """获取全局日志实例"""
+def get_logger(name: str = "media_tools") -> logging.Logger:
     global _logger
     if _logger is None:
-        json_logs = os.environ.get("MEDIA_TOOLS_JSON_LOGS", "").lower() in ("1", "true", "yes")
-        _logger = MediaLogger(name, json_logs=json_logs)
-    return _logger
+        init_logging()
+    base = logging.getLogger("media_tools")
+    if name == "media_tools":
+        return base
+    child = logging.getLogger(name)
+    child.setLevel(logging.DEBUG)
+    child.propagate = True
+    return child
 
 
 def init_logging(
@@ -298,8 +302,8 @@ def main():
     except ValueError as e:
         logger.exception("捕获到异常")
 
-    print("\n✅ 日志系统测试完成！")
-    print(f"📁 日志文件保存在: {logger.log_dir}")
+    logger.info("日志系统测试完成")
+    logger.info(f"日志文件保存在: {logger.log_dir}")
 
 
 if __name__ == "__main__":

@@ -208,6 +208,7 @@ tests/*
 !tests/test_qwen_account_pool_db.py
 !tests/test_task_repository_patch_payload.py
 !tests/test_creator_transcribe_submit_returns.py
+!tests/test_no_print_in_src.py
 tests/bilibili/**/__pycache__/
 .vite
 *.pipeline_state*.json
