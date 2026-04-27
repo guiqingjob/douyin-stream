@@ -10,13 +10,7 @@ import {
   getTaskStatusLabel,
   taskTypeLabel,
 } from '@/lib/task-utils';
-import {
-  pauseTask,
-  resumeTask,
-  rerunTask,
-  setAutoRetry,
-  deleteTask,
-} from '@/lib/api';
+import { rerunTask, setAutoRetry, deleteTask } from '@/lib/api';
 import { Badge } from '@/components/ui/badge';
 import type { Task } from '@/lib/api';
 
@@ -189,40 +183,6 @@ function TaskActions({
             自动
           </button>
         </>
-      )}
-      {isRunning && (
-        <button
-          onClick={async () => {
-            try {
-              await pauseTask(task.task_id);
-              toast.success('任务已暂停');
-            } catch {
-              // interceptor already toasts
-            }
-          }}
-          className="flex h-8 items-center gap-1 rounded-md px-3 text-xs font-medium text-warning transition-colors duration-200 hover:bg-warning/10"
-          title="暂停"
-        >
-          <XCircle className="size-3.5" />
-          暂停
-        </button>
-      )}
-      {task.status === 'PAUSED' && (
-        <button
-          onClick={async () => {
-            try {
-              await resumeTask(task.task_id);
-              toast.success('任务已恢复');
-            } catch {
-              // interceptor already toasts
-            }
-          }}
-          className="flex h-8 items-center gap-1 rounded-md px-3 text-xs font-medium text-success transition-colors duration-200 hover:bg-success/10"
-          title="恢复"
-        >
-          <RotateCw className="size-3.5" />
-          恢复
-        </button>
       )}
       {isRunning && <Loader2 className="size-4 animate-spin text-primary" />}
       {getTaskDisplayState(task) === 'success' && <CheckCircle2 className="size-4 text-success" />}

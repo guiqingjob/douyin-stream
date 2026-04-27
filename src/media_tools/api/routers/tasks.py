@@ -181,34 +181,12 @@ async def set_auto_retry(task_id: str, enabled: bool = True):
 
 @router.post("/{task_id}/pause")
 async def pause_task(task_id: str):
-    try:
-        status, task_type = TaskRepository.get_status(task_id)
-        if not status:
-            raise HTTPException(status_code=404, detail="任务不存在")
-        if status != "RUNNING":
-            raise HTTPException(status_code=409, detail=f"任务未在运行（当前: {status}）")
-        raise HTTPException(status_code=409, detail="当前下载器不支持暂停，请使用取消功能")
-    except HTTPException:
-        raise
-    except (sqlite3.Error, OSError, RuntimeError) as e:
-        logger.exception(f"pause_task failed for {task_id}")
-        raise HTTPException(status_code=500, detail=str(e))
+    raise HTTPException(status_code=501, detail="暂停/恢复功能已下线")
 
 
 @router.post("/{task_id}/resume")
 async def resume_task(task_id: str):
-    try:
-        status, task_type = TaskRepository.get_status(task_id)
-        if not status:
-            raise HTTPException(status_code=404, detail="任务不存在")
-        if status != "PAUSED":
-            raise HTTPException(status_code=409, detail=f"任务未暂停（当前: {status}）")
-        raise HTTPException(status_code=409, detail="当前下载器不支持恢复")
-    except HTTPException:
-        raise
-    except (sqlite3.Error, OSError, RuntimeError) as e:
-        logger.exception(f"resume_task failed for {task_id}")
-        raise HTTPException(status_code=500, detail=str(e))
+    raise HTTPException(status_code=501, detail="暂停/恢复功能已下线")
 
 
 @router.post("/{task_id}/rerun")
