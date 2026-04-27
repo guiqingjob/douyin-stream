@@ -244,7 +244,7 @@ export default function Settings() {
                       </>
                     ) : (
                       <span className="flex gap-3">
-                        {(settings?.qwen_accounts || []).map((a: any) => (
+                        {(settings?.qwen_accounts || []).map((a) => (
                           <span key={a.id}>
                             {a.remark || a.id.slice(0, 8)}: {qwenRemainingHoursById[a.id] ?? 0}h
                           </span>

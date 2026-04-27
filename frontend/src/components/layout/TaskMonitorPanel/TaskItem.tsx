@@ -1,3 +1,4 @@
+import { useMemo, useState } from 'react';
 import { CheckCircle2, ChevronDown, FileText, Loader2, MinusCircle, RotateCw, Trash2, XCircle } from 'lucide-react';
 import { toast } from 'sonner';
 import { cn } from '@/lib/utils';
@@ -10,7 +11,7 @@ import {
   getTaskStatusLabel,
   taskTypeLabel,
 } from '@/lib/task-utils';
-import { rerunTask, setAutoRetry, deleteTask } from '@/lib/api';
+import { rerunTask, setAutoRetry, deleteTask, recoverAwemeAndTranscribe } from '@/lib/api';
 import { Badge } from '@/components/ui/badge';
 import type { Task } from '@/lib/api';
 
@@ -237,9 +238,69 @@ function TaskSubtasks({
   isExpanded: boolean;
   onToggleExpand: (taskId: string) => void;
 }) {
-  const parsed = parsePayload(task.payload);
-  const subtasks = parsed?.subtasks as Array<{ title: string; status: string; error?: string }> | undefined;
-  if (!subtasks || subtasks.length === 0) return null;
+  const parsed = useMemo(() => parsePayload(task.payload), [task.payload]);
+  const subtasks = (parsed?.subtasks as Array<{
+    title: string;
+    status: string;
+    error?: string;
+    aweme_id?: string;
+    creator_uid?: string;
+  }> | undefined) ?? [];
+  const [recoveringAwemeId, setRecoveringAwemeId] = useState<string | null>(null);
+  const creatorUidFromPayload =
+    typeof parsed?.creator_uid === 'string'
+      ? parsed.creator_uid
+      : typeof parsed?.uid === 'string'
+        ? parsed.uid
+        : undefined;
+  const missingItems = useMemo(() => {
+    const raw = parsed?.missing_items;
+    if (!Array.isArray(raw)) return [];
+    return raw.filter((item) => item && typeof item === 'object' && !Array.isArray(item)) as Array<{
+      aweme_id?: unknown;
+      title?: unknown;
+    }>;
+  }, [parsed]);
+
+  const enhancedSubtasks = useMemo(() => {
+    if (!subtasks.length) return [];
+    if (!missingItems.length && !creatorUidFromPayload) return subtasks;
+    const byTitle = new Map<string, string[]>();
+    for (const item of missingItems) {
+      const title = typeof item.title === 'string' ? item.title : '';
+      const awemeId = typeof item.aweme_id === 'string' ? item.aweme_id : '';
+      if (!title || !awemeId) continue;
+      const list = byTitle.get(title) ?? [];
+      list.push(awemeId);
+      byTitle.set(title, list);
+    }
+
+    const usedByTitle = new Map<string, number>();
+
+    return subtasks.map((sub) => {
+      if (sub.status !== 'manual_required') {
+        return creatorUidFromPayload && !sub.creator_uid ? { ...sub, creator_uid: creatorUidFromPayload } : sub;
+      }
+
+      let awemeId = sub.aweme_id;
+      if (!awemeId && sub.title) {
+        const list = byTitle.get(sub.title);
+        if (list && list.length) {
+          const used = usedByTitle.get(sub.title) ?? 0;
+          awemeId = list[Math.min(used, list.length - 1)];
+          usedByTitle.set(sub.title, used + 1);
+        }
+      }
+
+      return {
+        ...sub,
+        aweme_id: awemeId,
+        creator_uid: sub.creator_uid ?? creatorUidFromPayload,
+      };
+    });
+  }, [creatorUidFromPayload, missingItems, subtasks]);
+
+  if (subtasks.length === 0) return null;
   const completed = subtasks.filter((s) => s.status === 'completed').length;
   const skipped = subtasks.filter((s) => s.status === 'skipped').length;
   const failed = subtasks.filter((s) => s.status === 'failed').length;
@@ -257,7 +318,10 @@ function TaskSubtasks({
       </button>
       {isExpanded && (
         <div className="mt-2 space-y-1 max-h-48 overflow-y-auto rounded-[var(--radius-card)] border border-border/40 bg-muted/30 p-2">
-          {subtasks.map((sub, idx) => (
+          {enhancedSubtasks.map((sub, idx) => {
+            const canRecover = sub.status === 'manual_required' && !!sub.creator_uid && !!sub.aweme_id;
+            const isRecovering = !!sub.aweme_id && recoveringAwemeId === sub.aweme_id;
+            return (
             <div
               key={idx}
               className="flex items-start gap-2 px-2 py-1.5 rounded-md text-xs"
@@ -286,8 +350,41 @@ function TaskSubtasks({
                   <span className="block truncate text-[10px] text-destructive/80 mt-0.5">{sub.error}</span>
                 )}
               </div>
+              {sub.status === 'manual_required' && (
+                <button
+                  disabled={!canRecover || isRecovering}
+                  onClick={async () => {
+                    const creatorUid = sub.creator_uid || creatorUidFromPayload;
+                    const awemeId = sub.aweme_id;
+                    if (!creatorUid || !awemeId) {
+                      toast.error('缺少补齐所需参数（creator_uid / aweme_id）');
+                      return;
+                    }
+                    try {
+                      setRecoveringAwemeId(awemeId);
+                      await recoverAwemeAndTranscribe(creatorUid, awemeId, sub.title || '');
+                      const { fetchInitialTasks } = useStore.getState();
+                      await fetchInitialTasks();
+                      toast.success('已创建补齐任务');
+                    } catch {
+                      // interceptor already toasts
+                    } finally {
+                      setRecoveringAwemeId(null);
+                    }
+                  }}
+                  className={cn(
+                    'flex h-7 items-center gap-1 rounded-md px-2 text-[11px] font-medium text-primary transition-colors duration-200',
+                    canRecover && !isRecovering ? 'hover:bg-primary/10' : 'cursor-not-allowed opacity-50'
+                  )}
+                  title={canRecover ? '创建补齐并转写任务' : '缺少 aweme_id 或 creator_uid，无法创建补齐任务'}
+                >
+                  {isRecovering ? <Loader2 className="size-3 animate-spin" /> : <RotateCw className="size-3" />}
+                  补齐并转写
+                </button>
+              )}
             </div>
-          ))}
+            );
+          })}
         </div>
       )}
     </div>

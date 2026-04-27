@@ -95,7 +95,6 @@ export const useStore = create<StoreState>((set, get) => ({
       const history = await getTaskHistory();
       // 以 REST 返回的列表为基准，WS 更新覆盖其中的进度
       set((state) => {
-        const historyMap = new Map(history.map(t => [t.task_id, t]));
         const merged = history.map((t) => {
           const wsTask = state.tasks.find(s => s.task_id === t.task_id);
           // WS 的进度更新更实时，优先采用

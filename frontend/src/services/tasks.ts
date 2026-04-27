@@ -68,3 +68,17 @@ export const triggerFullSyncFollowing = async (mode: 'incremental' | 'full' = 'i
   const response = await apiClient.post('/tasks/download/full-sync', { mode }, { signal });
   return response.data;
 };
+
+export const recoverAwemeAndTranscribe = async (
+  creatorUid: string,
+  awemeId: string,
+  title: string = '',
+  signal?: AbortSignal
+): Promise<{ task_id: string; status: string }> => {
+  const response = await apiClient.post(
+    '/tasks/recover/aweme',
+    { creator_uid: creatorUid, aweme_id: awemeId, title },
+    { signal }
+  );
+  return response.data;
+};

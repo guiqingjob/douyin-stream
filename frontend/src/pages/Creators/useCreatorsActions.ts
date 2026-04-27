@@ -9,11 +9,12 @@ import {
   triggerCreatorDownload,
   triggerFullSyncFollowing,
   type ScheduleTask,
+  type Creator,
 } from '@/lib/api';
 import { triggerCreatorTranscribe } from '@/services/discovery';
 
 interface UseCreatorsActionsParams {
-  storeFetchCreators: (force?: boolean) => Promise<any>;
+  storeFetchCreators: (force?: boolean) => Promise<Creator[]>;
   fetchInitialTasks: () => Promise<void>;
   lastCompletedTaskTime: number;
 }

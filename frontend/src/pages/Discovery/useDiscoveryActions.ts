@@ -11,6 +11,7 @@ import {
   type DouyinMetadataResponse,
   type ScannedFile,
   type Task,
+  type Creator,
 } from '@/lib/api'
 import { getTaskDisplayState, getTaskError, getTaskMessage } from '@/lib/task-utils'
 
@@ -19,7 +20,7 @@ interface UseDiscoveryActionsParams {
   tasks: Task[]
   activeTaskId: string | null
   setActiveTaskId: (id: string | null) => void
-  storeFetchCreators: () => Promise<any>
+  storeFetchCreators: () => Promise<Creator[]>
 }
 
 export function useDiscoveryActions({
@@ -58,7 +59,7 @@ export function useDiscoveryActions({
 
   useEffect(() => {
     storeFetchCreators()
-      .then((creators) => setFollowedCreatorUids(new Set(creators.map((c: any) => c.uid))))
+      .then((creators) => setFollowedCreatorUids(new Set(creators.map((c) => c.uid))))
       .catch((err) => console.error('获取创作者列表失败:', err))
   }, [storeFetchCreators])
 
@@ -218,8 +219,9 @@ export function useDiscoveryActions({
       if (result.directory) {
         await handleScanDir(result.directory)
       }
-    } catch (error: any) {
-      const msg = error?.response?.data?.detail || '选择文件夹失败'
+    } catch (error) {
+      const err = error as { response?: { data?: { detail?: string } } } | null
+      const msg = err?.response?.data?.detail || '选择文件夹失败'
       if (msg !== '未选择文件夹或选择器不可用') {
         toast.error(msg)
       }

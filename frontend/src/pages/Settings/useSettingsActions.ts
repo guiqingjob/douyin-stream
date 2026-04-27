@@ -10,15 +10,18 @@ import {
   deleteQwenAccount,
   getQwenStatus,
   type QwenStatusAccount,
+  getSettings,
   updateDouyinAccountRemark,
   updateBilibiliAccountRemark,
   updateGlobalSettings,
   updateQwenAccountRemark,
 } from '@/lib/api';
 
+type SettingsPayload = Awaited<ReturnType<typeof getSettings>>;
+
 interface SettingsState {
-  settings: any;
-  fetchSettings: () => Promise<any>;
+  settings: SettingsPayload | null;
+  fetchSettings: () => Promise<SettingsPayload | undefined>;
   refreshSettings: () => void;
   qwenCookie: string;
   setQwenCookie: (v: string) => void;
@@ -163,8 +166,8 @@ export function useSettingsActions(state: SettingsState) {
   };
 
   const handleSaveRemark = async (accountId: string, remark: string) => {
-    const isQwenAccount = (state.settings?.qwen_accounts || []).some((a: any) => a.id === accountId);
-    const isBilibiliAccount = (state.settings?.bilibili_accounts || []).some((a: any) => a.id === accountId);
+    const isQwenAccount = (state.settings?.qwen_accounts || []).some((a) => a.id === accountId);
+    const isBilibiliAccount = (state.settings?.bilibili_accounts || []).some((a) => a.id === accountId);
     try {
       if (isQwenAccount) {
         await updateQwenAccountRemark(accountId, remark);

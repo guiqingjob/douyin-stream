@@ -14,7 +14,14 @@ interface CreatorCardProps {
   onTranscribe: (uid: string, nickname: string) => void;
   transcribingUids: Set<string>;
   onDelete: (uid: string) => void;
-  settings?: any;
+  settings?: {
+    status_summary?: {
+      douyin_ready?: boolean;
+      bilibili_accounts_count?: number;
+      douyin_primary_configured?: boolean;
+      douyin_cookie_source?: 'config' | 'pool' | 'none' | string;
+    };
+  } | null;
 }
 
 function getCreatorPlatform(creator: Creator): 'douyin' | 'bilibili' | 'local' {
@@ -50,10 +57,10 @@ export function CreatorCard({
   const taskMessage = relatedTask ? getTaskMessage(relatedTask) : '';
   const taskError = relatedTask ? getTaskError(relatedTask) : '';
 
-  const douyinReady = settings?.status_summary.douyin_ready ?? false;
-  const bilibiliReady = (settings?.status_summary.bilibili_accounts_count ?? 0) > 0;
-  const douyinPrimaryConfigured = settings?.status_summary.douyin_primary_configured ?? false;
-  const douyinCookieSource = settings?.status_summary.douyin_cookie_source ?? 'none';
+  const douyinReady = settings?.status_summary?.douyin_ready ?? false;
+  const bilibiliReady = (settings?.status_summary?.bilibili_accounts_count ?? 0) > 0;
+  const douyinPrimaryConfigured = settings?.status_summary?.douyin_primary_configured ?? false;
+  const douyinCookieSource = settings?.status_summary?.douyin_cookie_source ?? 'none';
 
   const creatorReady = platform === 'bilibili' ? bilibiliReady : platform === 'local' ? false : douyinReady;
 
@@ -177,7 +184,7 @@ export function CreatorCard({
                 ? '请先配置B站账号'
                 : '请先配置抖音账号'
               : platform === 'bilibili'
-                ? `使用B站账号池 (${settings?.status_summary.bilibili_accounts_count ?? 0})`
+                ? `使用B站账号池 (${settings?.status_summary?.bilibili_accounts_count ?? 0})`
                 : douyinPrimaryConfigured
                   ? '使用主 Cookie'
                   : douyinCookieSource === 'pool'

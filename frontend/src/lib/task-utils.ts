@@ -27,9 +27,7 @@ export function parseTaskMessage(payload?: string) {
   try {
     const parsed = JSON.parse(payload);
     if (typeof parsed?.msg === 'string') return parsed.msg;
-  } catch {
-    // ignore
-  }
+  } catch {}
   return '';
 }
 
@@ -124,7 +122,6 @@ export function formatRelativeTimeShort(value?: string | null) {
   }
   if (diff < 2 * day) return '昨天';
   if (diff < 7 * day) return `${Math.floor(diff / day)}天前`;
-  // For older dates: show month-day like "5-15" to stay narrow
   const d = new Date(ts);
   return `${d.getMonth() + 1}-${d.getDate()}`;
 }
@@ -136,14 +133,11 @@ export function getTaskDuration(task: Task): string {
   const state = getTaskDisplayState(task);
   const now = Date.now();
 
-  // For running tasks: time elapsed since update_time (approximation of start)
-  // For completed/failed: show how long ago it finished
   if (state === 'running') {
     const elapsed = now - ts;
     return `进行中 ${formatDurationMs(elapsed)}`;
   }
 
-  // For finished tasks, show time elapsed since finish
   const elapsed = now - ts;
   return formatDurationMs(elapsed) + '前';
 }
