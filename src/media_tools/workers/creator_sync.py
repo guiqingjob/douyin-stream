@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import asyncio
+import json
 import logging
 import sqlite3
 from datetime import UTC, datetime, timedelta
@@ -201,6 +202,78 @@ async def background_creator_download_worker(
 
             new_files = (result.get("new_files") or []) if isinstance(result, dict) else []
 
+        missing_items: list[dict[str, Any]] = []
+        missing_subtasks: list[dict[str, Any]] = []
+        reconcile_total = 0
+        reconcile_missing = 0
+        try:
+            with get_db_connection() as conn:
+                cursor = conn.execute("SELECT aweme_id, desc FROM video_metadata WHERE uid = ?", (uid,))
+                rows = cursor.fetchall()
+                if rows:
+                    videos: list[tuple[str, str]] = []
+                    for r in rows:
+                        aweme_id = r["aweme_id"] if isinstance(r, sqlite3.Row) else r[0]
+                        title = r["desc"] if isinstance(r, sqlite3.Row) else r[1]
+                        videos.append((str(aweme_id), str(title or "")))
+
+                    reconcile_total = len(videos)
+                    placeholders = ",".join(["?"] * len(videos))
+                    cursor = conn.execute(
+                        f"SELECT asset_id, video_status FROM media_assets WHERE creator_uid = ? AND asset_id IN ({placeholders})",
+                        (uid, *[v[0] for v in videos]),
+                    )
+                    status_map = {}
+                    for r in cursor.fetchall():
+                        asset_id = r["asset_id"] if isinstance(r, sqlite3.Row) else r[0]
+                        video_status = r["video_status"] if isinstance(r, sqlite3.Row) else r[1]
+                        status_map[str(asset_id)] = str(video_status or "")
+
+                    for aweme_id, title in videos:
+                        if status_map.get(aweme_id) != "downloaded":
+                            reconcile_missing += 1
+                            missing_items.append(
+                                {
+                                    "aweme_id": aweme_id,
+                                    "title": title,
+                                    "status": "manual_required",
+                                    "reason": "未找到已下载文件",
+                                    "attempts": 0,
+                                }
+                            )
+                            missing_subtasks.append(
+                                {"title": title, "status": "manual_required", "error": "未找到已下载文件"}
+                            )
+
+                    if missing_items:
+                        try:
+                            row = conn.execute("SELECT payload FROM task_queue WHERE task_id = ?", (task_id,)).fetchone()
+                            existing_raw = row["payload"] if row and isinstance(row, sqlite3.Row) else (row[0] if row else None)
+                            base: dict[str, Any] = {}
+                            if existing_raw:
+                                try:
+                                    parsed = json.loads(str(existing_raw))
+                                except (TypeError, ValueError, json.JSONDecodeError):
+                                    parsed = {}
+                                if isinstance(parsed, dict):
+                                    base = parsed
+                            base["missing_items"] = missing_items
+                            conn.execute(
+                                "UPDATE task_queue SET payload = ? WHERE task_id = ?",
+                                (json.dumps(base, ensure_ascii=False), task_id),
+                            )
+                            conn.commit()
+                        except sqlite3.Error:
+                            pass
+        except (sqlite3.Error, OSError, ValueError, TypeError):
+            missing_items = []
+            missing_subtasks = []
+            reconcile_total = 0
+            reconcile_missing = 0
+
+        if missing_items:
+            all_subtasks.extend(missing_subtasks)
+
         # 自动转写
         auto_transcribe = get_runtime_setting_bool("auto_transcribe")
         auto_delete = get_runtime_setting_bool("auto_delete")
@@ -232,14 +305,26 @@ async def background_creator_download_worker(
                     conn.commit()
 
         # 构建结果摘要
-        result_summary = {
-            "success": transcribe_stats["success_count"],
-            "failed": transcribe_stats["failed_count"],
-            "skipped": 0,
-            "total": transcribe_stats["total"],
-        }
+        if transcribe_stats["total"] > 0:
+            result_summary = {
+                "success": transcribe_stats["success_count"],
+                "failed": transcribe_stats["failed_count"],
+                "skipped": 0,
+                "total": transcribe_stats["total"],
+            }
+        elif reconcile_total > 0:
+            result_summary = {
+                "success": max(reconcile_total - reconcile_missing, 0),
+                "failed": reconcile_missing,
+                "skipped": 0,
+                "total": reconcile_total,
+            }
+        else:
+            result_summary = {"success": 0, "failed": 0, "skipped": 0, "total": 0}
         if transcribe_stats["total"] > 0:
             msg = f"{display_name} 同步完成：下载 {total_downloaded} 个，转写成功 {transcribe_stats['success_count']} 个，失败 {transcribe_stats['failed_count']} 个"
+        elif reconcile_total > 0 and reconcile_missing > 0:
+            msg = f"{display_name} 同步完成：入库 {reconcile_total} 条，缺失 {reconcile_missing} 条，可在任务详情中补齐"
         else:
             msg = f"{display_name} 同步完成：共 {total_downloaded} 个新视频（{mode}）"
         with get_db_connection() as conn:
