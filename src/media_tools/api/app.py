@@ -17,6 +17,9 @@ async def lifespan(app: FastAPI):
     from media_tools.db.core import init_db
     init_db(get_db_path())
 
+    from media_tools.db.core import ensure_fts_populated
+    ensure_fts_populated()
+
     scheduler.startup_scheduler()
 
     # Kick off the transcript preview backfill in the background
@@ -126,6 +129,7 @@ app.include_router(douyin.router)
 app.include_router(scheduler.router)
 
 import shutil
+import sqlite3
 
 from media_tools.db.core import get_db_connection
 from media_tools.repositories.task_repository import TaskRepository
@@ -140,7 +144,7 @@ def health_check():
         with get_db_connection() as conn:
             conn.execute("SELECT 1")
         result["db"] = "ok"
-    except Exception as e:
+    except (OSError, RuntimeError, sqlite3.Error) as e:
         result["db"] = f"error: {e}"
         result["status"] = "degraded"
 
@@ -159,7 +163,7 @@ def health_check():
     try:
         active = TaskRepository.find_active()
         result["active_tasks"] = len(active)
-    except Exception as e:
+    except sqlite3.Error as e:
         result["active_tasks"] = f"error: {e}"
 
     return result

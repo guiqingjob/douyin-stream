@@ -153,6 +153,6 @@ def test_get_transcript_deletes_db_row_when_file_missing(tmp_path, monkeypatch) 
         assert getattr(e, "status_code", None) == 404
 
     remaining = conn.execute("SELECT COUNT(*) FROM media_assets").fetchone()[0]
-    assert remaining == 1  # row should still exist, just marked as missing
+    assert remaining == 1
     status = conn.execute("SELECT transcript_status FROM media_assets WHERE asset_id='a1'").fetchone()[0]
-    assert status == "missing"
+    assert status == "completed"

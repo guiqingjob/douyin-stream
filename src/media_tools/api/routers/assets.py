@@ -8,6 +8,7 @@ from media_tools.services.asset_file_ops import (
     get_source_url_column,
     _resolve_asset_video_file,
 )
+from media_tools.services.asset_gc import cleanup_stale_assets
 from typing import Optional
 import sqlite3
 import logging
@@ -62,11 +63,6 @@ def list_assets(
 def search_assets(q: str = Query(..., min_length=1)):
     """搜索素材标题和转写文稿内容（FTS5全文索引）"""
     try:
-        # Lazily populate FTS5 index if empty (first search after startup / DB reset)
-        from media_tools.db.core import ensure_fts_populated
-
-        ensure_fts_populated()
-
         # Sanitize user query: escape FTS5 special chars, allow prefix match with *
         safe_q = q.replace('"', '""')
         # Use prefix match (q*) for better UX
@@ -151,12 +147,6 @@ def get_transcript(asset_id: str):
         transcript_file = resolve_safe_path(transcripts_dir, transcript_name)
 
         if not transcript_file or not transcript_file.exists():
-            with get_db_connection() as conn:
-                conn.execute(
-                    "UPDATE media_assets SET transcript_status = 'missing' WHERE asset_id = ?",
-                    (asset_id,),
-                )
-                conn.commit()
             raise HTTPException(status_code=404, detail="Transcript file not found on disk")
 
         if transcript_file.suffix.lower() == ".docx":
@@ -306,7 +296,6 @@ def bulk_delete_assets(req: BulkAssetDeleteRequest):
     deleted = 0
     with get_db_connection() as conn:
         conn.row_factory = sqlite3.Row
-        conn.execute("BEGIN IMMEDIATE")
         source_url_select = get_source_url_column(conn)
 
         try:
@@ -326,10 +315,17 @@ def bulk_delete_assets(req: BulkAssetDeleteRequest):
                     )
                     failed_deletions.extend(failed)
 
-                if failed_deletions:
-                    conn.rollback()
-                    raise HTTPException(status_code=500, detail=f"部分文件删除失败: {failed_deletions[:10]}")
+            if failed_deletions:
+                raise HTTPException(status_code=500, detail=f"部分文件删除失败: {failed_deletions[:10]}")
 
+            conn.execute("BEGIN IMMEDIATE")
+            for start in range(0, len(req.ids), 500):
+                chunk = req.ids[start:start + 500]
+                placeholders = ",".join("?" * len(chunk))
+                conn.execute(
+                    f"DELETE FROM assets_fts WHERE asset_id IN ({placeholders})",
+                    chunk,
+                )
                 cursor = conn.execute(
                     f"DELETE FROM media_assets WHERE asset_id IN ({placeholders})",
                     chunk,
@@ -339,6 +335,9 @@ def bulk_delete_assets(req: BulkAssetDeleteRequest):
         except HTTPException:
             raise
         except OSError:
+            raise
+        except sqlite3.Error:
+            conn.rollback()
             raise
 
     return {"status": "success", "deleted": deleted}
@@ -391,3 +390,10 @@ def cleanup_missing_assets():
 
         conn.commit()
     return {"status": "success", "deleted": deleted}
+
+
+@router.post("/gc")
+def gc_stale_assets():
+    with get_db_connection() as conn:
+        result = cleanup_stale_assets(conn)
+    return {"status": "success", **result}

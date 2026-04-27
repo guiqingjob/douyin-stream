@@ -283,7 +283,9 @@ class OrchestratorV2:
                         transcript_path=result.export_path,
                         duration=duration,
                     )
-                except Exception as e:  # classify_error 设计为处理任意异常类型
+                except BaseException as e:  # classify_error 设计为处理任意异常类型
+                    if not isinstance(e, Exception):
+                        raise
                     last_error = e
                     last_error_type = classify_error(e)
                     if last_error_type == ErrorType.AUTH and account_id:
@@ -313,7 +315,9 @@ class OrchestratorV2:
                 duration=duration,
             )
 
-        except Exception as e:  # classify_error 设计为处理任意异常类型
+        except BaseException as e:  # classify_error 设计为处理任意异常类型
+            if not isinstance(e, Exception):
+                raise
             duration = time.time() - start_time
             error_type = classify_error(e)
             logger.error(f"转写失败 [{error_type.value}]: {video_path} - {e}")
