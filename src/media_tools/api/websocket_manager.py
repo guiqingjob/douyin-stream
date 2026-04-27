@@ -87,6 +87,7 @@ async def websocket_endpoint(websocket: WebSocket):
     except (RuntimeError, OSError) as e:
         logger.exception(f"WebSocket unexpected error: {e}")
     finally:
+        manager.disconnect(websocket)
         heartbeat_task.cancel()
         try:
             await heartbeat_task
