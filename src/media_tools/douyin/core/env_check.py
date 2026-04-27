@@ -126,16 +126,16 @@ def check_all():
             print_status("error", f"{name}: {message}")
             all_passed = False
 
-    logger.info()
+    logger.info("")
     if all_passed:
         logger.info(success("✓ 环境检测通过，可以正常使用!"))
     else:
         logger.info(error("✗ 环境检测未通过，请先配置环境"))
-        logger.info()
+        logger.info("")
         logger.info(info("安装指南:"))
         logger.info("  1. pip install -r requirements.txt")
         logger.info("  2. brew install ffmpeg  (macOS)")
         logger.info("  3. 运行登录功能配置 Cookie")
 
-    logger.info()
+    logger.info("")
     return all_passed, results

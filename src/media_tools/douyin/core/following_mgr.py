@@ -298,7 +298,7 @@ def display_users():
         rows.append([i, name, uid, followers, videos, local_count, last_fetch])
 
     print_table(headers, rows)
-    logger.info()
+    logger.info("")
     logger.info(info(f"共 {len(users)} 位博主"))
 
     return users
@@ -331,6 +331,6 @@ def batch_add_urls(urls):
         else:
             failed += 1
 
-    logger.info()
+    logger.info("")
     logger.info(success(f"完成! 新增 {added} 个，已存在 {updated} 个，失败 {failed} 个"))
     return added, updated, failed

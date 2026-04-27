@@ -763,10 +763,10 @@ def download_by_url(url, max_counts: int | None = None, disable_auto_transcribe=
         logger.info(info(f"最大下载数量: {max_counts}"))
     if interval:
         logger.info(info(f"时间范围: {interval}"))
-    logger.info()
+    logger.info("")
 
     logger.info(info("开始下载..."))
-    logger.info()
+    logger.info("")
 
     result = download_by_url_sync(url, max_counts, skip_existing=skip_existing, interval=interval)
 
@@ -786,7 +786,7 @@ async def download_aweme_by_url(url: str):
 
     print_header("下载单个视频")
     logger.info(info(f"视频 URL: {url}"))
-    logger.info()
+    logger.info("")
 
     config = get_config()
     downloads_path = config.get_download_path()
@@ -930,7 +930,7 @@ def download_all(auto_confirm=False):
         return 0, 0
 
     logger.info(info(f"共 {len(users)} 位博主"))
-    logger.info()
+    logger.info("")
 
     if not auto_confirm:
         confirm = input("确认开始下载？(y/N): ").strip().lower()
@@ -945,7 +945,7 @@ def download_all(auto_confirm=False):
         uid = user.get("uid")
         name = user.get("nickname", user.get("name", "未知"))
 
-        logger.info()
+        logger.info("")
         logger.info(info(f"[{i}/{len(users)}] 下载: {name}"))
 
         ok = download_by_uid(uid)
@@ -954,7 +954,7 @@ def download_all(auto_confirm=False):
         else:
             failed_count += 1
 
-    logger.info()
+    logger.info("")
     print_header("下载完成")
     logger.info(success(f"成功: {success_count}"))
     logger.info(error(f"失败: {failed_count}"))
@@ -982,7 +982,7 @@ def interactive_select():
 
     # 显示用户列表
     logger.info(info("选择要下载的博主（输入序号，逗号分隔，all=全部，q=返回）"))
-    logger.info()
+    logger.info("")
 
     for i, user in enumerate(users, 1):
         uid = user.get("uid", "未知")
@@ -994,7 +994,7 @@ def interactive_select():
         status = f"已下载 {local_count} 个" if local_count > 0 else "未下载"
         logger.info(f"  {i:2}. {name} ({status})")
 
-    logger.info()
+    logger.info("")
     choice = input("请选择: ").strip().lower()
 
     if choice == "q" or not choice:
@@ -1018,7 +1018,7 @@ def interactive_select():
             logger.info(error("没有有效的选择"))
             return 0, 0
 
-        logger.info()
+        logger.info("")
         logger.info(info(f"已选择 {len(selected)} 个博主"))
 
         success_count = 0
@@ -1028,7 +1028,7 @@ def interactive_select():
             uid = user.get("uid")
             name = user.get("nickname", user.get("name", "未知"))
 
-            logger.info()
+            logger.info("")
             logger.info(info(f"[{i}/{len(selected)}] 下载: {name}"))
 
             ok = download_by_uid(uid)
@@ -1037,7 +1037,7 @@ def interactive_select():
             else:
                 failed_count += 1
 
-        logger.info()
+        logger.info("")
         logger.info(success(f"下载完成: 成功 {success_count}，失败 {failed_count}"))
         return success_count, failed_count
 
@@ -1065,7 +1065,7 @@ def download_sample(auto_confirm=False):
 
     logger.info(info(f"每个博主只下载 1 个视频"))
     logger.info(info(f"共 {len(users)} 位博主"))
-    logger.info()
+    logger.info("")
 
     if not auto_confirm:
         confirm = input("确认开始？(y/N): ").strip().lower()
@@ -1088,6 +1088,6 @@ def download_sample(auto_confirm=False):
         else:
             failed_count += 1
 
-    logger.info()
+    logger.info("")
     logger.info(success(f"采样完成: 成功 {success_count}，失败 {failed_count}"))
     return success_count, failed_count

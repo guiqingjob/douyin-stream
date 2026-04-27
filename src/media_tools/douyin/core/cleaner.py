@@ -74,7 +74,7 @@ def clean_deleted_videos(auto_confirm=False):
             # 获取该用户的博主信息
             user_name = _get_user_name(uid)
 
-            logger.info()
+            logger.info("")
             logger.info(info(f"📝 {user_name} (UID: {uid})"))
             logger.info(f"   数据库记录: {db_count} 个 | 本地文件: {local_count} 个")
             logger.info(f"   需要清理: {bold(str(deleted_count))} 条记录")
@@ -97,13 +97,13 @@ def clean_deleted_videos(auto_confirm=False):
             # 这种情况下不应该清理，反而应该更新数据库
             pass
 
-    logger.info()
+    logger.info("")
     logger.info(separator("─", 60))
-    logger.info()
+    logger.info("")
     logger.info(bold("📊 清理结果:"))
     logger.info(f"  已清理: {bold(str(total_cleaned))} 条记录")
     logger.info(f"  已跳过: {bold(str(total_skipped))} 条记录")
-    logger.info()
+    logger.info("")
 
     return total_cleaned, total_skipped
 
@@ -236,12 +236,12 @@ def interactive_clean_menu():
         logger.info(f"  {bold('1')}. 清理已删除视频的数据库记录")
         logger.info(f"  {bold('2')}. 清理指定博主的所有数据库记录")
         logger.info(f"  {bold('0')}. 返回主菜单")
-        logger.info()
+        logger.info("")
 
         try:
             choice = input("请输入选项 (0-2): ").strip()
         except (EOFError, KeyboardInterrupt):
-            logger.info()
+            logger.info("")
             return
 
         if choice == "0":
@@ -252,7 +252,7 @@ def interactive_clean_menu():
         elif choice == "2":
             _clean_single_user_interactive()
         else:
-            logger.info()
+            logger.info("")
             logger.info(warning("无效的选项，请重新选择"))
 
 
@@ -264,16 +264,16 @@ def _clean_single_user_interactive():
         input("按回车键继续...")
         return
 
-    logger.info()
+    logger.info("")
     logger.info(info("选择要清理的博主（输入序号，q=返回）"))
-    logger.info()
+    logger.info("")
 
     for i, user in enumerate(users, 1):
         uid = user.get("uid", "未知")
         name = user.get("nickname", user.get("name", "未知"))
         logger.info(f"  {i:2}. {name}")
 
-    logger.info()
+    logger.info("")
     try:
         choice = input("请选择: ").strip().lower()
     except (EOFError, KeyboardInterrupt):
@@ -289,7 +289,7 @@ def _clean_single_user_interactive():
             uid = user.get("uid")
             name = user.get("nickname", user.get("name", "未知"))
 
-            logger.info()
+            logger.info("")
             confirm = input(f"确认清理 {name} 的所有数据库记录？(y/N): ").strip().lower()
             if confirm == "y":
                 clean_all_user_data(uid, name)
