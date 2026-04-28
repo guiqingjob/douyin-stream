@@ -60,3 +60,7 @@ class RecoverAwemeTranscribeRequest(BaseModel):
     creator_uid: str
     aweme_id: str
     title: str = ""
+
+
+class CreatorTranscribeCleanupRetryRequest(BaseModel):
+    task_id: str

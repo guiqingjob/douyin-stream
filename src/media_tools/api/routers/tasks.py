@@ -18,9 +18,11 @@ from media_tools.api.schemas import (
     CreatorTranscribeRequest,
     ScanDirectoryRequest,
     RecoverAwemeTranscribeRequest,
+    CreatorTranscribeCleanupRetryRequest,
 )
 from media_tools.workers.task_dispatcher import _start_task_worker, _create_task, _retry_task_worker
 from media_tools.douyin.core.cancel_registry import set_cancel_event, clear_cancel_event, clear_download_progress
+from media_tools.common.paths import get_download_path, get_project_root
 from media_tools.db.core import get_db_connection
 from media_tools.repositories.task_repository import TaskRepository
 from media_tools.core.config import get_runtime_setting_bool
@@ -41,6 +43,7 @@ from media_tools.services.local_asset_service import _register_local_assets
 from media_tools.services.pipeline_progress import build_pipeline_progress
 from media_tools.services.transcript_reconciler import reconcile_transcripts
 from media_tools.services.file_browser import select_folder, scan_directory
+from media_tools.services.cleanup import cleanup_paths_allowlist
 
 # Workers
 from media_tools.workers.pipeline_worker import (
@@ -368,6 +371,89 @@ async def trigger_creator_transcribe(req: CreatorTranscribeRequest):
         file_count = 0
 
     return {"task_id": task_id, "status": "started", "file_count": file_count}
+
+
+@router.post("/transcribe/creator/cleanup-retry")
+def retry_creator_transcribe_cleanup(req: CreatorTranscribeCleanupRetryRequest):
+    try:
+        task = TaskRepository.find_by_id(req.task_id)
+        if not task:
+            raise HTTPException(status_code=404, detail="任务不存在")
+
+        payload_raw = task.get("payload")
+        payload: dict[str, Any] = {}
+        if isinstance(payload_raw, str) and payload_raw:
+            try:
+                parsed = json.loads(payload_raw)
+            except (json.JSONDecodeError, TypeError, ValueError):
+                parsed = {}
+            if isinstance(parsed, dict):
+                payload = parsed
+
+        raw_failed = payload.get("cleanup_failed_paths")
+        failed_paths: list[Path] = []
+        if isinstance(raw_failed, list):
+            for item in raw_failed:
+                if isinstance(item, str) and item:
+                    failed_paths.append(Path(item))
+                    continue
+                if isinstance(item, dict):
+                    path_value = item.get("path")
+                    if isinstance(path_value, str) and path_value:
+                        failed_paths.append(Path(path_value))
+
+        if not failed_paths:
+            TaskRepository.patch_payload(
+                req.task_id,
+                {
+                    "cleanup_failed_count": 0,
+                    "cleanup_failed_paths": [],
+                    "cleanup_retry_at": datetime.now().isoformat(),
+                },
+            )
+            return {
+                "task_id": req.task_id,
+                "deleted_count": 0,
+                "failed_count": 0,
+                "failed_paths": [],
+                "total_deleted_count": int(payload.get("cleanup_deleted_count") or 0),
+            }
+
+        downloads_root = get_download_path()
+        transcripts_root = get_project_root() / "transcripts"
+        outcome = cleanup_paths_allowlist(
+            failed_paths,
+            downloads_root=downloads_root,
+            transcripts_root=transcripts_root,
+        )
+
+        remaining_failed = [fp for fp in outcome.failed_paths if fp.reason != "not_found"]
+        previous_deleted = int(payload.get("cleanup_deleted_count") or 0)
+        total_deleted = previous_deleted + int(outcome.deleted_count or 0)
+
+        failed_payload = [{"path": fp.path, "reason": fp.reason} for fp in remaining_failed]
+        TaskRepository.patch_payload(
+            req.task_id,
+            {
+                "cleanup_deleted_count": total_deleted,
+                "cleanup_failed_count": len(failed_payload),
+                "cleanup_failed_paths": failed_payload,
+                "cleanup_retry_at": datetime.now().isoformat(),
+            },
+        )
+
+        return {
+            "task_id": req.task_id,
+            "deleted_count": outcome.deleted_count,
+            "failed_count": len(failed_payload),
+            "failed_paths": failed_payload,
+            "total_deleted_count": total_deleted,
+        }
+    except HTTPException:
+        raise
+    except (sqlite3.Error, OSError, ValueError, TypeError) as e:
+        logger.exception("retry_creator_transcribe_cleanup failed")
+        raise HTTPException(status_code=500, detail=str(e))
 
 
 @router.post("/recover/aweme")
