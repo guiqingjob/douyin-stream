@@ -188,6 +188,8 @@ transcripts/
 docs/*
 !docs/references/
 !docs/references/**
+!docs/ui/
+!docs/ui/**
 
 !tests/
 tests/*

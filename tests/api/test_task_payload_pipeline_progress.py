@@ -45,6 +45,31 @@ def test_task_history_injects_pipeline_progress_into_payload() -> None:
         INSERT INTO task_queue(task_id, task_type, payload, status, progress, error_msg, create_time, update_time)
         VALUES (?, ?, ?, ?, ?, ?, ?, ?)
         """,
+        (
+            "t-p3",
+            "pipeline",
+            json.dumps(
+                {
+                    "msg": "z",
+                    "max_counts": 99,
+                    "batch_size": 3,
+                    "export_file": "/tmp/export.md",
+                    "export_status": "saved",
+                },
+                ensure_ascii=False,
+            ),
+            "RUNNING",
+            0.2,
+            "",
+            now,
+            now,
+        ),
+    )
+    conn.execute(
+        """
+        INSERT INTO task_queue(task_id, task_type, payload, status, progress, error_msg, create_time, update_time)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+        """,
         ("t-other", "download", json.dumps({"msg": "z"}, ensure_ascii=False), "RUNNING", 0.3, "", now, now),
     )
     conn.execute(
@@ -87,6 +112,11 @@ def test_task_history_injects_pipeline_progress_into_payload() -> None:
 
     payload_other = json.loads(by_id["t-other"]["payload"])
     assert payload_other["pipeline_progress"]["stage"] == "download"
+
+    payload_3 = json.loads(by_id["t-p3"]["payload"])
+    assert payload_3["pipeline_progress"]["download"]["total"] == 3
+    assert payload_3["pipeline_progress"]["export"]["file"] == "/tmp/export.md"
+    assert payload_3["pipeline_progress"]["export"]["status"] == "saved"
 
     payload_c1 = json.loads(by_id["t-c1"]["payload"])
     assert payload_c1["pipeline_progress"]["stage"] == "list"

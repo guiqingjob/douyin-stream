@@ -1,6 +1,7 @@
 import asyncio
 from typing import Any
 from media_tools.pipeline.worker import run_pipeline_for_user, run_batch_pipeline, run_download_only
+from media_tools.repositories.task_repository import TaskRepository
 from media_tools.services.task_ops import update_task_progress, _complete_task, _fail_task
 from media_tools.services.task_state import _task_heartbeat
 
@@ -26,6 +27,7 @@ async def _background_pipeline_worker(task_id: str, req: Any):
         f_count = result.get("failed_count", 0)
         total = result.get("total", s_count + f_count)
         subtasks = result.get("subtasks", [])
+        export_file = result.get("export_file")
 
         result_summary = {
             "success": s_count,
@@ -33,6 +35,18 @@ async def _background_pipeline_worker(task_id: str, req: Any):
             "skipped": 0,
             "total": total,
         }
+
+        patch: dict[str, Any] = {}
+        if isinstance(total, int) and total > 0:
+            patch["batch_size"] = total
+        if isinstance(export_file, str) and export_file.strip():
+            patch["export_file"] = export_file.strip()
+            patch["export_status"] = "saved"
+        if patch:
+            try:
+                TaskRepository.patch_payload(task_id, patch)
+            except (OSError, RuntimeError):
+                pass
 
         if s_count == 0 and f_count == 0:
             msg = "未找到新视频或链接无效"
@@ -77,13 +91,41 @@ async def _background_batch_worker(task_id: str, req: Any):
             delete_after=req.auto_delete,
             task_id=task_id,
         )
-        success_count = result.get('success_count', 0)
-        failed_count = result.get('failed_count', 0)
-        failed_items = result.get('failed_items', []) or []
+        success_count = result.get("success_count", 0)
+        failed_count = result.get("failed_count", 0)
+        total = result.get("total", success_count + failed_count)
+        subtasks = result.get("subtasks", [])
+        export_file = result.get("export_file")
+
+        patch: dict[str, Any] = {}
+        if isinstance(total, int) and total > 0:
+            patch["batch_size"] = total
+        if isinstance(export_file, str) and export_file.strip():
+            patch["export_file"] = export_file.strip()
+            patch["export_status"] = "saved"
+        if patch:
+            try:
+                TaskRepository.patch_payload(task_id, patch)
+            except (OSError, RuntimeError):
+                pass
+
+        result_summary = {
+            "success": int(success_count or 0),
+            "failed": int(failed_count or 0),
+            "skipped": 0,
+            "total": int(total or 0),
+        }
+
         if success_count == 0 and failed_count > 0:
-            await _fail_task(task_id, "pipeline", failed_items[0]["error"] if failed_items else "全部视频处理失败")
+            await _fail_task(task_id, "pipeline", "全部视频处理失败")
         else:
-            await _complete_task(task_id, "pipeline", f"批量处理完成：成功 {success_count} 个，失败 {failed_count} 个")
+            await _complete_task(
+                task_id,
+                "pipeline",
+                f"批量处理完成：成功 {success_count} 个，失败 {failed_count} 个",
+                result_summary=result_summary,
+                subtasks=subtasks,
+            )
     except (RuntimeError, OSError) as e:
         await _fail_task(task_id, "pipeline", str(e))
     finally:

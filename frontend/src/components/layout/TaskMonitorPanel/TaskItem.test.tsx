@@ -1,5 +1,5 @@
 import { describe, it, expect, vi } from 'vitest'
-import { render, screen } from '@testing-library/react'
+import { render, screen, within } from '@testing-library/react'
 import { TaskItem } from './TaskItem'
 
 vi.mock('@/lib/api', () => ({
@@ -100,7 +100,30 @@ describe('TaskItem', () => {
     expect(screen.getByRole('button', { name: '删除' })).toBeInTheDocument()
   })
 
-  it('renders task-center progress line and export meta', () => {
+  it('falls back to legacy progress bar when pipeline_progress missing', () => {
+    render(
+      <TaskItem
+        task={{
+          task_id: 'running-legacy-1',
+          task_type: 'pipeline',
+          status: 'RUNNING',
+          progress: 0.25,
+          payload: JSON.stringify({ msg: 'x' }),
+          error_msg: '',
+          update_time: new Date().toISOString(),
+        }}
+        onRetry={vi.fn()}
+        isExpanded={false}
+        onToggleExpand={vi.fn()}
+      />,
+    )
+
+    expect(screen.getByText('x')).toBeInTheDocument()
+    expect(screen.getByText('25%')).toBeInTheDocument()
+    expect(screen.queryByText(/列表/)).not.toBeInTheDocument()
+  })
+
+  it('shows remaining workload badge computed from pipeline_progress.download', () => {
     render(
       <TaskItem
         task={{
@@ -111,8 +134,8 @@ describe('TaskItem', () => {
           payload: JSON.stringify({
             msg: 'x',
             pipeline_progress: {
-              stage: 'export',
-              list: { done: 1, total: 1 },
+              stage: 'download',
+              list: { done: 58, total: 58 },
               audit: { missing: 2 },
               download: { done: 3, total: 5 },
               transcribe: { done: 1, total: 5 },
@@ -128,28 +151,25 @@ describe('TaskItem', () => {
       />
     )
 
-    expect(screen.getByText('列表 1/1 ✓ 对账 缺 2 下载 3/5 转写 1/5 导出 0/1 out.md polling')).toBeInTheDocument()
+    expect(screen.getByText('剩余 2 条')).toBeInTheDocument()
+    expect(screen.getByText(/下载 3\/5/)).toBeInTheDocument()
+    expect(screen.getByText(/缺失 2/)).toBeInTheDocument()
   })
 
-  it('shows 文件异常 and 重下并转写 for corrupt_file manual_required', () => {
+  it('renders -- instead of 0/0 when totals missing in pipeline_progress', () => {
     render(
       <TaskItem
         task={{
-          task_id: 't1',
+          task_id: 'running-missing-total-1',
           task_type: 'pipeline',
-          status: 'FAILED',
-          progress: 0,
+          status: 'RUNNING',
+          progress: 0.3,
           payload: JSON.stringify({
             msg: 'x',
-            subtasks: [
-              {
-                title: 'v1',
-                status: 'manual_required',
-                error: 'corrupt_file',
-                aweme_id: '123',
-                creator_uid: 'douyin:1',
-              },
-            ],
+            pipeline_progress: {
+              stage: 'download',
+              download: { done: 1, total: 0 },
+            },
           }),
           error_msg: '',
           update_time: new Date().toISOString(),
@@ -157,11 +177,73 @@ describe('TaskItem', () => {
         onRetry={vi.fn()}
         isExpanded={true}
         onToggleExpand={vi.fn()}
+      />,
+    )
+
+    expect(screen.queryByText('0/0')).not.toBeInTheDocument()
+    expect(screen.getAllByText('1/--').length).toBeGreaterThan(0)
+  })
+
+  it('toggles drawer when clicking collapsed row', () => {
+    const onToggleExpand = vi.fn()
+    render(
+      <TaskItem
+        task={{
+          task_id: 'running-toggle-1',
+          task_type: 'pipeline',
+          status: 'RUNNING',
+          progress: 0.85,
+          payload: JSON.stringify({
+            msg: 'x',
+            pipeline_progress: {
+              stage: 'download',
+              download: { done: 1, total: 3 },
+            },
+          }),
+          error_msg: '',
+          update_time: new Date().toISOString(),
+        }}
+        onRetry={vi.fn()}
+        isExpanded={false}
+        onToggleExpand={onToggleExpand}
       />
     )
 
-    expect(screen.getByText('文件异常')).toBeInTheDocument()
-    expect(screen.getByRole('button', { name: /重下并转写/ })).toBeInTheDocument()
-    expect(screen.queryByText('补齐并转写')).not.toBeInTheDocument()
+    screen.getByRole('button', { name: /剩余 2 条/ }).click()
+    expect(onToggleExpand).toHaveBeenCalledWith('running-toggle-1')
   })
+
+  it('shows export file + status inside drawer export card', () => {
+    render(
+      <TaskItem
+        task={{
+          task_id: 'running-export-meta-1',
+          task_type: 'pipeline',
+          status: 'RUNNING',
+          progress: 0.85,
+          payload: JSON.stringify({
+            msg: 'x',
+            pipeline_progress: {
+              stage: 'download',
+              list: { done: 58, total: 58 },
+              audit: { missing: 2 },
+              download: { done: 3, total: 5 },
+              transcribe: { done: 1, total: 5 },
+              export: { done: 0, total: 1, file: 'out.md', status: 'polling' },
+            },
+          }),
+          error_msg: '',
+          update_time: new Date().toISOString(),
+        }}
+        onRetry={vi.fn()}
+        isExpanded={true}
+        onToggleExpand={vi.fn()}
+      />,
+    )
+
+    const exportCard = screen.getByTestId('task-center-export-card')
+    expect(within(exportCard).getByText('out.md')).toBeInTheDocument()
+    expect(within(exportCard).getByText('准备导出')).toBeInTheDocument()
+  })
+
 })

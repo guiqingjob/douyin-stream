@@ -38,6 +38,14 @@ type TaskPayload = {
   creator_uid?: string;
 };
 
+function formatDoneTotal(done: unknown, total: unknown) {
+  const doneValue = typeof done === 'number' && Number.isFinite(done) ? done : null;
+  const totalValue = typeof total === 'number' && Number.isFinite(total) ? total : null;
+  const doneText = doneValue == null ? '--' : String(doneValue);
+  const totalText = totalValue == null || totalValue <= 0 ? '--' : String(totalValue);
+  return `${doneText}/${totalText}`;
+}
+
 function parsePayload(payload?: string): TaskPayload | null {
   if (!payload) return null;
   try {
@@ -51,14 +59,18 @@ function parsePayload(payload?: string): TaskPayload | null {
 
 function buildTaskCenterProgressLine(task: Task, parsed: TaskPayload | null) {
   const pp = parsed?.pipeline_progress;
-  const list = pp?.list ?? { done: 1, total: 1 };
-  const listOk = list.total > 0 && list.done >= list.total;
+  const listDone = pp?.list?.done;
+  const listTotal = pp?.list?.total;
+  const listOk =
+    typeof listDone === 'number' && typeof listTotal === 'number' && listTotal > 0 && listDone >= listTotal;
 
   const missingFromPayload = Array.isArray(parsed?.missing_items) ? parsed?.missing_items.length : 0;
   const auditMissing = pp?.audit?.missing ?? missingFromPayload;
 
-  const download = pp?.download ?? { done: 0, total: 1 };
-  const transcribe = pp?.transcribe ?? { done: 0, total: 0 };
+  const downloadDone = pp?.download?.done;
+  const downloadTotal = pp?.download?.total;
+  const transcribeDone = pp?.transcribe?.done;
+  const transcribeTotal = pp?.transcribe?.total;
   const exportPp = pp?.export;
   const exportDone = exportPp?.done ?? (task.status === 'COMPLETED' ? 1 : 0);
   const exportTotal = exportPp?.total ?? 1;
@@ -66,11 +78,11 @@ function buildTaskCenterProgressLine(task: Task, parsed: TaskPayload | null) {
   const exportStatus = exportPp?.status ?? null;
 
   const parts = [
-    `列表 ${list.done}/${list.total}${listOk ? ' ✓' : ''}`,
+    `列表 ${formatDoneTotal(listDone, listTotal)}${listOk ? ' ✓' : ''}`,
     `对账 缺 ${auditMissing}`,
-    `下载 ${download.done}/${download.total}`,
-    `转写 ${transcribe.done}/${transcribe.total}`,
-    `导出 ${exportDone}/${exportTotal}`,
+    `下载 ${formatDoneTotal(downloadDone, downloadTotal)}`,
+    `转写 ${formatDoneTotal(transcribeDone, transcribeTotal)}`,
+    `导出 ${formatDoneTotal(exportDone, exportTotal)}`,
   ];
 
   const meta = [exportFile ? String(exportFile) : '', exportStatus != null ? String(exportStatus) : '']
@@ -78,6 +90,174 @@ function buildTaskCenterProgressLine(task: Task, parsed: TaskPayload | null) {
     .join(' ');
   if (meta) parts.push(meta);
   return parts.join(' ');
+}
+
+function stageLabel(stage: string) {
+  switch (stage) {
+    case 'list':
+      return '获取列表';
+    case 'audit':
+      return '对账';
+    case 'download':
+      return '下载中';
+    case 'upload':
+      return '上传中';
+    case 'transcribe':
+      return '转写中';
+    case 'export':
+      return '导出中';
+    case 'done':
+      return '完成';
+    case 'failed':
+      return '失败';
+    default:
+      return stage || '';
+  }
+}
+
+function exportStatusLabel(status: unknown) {
+  const s = status == null ? '' : String(status);
+  if (!s || s === 'pending') return '准备导出';
+  if (s === 'writing') return '写入中';
+  if (s === 'done') return '完成';
+  if (s === 'failed') return '失败';
+  if (s === 'polling') return '准备导出';
+  return s;
+}
+
+function exportStatusTone(status: unknown) {
+  const s = status == null ? '' : String(status);
+  if (s === 'done') return 'success';
+  if (s === 'failed') return 'destructive';
+  if (s === 'writing') return 'secondary';
+  return 'default';
+}
+
+function TaskCenterStageDots({ stage }: { stage: string }) {
+  const normalized = stage === 'upload' ? 'transcribe' : stage;
+  const idx = normalized === 'download' ? 0 : normalized === 'transcribe' ? 1 : normalized === 'export' ? 2 : 0;
+  return (
+    <span className="flex items-center gap-1" aria-label="阶段：下载 / 转写 / 导出">
+      {[0, 1, 2].map((i) => (
+        <span
+          key={i}
+          className={cn(
+            'h-1.5 w-1.5 rounded-full',
+            i <= idx ? 'bg-primary' : 'bg-[#3C3C43]/[0.18]',
+          )}
+        />
+      ))}
+    </span>
+  );
+}
+
+function normalizeTaskCenterStage(stage: unknown) {
+  const s = stage == null ? '' : String(stage);
+  if (s === 'upload') return 'transcribe';
+  if (s === 'done') return 'export';
+  if (s === 'failed') return 'export';
+  return s;
+}
+
+function TaskCenterPipelineSteps({
+  pipelineProgress,
+  missingCount,
+}: {
+  pipelineProgress: PipelineProgress;
+  missingCount: number;
+}) {
+  const steps = ['list', 'audit', 'download', 'transcribe', 'export'] as const;
+  const stage = normalizeTaskCenterStage(pipelineProgress.stage);
+  const activeIndex = Math.max(0, steps.indexOf(stage as (typeof steps)[number]));
+
+  const list = pipelineProgress.list;
+  const download = pipelineProgress.download;
+  const transcribe = pipelineProgress.transcribe;
+  const exportPp = pipelineProgress.export;
+
+  const getValue = (key: (typeof steps)[number]) => {
+    if (key === 'list') return formatDoneTotal(list?.done, list?.total);
+    if (key === 'audit') return `缺失 ${missingCount}`;
+    if (key === 'download') return formatDoneTotal(download?.done, download?.total);
+    if (key === 'transcribe') return formatDoneTotal(transcribe?.done, transcribe?.total);
+    const done = exportPp?.done ?? 0;
+    const total = exportPp?.total ?? 1;
+    return formatDoneTotal(done, total);
+  };
+
+  const getTitle = (key: (typeof steps)[number]) => {
+    if (key === 'list') return '列表';
+    if (key === 'audit') return '对账';
+    if (key === 'download') return '下载';
+    if (key === 'transcribe') return '转写';
+    return '导出';
+  };
+
+  return (
+    <div className="grid grid-cols-5 gap-2">
+      {steps.map((key, idx) => {
+        const isActive = idx === activeIndex;
+        const isDone = idx < activeIndex;
+        const isAuditWarn = key === 'audit' && missingCount > 0;
+        return (
+          <div
+            key={key}
+            className={cn(
+              'rounded-xl border px-2.5 py-2',
+              isActive ? 'border-primary/30 bg-primary/10' : 'border-border/60 bg-secondary/20',
+              isDone && 'bg-success/10 border-success/30',
+              isAuditWarn && 'bg-warning/10 border-warning/30',
+            )}
+          >
+            <div className="flex items-center justify-between gap-2">
+              <div className="text-[11px] font-semibold text-foreground/75">{getTitle(key)}</div>
+              {isDone ? (
+                <CheckCircle2 className="size-3.5 text-success" aria-hidden="true" />
+              ) : isActive ? (
+                <Loader2 className="size-3.5 text-primary animate-spin" aria-hidden="true" />
+              ) : (
+                <span className="size-3.5" aria-hidden="true" />
+              )}
+            </div>
+            <div className="mt-0.5 text-[12px] font-medium tabular-nums text-foreground/80">{getValue(key)}</div>
+          </div>
+        );
+      })}
+    </div>
+  );
+}
+
+function TaskCenterExportCard({
+  file,
+  status,
+}: {
+  file: string | null;
+  status: unknown;
+}) {
+  const label = exportStatusLabel(status);
+  const tone = exportStatusTone(status);
+
+  return (
+    <div
+      data-testid="task-center-export-card"
+      className="rounded-[var(--radius-card)] border border-border/60 bg-secondary/20 px-3 py-3"
+    >
+      <div className="flex items-start justify-between gap-3">
+        <div className="flex min-w-0 items-start gap-2">
+          <div className="mt-0.5 flex size-8 shrink-0 items-center justify-center rounded-xl bg-background/60">
+            <FileText className="size-4 text-muted-foreground" aria-hidden="true" />
+          </div>
+          <div className="min-w-0">
+            <div className="text-[12px] font-semibold text-foreground/80">导出</div>
+            <div className="mt-0.5 truncate text-[12px] text-muted-foreground">{file || '—'}</div>
+          </div>
+        </div>
+        <Badge tone={tone} className="shrink-0">
+          {label}
+        </Badge>
+      </div>
+    </div>
+  );
 }
 
 interface TaskItemProps {
@@ -92,13 +272,137 @@ export function TaskItem({ task, onRetry, isExpanded, onToggleExpand }: TaskItem
   const message = getTaskMessage(task);
   const error = getTaskError(task);
   const duration = getTaskDuration(task);
+  const [subtasksExpanded, setSubtasksExpanded] = useState(false);
   const isRunning = state === 'running';
   const isPaused = state === 'paused';
   const isFailed = state === 'failed' || state === 'stale';
   const parsed = useMemo(() => parsePayload(task.payload), [task.payload]);
   const showTaskCenterProgress =
     task.task_type === 'pipeline' || task.task_type === 'download' || task.task_type.startsWith('creator_sync_');
-  const taskCenterProgressLine = showTaskCenterProgress ? buildTaskCenterProgressLine(task, parsed) : '';
+  const pp = parsed?.pipeline_progress;
+  const shouldShowTaskCenterProgress = showTaskCenterProgress && !!pp;
+  const taskCenterProgressLine = shouldShowTaskCenterProgress ? buildTaskCenterProgressLine(task, parsed) : '';
+  const isR1TaskCenterRow = showTaskCenterProgress && !!pp;
+
+  if (isR1TaskCenterRow) {
+    const stage = pp?.stage ? String(pp.stage) : '';
+    const stageText = stageLabel(stage);
+    const missingCount = pp?.audit?.missing ?? (Array.isArray(parsed?.missing_items) ? parsed?.missing_items.length : 0);
+    const downloadDone = pp?.download?.done ?? 0;
+    const downloadTotal = pp?.download?.total ?? 0;
+    const remaining = downloadTotal > 0 ? Math.max(downloadTotal - downloadDone, 0) : 0;
+    const exportStatus = exportStatusLabel(pp?.export?.status);
+
+    const subtitleParts = [
+      pp?.download ? `下载 ${formatDoneTotal(downloadDone, downloadTotal)}` : '',
+      pp?.transcribe ? `转写 ${formatDoneTotal(pp.transcribe.done, pp.transcribe.total)}` : '',
+      missingCount > 0 ? `缺失 ${missingCount}` : '',
+      pp?.export ? `导出 ${exportStatus}` : '',
+    ].filter(Boolean);
+
+    const subtitle = subtitleParts.join(' · ') || message;
+    const drawerId = `task-center-${task.task_id}`;
+    const icon =
+      state === 'running' ? (
+        <Loader2 className="size-4 text-primary animate-spin" />
+      ) : state === 'success' ? (
+        <CheckCircle2 className="size-4 text-success" />
+      ) : state === 'paused' ? (
+        <MinusCircle className="size-4 text-warning" />
+      ) : state === 'failed' || state === 'stale' ? (
+        <XCircle className="size-4 text-destructive" />
+      ) : (
+        <Loader2 className="size-4 text-muted-foreground" />
+      );
+
+    return (
+      <div className="overflow-hidden rounded-[var(--radius-card)] border border-border/60 bg-card apple-shadow-md">
+        <button
+          type="button"
+          aria-expanded={isExpanded}
+          aria-controls={drawerId}
+          onClick={() => onToggleExpand(task.task_id)}
+          className="group flex w-full items-center gap-3 px-3 py-3 text-left transition-colors hover:bg-secondary/40"
+        >
+          <div className="relative flex size-9 shrink-0 items-center justify-center rounded-xl bg-secondary/70">
+            {icon}
+            {isRunning && <span className="absolute right-1.5 top-1.5 size-2 rounded-md bg-primary animate-pulse" />}
+          </div>
+          <div className="min-w-0 flex-1">
+            <div className="truncate text-[13px] font-semibold text-foreground/85">{taskTypeLabel(task.task_type)}</div>
+            <div className="mt-0.5 truncate text-[12px] text-muted-foreground">{subtitle}</div>
+          </div>
+          <div className="flex items-center gap-2">
+            <span className="rounded-full border border-border/60 bg-background/60 px-2.5 py-1 text-[12px] font-medium text-foreground/80">
+              剩余 {remaining} 条
+            </span>
+            <TaskCenterStageDots stage={stage} />
+            <span className="text-[12px] text-muted-foreground">{getTaskStatusLabel(task)}</span>
+            <ChevronDown className={cn('size-4 text-muted-foreground transition-transform', isExpanded ? 'rotate-180' : '')} />
+          </div>
+        </button>
+
+        {isExpanded && (
+          <div id={drawerId} className="border-t border-border/60 px-4 pb-4 pt-3">
+            <div className="flex items-start justify-between gap-3">
+              <div className="min-w-0 flex-1">
+                <div className="flex flex-wrap items-center gap-2">
+                  <Badge
+                    tone={
+                      state === 'running'
+                        ? 'secondary'
+                        : state === 'paused'
+                          ? 'warning'
+                          : state === 'success'
+                            ? 'success'
+                            : state === 'failed' || state === 'stale'
+                              ? 'destructive'
+                              : 'default'
+                    }
+                  >
+                    {getTaskStatusLabel(task)}
+                  </Badge>
+                  {duration && <span className="text-[11px] text-muted-foreground tabular-nums">{duration}</span>}
+                  <span className="text-[11px] text-muted-foreground">{stageText}</span>
+                </div>
+                <div className="mt-1 text-xs font-mono text-muted-foreground/50">{task.task_id}</div>
+              </div>
+              <TaskActions task={task} isRunning={isRunning} isPaused={isPaused} isFailed={isFailed} onRetry={onRetry} />
+            </div>
+
+            {(isRunning || isPaused) && (
+              <div className="mt-3 space-y-1 text-xs">
+                <div className="text-muted-foreground">{message}</div>
+                <div className="text-muted-foreground tabular-nums">{taskCenterProgressLine}</div>
+              </div>
+            )}
+
+            <div className="mt-3 space-y-2">
+              <TaskCenterPipelineSteps pipelineProgress={pp} missingCount={missingCount} />
+              {(pp.export || String(pp.stage || '') === 'export' || String(pp.stage || '') === 'done') && (
+                <TaskCenterExportCard file={pp.export?.file ?? null} status={pp.export?.status} />
+              )}
+            </div>
+
+            {!isRunning && <div className="mt-3 text-sm leading-6 text-muted-foreground">{message}</div>}
+
+            {error && (
+              <div className="mt-3 rounded-[var(--radius-card)] border border-destructive/20 bg-destructive/10 p-3 text-xs leading-6 text-destructive whitespace-pre-wrap">
+                {error}
+              </div>
+            )}
+
+            <TaskStats task={task} />
+            <TaskSubtasks
+              task={task}
+              isExpanded={subtasksExpanded}
+              onToggleExpand={() => setSubtasksExpanded((prev) => !prev)}
+            />
+          </div>
+        )}
+      </div>
+    );
+  }
 
   return (
     <div className="rounded-[var(--radius-card)] border border-border/60 bg-card p-4 apple-shadow-md">
@@ -121,24 +425,16 @@ export function TaskItem({ task, onRetry, isExpanded, onToggleExpand }: TaskItem
             >
               {getTaskStatusLabel(task)}
             </Badge>
-            {duration && (
-              <span className="text-[11px] text-muted-foreground tabular-nums">{duration}</span>
-            )}
+            {duration && <span className="text-[11px] text-muted-foreground tabular-nums">{duration}</span>}
           </div>
           <div className="mt-1 text-xs font-mono text-muted-foreground/50">{task.task_id}</div>
         </div>
-        <TaskActions
-          task={task}
-          isRunning={isRunning}
-          isPaused={isPaused}
-          isFailed={isFailed}
-          onRetry={onRetry}
-        />
+        <TaskActions task={task} isRunning={isRunning} isPaused={isPaused} isFailed={isFailed} onRetry={onRetry} />
       </div>
 
       {(isRunning || isPaused) && (
         <div className="mt-3 space-y-2">
-          {showTaskCenterProgress ? (
+          {shouldShowTaskCenterProgress ? (
             <div className="space-y-1 text-xs">
               <div className="text-muted-foreground">{message}</div>
               <div className="text-muted-foreground tabular-nums">{taskCenterProgressLine}</div>
@@ -160,9 +456,7 @@ export function TaskItem({ task, onRetry, isExpanded, onToggleExpand }: TaskItem
         </div>
       )}
 
-      {!isRunning && (
-        <div className="mt-3 text-sm leading-6 text-muted-foreground">{message}</div>
-      )}
+      {!isRunning && <div className="mt-3 text-sm leading-6 text-muted-foreground">{message}</div>}
 
       {error && (
         <div className="mt-3 rounded-[var(--radius-card)] border border-destructive/20 bg-destructive/10 p-3 text-xs leading-6 text-destructive whitespace-pre-wrap">
@@ -182,22 +476,28 @@ function TaskActions({
   isPaused,
   isFailed,
   onRetry,
+  variant,
 }: {
   task: Task;
   isRunning: boolean;
   isPaused: boolean;
   isFailed: boolean;
   onRetry: (task: Task) => void;
+  variant?: 'macos';
 }) {
   const autoRetryEnabled = !!task.auto_retry;
   const canStop = isRunning || isPaused;
 
   return (
-    <div className="mt-0.5 flex items-center gap-2">
+    <div className={cn('mt-0.5 flex items-center gap-2', variant === 'macos' && 'gap-2')}>
       {isFailed && (
         <button
           onClick={() => onRetry(task)}
-          className="flex h-8 items-center gap-1 rounded-md px-3 text-xs font-medium text-primary transition-colors duration-200 hover:bg-primary/10"
+          className={cn(
+            'flex h-8 items-center gap-1 rounded-md px-3 text-xs font-medium text-primary transition-colors duration-200 hover:bg-primary/10',
+            variant === 'macos' &&
+              'h-auto rounded-[8px] border-[0.5px] border-[#3C3C43]/[0.18] bg-white/40 px-3 py-1.5 text-[13px] font-semibold text-[#007AFF] hover:bg-white/60',
+          )}
           title="重试（重新提交一个新任务）"
         >
           <RotateCw className="size-3.5" />
@@ -217,7 +517,11 @@ function TaskActions({
               // interceptor already toasts
             }
           }}
-          className="flex h-8 items-center gap-1 rounded-md px-3 text-xs font-medium text-primary transition-colors duration-200 hover:bg-primary/10"
+          className={cn(
+            'flex h-8 items-center gap-1 rounded-md px-3 text-xs font-medium text-primary transition-colors duration-200 hover:bg-primary/10',
+            variant === 'macos' &&
+              'h-auto rounded-[8px] border-[0.5px] border-[#3C3C43]/[0.18] bg-white/40 px-3 py-1.5 text-[13px] font-semibold text-[#007AFF] hover:bg-white/60',
+          )}
           title="恢复此任务（继续使用同一任务ID）"
         >
           <RotateCw className="size-3.5" />
@@ -238,7 +542,11 @@ function TaskActions({
               // interceptor already toasts
             }
           }}
-          className="flex h-8 items-center rounded-md px-3 text-xs font-medium text-primary transition-colors duration-200 hover:bg-primary/10"
+          className={cn(
+            'flex h-8 items-center rounded-md px-3 text-xs font-medium text-primary transition-colors duration-200 hover:bg-primary/10',
+            variant === 'macos' &&
+              'h-auto rounded-[8px] border-[0.5px] border-[#3C3C43]/[0.18] bg-white/40 px-3 py-1.5 text-[13px] font-semibold text-[#000]/70 hover:bg-white/60',
+          )}
           title="失败/过期后自动重试"
         >
           自动重试: {autoRetryEnabled ? '开' : '关'}
@@ -257,15 +565,19 @@ function TaskActions({
               // interceptor already toasts
             }
           }}
-          className="flex h-8 items-center rounded-md px-3 text-xs font-medium text-muted-foreground transition-colors duration-200 hover:bg-muted hover:text-foreground"
+          className={cn(
+            'flex h-8 items-center rounded-md px-3 text-xs font-medium text-muted-foreground transition-colors duration-200 hover:bg-muted hover:text-foreground',
+            variant === 'macos' &&
+              'h-auto rounded-[8px] border-[0.5px] border-[#3C3C43]/[0.18] bg-white/40 px-3 py-1.5 text-[13px] font-semibold text-[#3C3C43]/60 hover:bg-white/60',
+          )}
           title="停止任务"
         >
           停止
         </button>
       )}
 
-      {isRunning && <Loader2 className="size-4 animate-spin text-primary" />}
-      {getTaskDisplayState(task) === 'success' && <CheckCircle2 className="size-4 text-success" />}
+      {variant !== 'macos' && isRunning && <Loader2 className="size-4 animate-spin text-primary" />}
+      {variant !== 'macos' && getTaskDisplayState(task) === 'success' && <CheckCircle2 className="size-4 text-success" />}
       <button
         onClick={async () => {
           try {
@@ -277,11 +589,15 @@ function TaskActions({
             // interceptor already toasts
           }
         }}
-        className="flex h-8 items-center gap-1 rounded-md px-3 text-xs font-medium text-destructive transition-colors duration-200 hover:bg-destructive/10"
-        title="删除任务（不可恢复）"
+        className={cn(
+          'flex h-8 items-center gap-1 rounded-md px-3 text-xs font-medium text-destructive transition-colors duration-200 hover:bg-destructive/10',
+          variant === 'macos' &&
+            'ml-4 h-auto rounded-[8px] border-[0.5px] border-[#FF3B30]/20 bg-[#FF3B30]/[0.06] px-3 py-1.5 text-[13px] font-semibold text-[#FF3B30] hover:bg-[#FF3B30]/10',
+        )}
+        title={variant === 'macos' ? '删除记录（不可恢复）' : '删除任务（不可恢复）'}
       >
         <Trash2 className="size-3.5" />
-        删除
+        {variant === 'macos' ? '删除记录' : '删除'}
       </button>
     </div>
   );

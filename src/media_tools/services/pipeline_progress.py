@@ -93,6 +93,22 @@ def _extract_export_meta(payload: dict[str, Any]) -> tuple[str | None, str | int
         file = pipeline_progress.get("file")
         status = pipeline_progress.get("status")
         return (str(file) if isinstance(file, str) and file else None), (status if status is not None else None)
+
+    top_file = payload.get("export_file") or payload.get("export_path")
+    top_status = payload.get("export_status")
+    if isinstance(top_file, str) and top_file.strip():
+        return top_file.strip(), (top_status if top_status is not None else None)
+
+    subtasks = payload.get("subtasks")
+    if isinstance(subtasks, list) and subtasks:
+        for item in reversed(subtasks):
+            if not isinstance(item, dict):
+                continue
+            candidate = item.get("transcript_path") or item.get("export_file") or item.get("file")
+            if isinstance(candidate, str) and candidate.strip():
+                status = payload.get("export_status")
+                return candidate.strip(), (status if status is not None else None)
+
     return None, None
 
 
@@ -135,12 +151,12 @@ def build_pipeline_progress(
     missing = _extract_missing_count(payload)
 
     download_total = 0
-    if isinstance(payload.get("video_urls"), list):
+    if isinstance(payload.get("batch_size"), int):
+        download_total = int(payload.get("batch_size") or 0)
+    elif isinstance(payload.get("video_urls"), list):
         download_total = len(payload.get("video_urls") or [])
     elif isinstance(payload.get("max_counts"), int):
         download_total = int(payload.get("max_counts") or 0)
-    elif isinstance(payload.get("batch_size"), int):
-        download_total = int(payload.get("batch_size") or 0)
     if download_total <= 0:
         download_total = 1
 

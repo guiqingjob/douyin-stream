@@ -198,6 +198,12 @@ async def run_pipeline_for_user(url: str, max_counts: int, update_progress_fn, d
 
     success_count = report.success
     failed_count = report.failed
+    export_file: str | None = None
+    for item in reversed(getattr(report, "results", []) or []):
+        transcript_path = item.get("transcript_path") if isinstance(item, dict) else None
+        if isinstance(transcript_path, str) and transcript_path.strip():
+            export_file = transcript_path.strip()
+            break
     successful_paths = {
         str(Path(item["video_path"]).resolve())
         for item in getattr(report, "results", [])
@@ -232,10 +238,13 @@ async def run_pipeline_for_user(url: str, max_counts: int, update_progress_fn, d
         result_item = result_by_path.get(str(video_path.resolve()))
         status = "completed" if result_item and result_item.get("success") else "failed"
         error = result_item.get("error") if result_item else None
+        transcript_path = result_item.get("transcript_path") if result_item and result_item.get("success") else None
+        transcript_path = transcript_path if isinstance(transcript_path, str) and transcript_path.strip() else None
         subtasks.append({
             "title": video_path.stem,
             "status": status,
             "error": error,
+            **({"transcript_path": transcript_path} if transcript_path else {}),
         })
 
     return {
@@ -243,6 +252,7 @@ async def run_pipeline_for_user(url: str, max_counts: int, update_progress_fn, d
         "failed_count": failed_count,
         "total": total,
         "subtasks": subtasks,
+        **({"export_file": export_file} if export_file else {}),
     }
 
 async def run_batch_pipeline(video_urls: list[str], update_progress_fn, delete_after: bool = True, task_id: str | None = None):
@@ -299,6 +309,12 @@ async def run_batch_pipeline(video_urls: list[str], update_progress_fn, delete_a
 
     success_count = report.success
     failed_count = report.failed
+    export_file: str | None = None
+    for item in reversed(getattr(report, "results", []) or []):
+        transcript_path = item.get("transcript_path") if isinstance(item, dict) else None
+        if isinstance(transcript_path, str) and transcript_path.strip():
+            export_file = transcript_path.strip()
+            break
     successful_paths = {
         str(Path(item["video_path"]).resolve())
         for item in getattr(report, "results", [])
@@ -318,7 +334,35 @@ async def run_batch_pipeline(video_urls: list[str], update_progress_fn, delete_a
                 except OSError as e:
                     logger.error(f"删除视频失败 (DB已更新): {path}, {e}")
 
-    return {"success_count": success_count, "failed_count": failed_count}
+    await call_progress(update_progress_fn, 1.0, f"批量流水线完成: 成功 {success_count}, 失败 {failed_count}", stage="done")
+
+    subtasks: list[dict[str, object]] = []
+    result_by_path: dict[str, dict] = {}
+    for r in getattr(report, "results", []) or []:
+        vp = r.get("video_path", "") if isinstance(r, dict) else ""
+        if vp:
+            result_by_path[str(Path(vp).resolve())] = r
+
+    for video_path in video_paths:
+        result_item = result_by_path.get(str(video_path.resolve()))
+        status = "completed" if result_item and result_item.get("success") else "failed"
+        error = result_item.get("error") if result_item else None
+        transcript_path = result_item.get("transcript_path") if result_item and result_item.get("success") else None
+        transcript_path = transcript_path if isinstance(transcript_path, str) and transcript_path.strip() else None
+        subtasks.append({
+            "title": video_path.stem,
+            "status": status,
+            "error": error,
+            **({"transcript_path": transcript_path} if transcript_path else {}),
+        })
+
+    return {
+        "success_count": success_count,
+        "failed_count": failed_count,
+        "total": len(video_paths),
+        "subtasks": subtasks,
+        **({"export_file": export_file} if export_file else {}),
+    }
 
 
 async def run_download_only(video_urls: list[str], update_progress_fn, task_id: str | None = None):
