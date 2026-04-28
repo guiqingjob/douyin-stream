@@ -2,19 +2,20 @@ from __future__ import annotations
 
 import asyncio
 import logging
+import os
 import re
 import sqlite3
-from dataclasses import dataclass
 from datetime import datetime
 from pathlib import Path
-from typing import Any
 
-from media_tools.common.paths import get_download_path
+from media_tools.common.paths import get_download_path, get_project_root
 from media_tools.db.core import get_db_connection
 from media_tools.repositories.task_repository import TaskRepository
+from media_tools.services.cleanup import cleanup_paths_allowlist, cleanup_task_cache_dir
 from media_tools.services.asset_file_ops import _resolve_asset_video_file, get_source_url_column
-from media_tools.services.task_ops import update_task_progress, _fail_task
-from media_tools.workers.local_transcribe_worker import _background_local_transcribe_worker
+from media_tools.services.task_ops import update_task_progress, _complete_task, _fail_task
+from media_tools.services.task_state import _task_heartbeat
+from media_tools.pipeline.worker import run_local_transcribe
 
 logger = logging.getLogger(__name__)
 
@@ -23,11 +24,54 @@ def _normalize_stem(value: str) -> str:
     return re.sub(r"_[0-9]+$", "", value or "")
 
 
-@dataclass(frozen=True, slots=True)
-class _LocalReq:
-    file_paths: list[str]
-    delete_after: bool = False
-    directory_root: str | None = None
+def _safe_creator_folder_name(value: str) -> str:
+    name = (value or "").strip()
+    if not name:
+        return "unknown"
+    name = re.sub(r'[<>:"/\\|?*]', "_", name)
+    name = re.sub(r"[\s_]+", "_", name).strip("_")
+    return name or "unknown"
+
+
+def _derive_creator_folder(file_paths: list[str], downloads_root: Path, uid: str) -> str:
+    if file_paths:
+        try:
+            rel = Path(file_paths[0]).resolve().relative_to(downloads_root.resolve())
+            if rel.parts:
+                return _safe_creator_folder_name(rel.parts[0])
+        except (OSError, ValueError):
+            pass
+    return _safe_creator_folder_name(uid)
+
+
+def _build_cleanup_candidates(video_path: Path) -> list[Path]:
+    suffixes = [".wav", ".m4a", ".aac", ".mp3", ".tmp", ".part"]
+    base = [video_path]
+    siblings = [video_path.with_suffix(s) for s in suffixes]
+    unique: list[Path] = []
+    seen: set[str] = set()
+    for p in base + siblings:
+        if not p.exists():
+            continue
+        try:
+            rp = str(p.resolve())
+        except OSError:
+            rp = str(p)
+        if rp in seen:
+            continue
+        seen.add(rp)
+        unique.append(p)
+    return unique
+
+
+def _cleanup_retry_delay_seconds() -> float:
+    raw = os.environ.get("MEDIA_TOOLS_CLEANUP_RETRY_DELAY", "").strip()
+    if not raw:
+        return 2.0
+    try:
+        return max(float(raw), 0.0)
+    except ValueError:
+        return 2.0
 
 
 def _discover_creator_files(uid: str) -> tuple[list[str], list[str]]:
@@ -190,5 +234,86 @@ async def background_creator_transcribe_worker(task_id: str, uid: str) -> None:
         stage="queued",
     )
 
-    req = _LocalReq(file_paths=file_paths)
-    await _background_local_transcribe_worker(task_id, req)
+    downloads_root = get_download_path().resolve()
+    transcripts_root = (get_project_root() / "transcripts").resolve()
+    creator_folder = _derive_creator_folder(file_paths, downloads_root, uid)
+    cache_dir = transcripts_root / creator_folder / ".cache" / task_id
+    cache_dir.mkdir(parents=True, exist_ok=True)
+    TaskRepository.patch_payload(task_id, {"cleanup_cache_dir": str(cache_dir)})
+
+    async def _progress_fn(p, m, stage=""):  # noqa: ANN001
+        await update_task_progress(task_id, p, m, "local_transcribe", stage=stage)
+
+    heartbeat = asyncio.create_task(_task_heartbeat(task_id))
+    try:
+        result = await run_local_transcribe(file_paths, _progress_fn, delete_after=False)
+        s_count = int(result.get("success_count", 0) or 0)
+        f_count = int(result.get("failed_count", 0) or 0)
+        total = int(result.get("total", s_count + f_count) or (s_count + f_count))
+        success_paths = [Path(p) for p in (result.get("success_paths") or []) if isinstance(p, str)]
+
+        await update_task_progress(
+            task_id,
+            0.95,
+            "转写完成，开始清理源文件与临时文件...",
+            "local_transcribe",
+            stage="cleanup",
+        )
+
+        cleanup_candidates: list[Path] = []
+        for sp in success_paths:
+            cleanup_candidates.extend(_build_cleanup_candidates(sp))
+
+        outcome = cleanup_paths_allowlist(
+            cleanup_candidates,
+            downloads_root=downloads_root,
+            transcripts_root=transcripts_root,
+        )
+
+        delay = _cleanup_retry_delay_seconds()
+        retry_failed = [Path(p.path) for p in outcome.failed_paths]
+        if retry_failed:
+            if delay > 0:
+                await asyncio.sleep(delay)
+            retry_outcome = cleanup_paths_allowlist(
+                retry_failed,
+                downloads_root=downloads_root,
+                transcripts_root=transcripts_root,
+            )
+            deleted_count = outcome.deleted_count + retry_outcome.deleted_count
+            failed_paths = retry_outcome.failed_paths
+        else:
+            deleted_count = outcome.deleted_count
+            failed_paths = outcome.failed_paths
+
+        cache_outcome = cleanup_task_cache_dir(cache_dir)
+        deleted_count += cache_outcome.deleted_count
+        failed_paths = [*failed_paths, *cache_outcome.failed_paths]
+
+        TaskRepository.patch_payload(
+            task_id,
+            {
+                "cleanup_deleted_count": deleted_count,
+                "cleanup_failed_count": len(failed_paths),
+                "cleanup_failed_paths": [{"path": fp.path, "reason": fp.reason} for fp in failed_paths],
+                "cleanup_cache_dir": str(cache_dir),
+            },
+        )
+
+        msg = (
+            "没有找到有效的音视频文件"
+            if total == 0
+            else f"转写完成：成功 {s_count} 个，失败 {f_count} 个；清理：已删除 {deleted_count} 个，失败 {len(failed_paths)} 个"
+        )
+        await _complete_task(task_id, "local_transcribe", msg)
+    except asyncio.CancelledError:
+        raise
+    except (RuntimeError, OSError, ValueError, TypeError) as e:
+        logger.error(f"Creator transcribe worker failed: {e}")
+        await _fail_task(task_id, "local_transcribe", str(e))
+    finally:
+        heartbeat.cancel()
+        try:
+            await heartbeat
+        except asyncio.CancelledError:
+            pass

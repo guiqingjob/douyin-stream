@@ -17,7 +17,7 @@ async def run_local_transcribe(file_paths: list[str], update_progress_fn=None, d
     valid_paths = filter_supported_media_paths(file_paths)
 
     if not valid_paths:
-        return {"success_count": 0, "failed_count": 0, "total": 0}
+        return {"success_count": 0, "failed_count": 0, "total": 0, "success_paths": [], "failed_paths": []}
 
     config = load_pipeline_config()
     # 不设置 creator_folder_override，让它自动从视频路径提取创作者名称
@@ -34,7 +34,13 @@ async def run_local_transcribe(file_paths: list[str], update_progress_fn=None, d
     except (OSError, asyncio.TimeoutError, RuntimeError) as exc:
         logger.error(f"批量本地转写失败: {exc}")
         failed_count = total
-        return {"success_count": success_count, "failed_count": failed_count, "total": total}
+        return {
+            "success_count": success_count,
+            "failed_count": failed_count,
+            "total": total,
+            "success_paths": [],
+            "failed_paths": [str(p) for p in valid_paths],
+        }
 
     from media_tools.db.core import get_db_connection
     from media_tools.pipeline.preview import extract_transcript_preview, extract_transcript_text
@@ -102,10 +108,16 @@ async def run_local_transcribe(file_paths: list[str], update_progress_fn=None, d
 
     # 构建子任务列表
     subtasks = []
+    success_paths: list[str] = []
+    failed_paths: list[str] = []
     for item in report.results:
         video_path = Path(item["video_path"])
         status = "completed" if item.get("success") else "failed"
         error = item.get("error") if not item.get("success") else None
+        if item.get("success"):
+            success_paths.append(str(video_path))
+        else:
+            failed_paths.append(str(video_path))
         subtasks.append({
             "title": video_path.stem,
             "status": status,
@@ -117,6 +129,8 @@ async def run_local_transcribe(file_paths: list[str], update_progress_fn=None, d
         "failed_count": failed_count,
         "total": total,
         "subtasks": subtasks,
+        "success_paths": success_paths,
+        "failed_paths": failed_paths,
     }
 
 
