@@ -13,6 +13,9 @@ export interface Creator {
   transcript_completed_count?: number;
   transcript_pending_count?: number;
   unread_completed_count?: number;
+  disk_asset_count?: number;
+  disk_transcript_completed_count?: number;
+  disk_transcript_pending_count?: number;
 }
 
 export interface Asset {

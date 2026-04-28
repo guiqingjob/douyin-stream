@@ -7,14 +7,104 @@ from media_tools.repositories.creator_repository import CreatorRepository
 from media_tools.repositories.asset_repository import AssetRepository
 from media_tools.services.bilibili_nickname import fetch_bilibili_nickname
 import os
+import re
 import sqlite3
 import shutil
 import logging
+import threading
+import time
 from pydantic import BaseModel
 from pathlib import Path
 
 router = APIRouter(prefix="/api/v1/creators", tags=["creators"])
 logger = logging.getLogger(__name__)
+
+_DISK_COUNTS_TTL_SECONDS = 10.0
+_disk_counts_cache: dict[str, tuple[float, dict[str, int]]] = {}
+_disk_counts_lock = threading.Lock()
+
+
+def _scan_creator_disk_counts(folder_name: str) -> dict[str, int]:
+    download_dir = get_download_path() / folder_name
+    transcripts_dir = get_project_root() / "transcripts" / folder_name
+
+    mp4_stems: set[str] = set()
+    md_stems: set[str] = set()
+
+    try:
+        if download_dir.is_dir():
+            for p in download_dir.rglob("*.mp4"):
+                if p.is_file():
+                    mp4_stems.add(p.stem)
+    except OSError:
+        mp4_stems = set()
+
+    try:
+        if transcripts_dir.is_dir():
+            for p in transcripts_dir.glob("*.md"):
+                if p.is_file():
+                    md_stems.add(p.stem)
+    except OSError:
+        md_stems = set()
+
+    completed = len(mp4_stems & md_stems)
+    pending = len(mp4_stems - md_stems)
+
+    return {
+        "disk_asset_count": len(mp4_stems),
+        "disk_transcript_completed_count": completed,
+        "disk_transcript_pending_count": pending,
+    }
+
+
+def _get_creator_folder_name(creator: dict) -> str:
+    nickname = str(creator.get("nickname") or "").strip()
+    uid = str(creator.get("uid") or "").strip()
+
+    candidates: list[str] = []
+    if nickname:
+        candidates.append(nickname)
+        try:
+            from media_tools.douyin.utils.config import sanitize_folder_name
+
+            candidates.append(sanitize_folder_name(nickname))
+        except ImportError:
+            pass
+        value = re.sub(r'[<>"/\\|?*]', "", nickname).strip()
+        value = re.sub(r"\.+", "_", value).strip()
+        if value:
+            candidates.append(value)
+
+    if uid:
+        candidates.append(uid)
+
+    seen: set[str] = set()
+    deduped: list[str] = []
+    for c in candidates:
+        if c and c not in seen:
+            seen.add(c)
+            deduped.append(c)
+
+    download_base = get_download_path()
+    transcripts_base = get_project_root() / "transcripts"
+    for c in deduped:
+        if (download_base / c).exists() or (transcripts_base / c).exists():
+            return c
+
+    return deduped[0] if deduped else uid
+
+
+def _get_cached_creator_disk_counts(folder_name: str) -> dict[str, int]:
+    now = time.monotonic()
+    with _disk_counts_lock:
+        hit = _disk_counts_cache.get(folder_name)
+        if hit and hit[0] > now:
+            return dict(hit[1])
+
+    counts = _scan_creator_disk_counts(folder_name)
+    with _disk_counts_lock:
+        _disk_counts_cache[folder_name] = (now + _DISK_COUNTS_TTL_SECONDS, counts)
+    return dict(counts)
 
 
 class CreatorCreateRequest(BaseModel):
@@ -66,7 +156,11 @@ def list_creators(
                 homepage_select=homepage_select,
                 homepage_group=homepage_group,
             ), (limit, offset))
-            return [dict(row) for row in cursor.fetchall()]
+            creators = [dict(row) for row in cursor.fetchall()]
+            for creator in creators:
+                folder_name = _get_creator_folder_name(creator)
+                creator.update(_get_cached_creator_disk_counts(folder_name))
+            return creators
     except sqlite3.Error:
         logger.exception("list_creators failed")
         return []

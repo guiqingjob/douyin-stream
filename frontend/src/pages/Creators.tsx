@@ -55,8 +55,8 @@ export default function Creators() {
   });
 
   const summary = useMemo(() => {
-    const assetCount = creators.reduce((total, c) => total + (c.asset_count || 0), 0);
-    const transcriptCount = creators.reduce((total, c) => total + (c.transcript_completed_count || 0), 0);
+    const assetCount = creators.reduce((total, c) => total + (c.disk_asset_count ?? 0), 0);
+    const transcriptCount = creators.reduce((total, c) => total + (c.disk_transcript_completed_count ?? 0), 0);
     return { creators: creators.length, assets: assetCount, transcripts: transcriptCount };
   }, [creators]);
 

@@ -109,13 +109,13 @@ export function CreatorCard({
           </div>
           <div className="flex items-center gap-4 mt-2 text-xs">
             <span className="text-muted-foreground">
-              素材 <strong className="text-foreground font-medium tabular-nums">{creator.asset_count || 0}</strong>
+              素材 <strong className="text-foreground font-medium tabular-nums">{creator.disk_asset_count ?? 0}</strong>
             </span>
             <span className="text-muted-foreground">
-              已转写 <strong className="text-foreground font-medium tabular-nums">{creator.transcript_completed_count || 0}</strong>
+              已转写 <strong className="text-foreground font-medium tabular-nums">{creator.disk_transcript_completed_count ?? 0}</strong>
             </span>
             <span className="text-muted-foreground">
-              待处理 <strong className="text-foreground font-medium tabular-nums">{creator.transcript_pending_count || 0}</strong>
+              待处理 <strong className="text-foreground font-medium tabular-nums">{creator.disk_transcript_pending_count ?? 0}</strong>
             </span>
           </div>
         </div>
@@ -159,7 +159,7 @@ export function CreatorCard({
           {downloadingCreators[creator.uid] === 'full' ? <Loader2 className="size-4 animate-spin" /> : <HardDriveDownload className="size-4" />}
           全量
         </Button>
-        {(creator.transcript_pending_count ?? 0) > 0 && (
+        {(creator.disk_transcript_pending_count ?? 0) > 0 && (
           <Button
             variant="secondary"
             size="sm"
