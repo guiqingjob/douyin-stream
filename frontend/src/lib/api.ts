@@ -72,6 +72,7 @@ export {
   setAutoRetry,
   clearTaskHistory,
   deleteTask,
+  retryCreatorTranscribeCleanup,
   triggerPipeline,
   triggerBatchPipeline,
   triggerDownloadBatch,

@@ -1,5 +1,5 @@
 import { describe, it, expect, vi } from 'vitest'
-import { render, screen, within } from '@testing-library/react'
+import { render, screen, within, fireEvent, waitFor } from '@testing-library/react'
 import { TaskItem } from './TaskItem'
 
 vi.mock('@/lib/api', () => ({
@@ -8,11 +8,19 @@ vi.mock('@/lib/api', () => ({
   setAutoRetry: vi.fn(),
   deleteTask: vi.fn(),
   recoverAwemeAndTranscribe: vi.fn(),
+  retryCreatorTranscribeCleanup: vi.fn(async () => ({
+    task_id: 'running-export-meta-1',
+    deleted_count: 1,
+    failed_count: 0,
+    failed_paths: [],
+    total_deleted_count: 2,
+  })),
 }))
 
 vi.mock('@/store/useStore', () => {
+  const fetchInitialTasks = vi.fn(async () => void 0)
   const useStore = (() => ({})) as unknown as { getState: () => { fetchInitialTasks: () => Promise<void> } }
-  useStore.getState = () => ({ fetchInitialTasks: vi.fn(async () => void 0) })
+  useStore.getState = () => ({ fetchInitialTasks })
   return { useStore }
 })
 
@@ -213,7 +221,7 @@ describe('TaskItem', () => {
     expect(onToggleExpand).toHaveBeenCalledWith('running-toggle-1')
   })
 
-  it('shows export file + status inside drawer export card', () => {
+  it('shows export file + status inside drawer export card', async () => {
     render(
       <TaskItem
         task={{
@@ -231,6 +239,12 @@ describe('TaskItem', () => {
               transcribe: { done: 1, total: 5 },
               export: { done: 0, total: 1, file: 'out.md', status: 'polling' },
             },
+            cleanup_deleted_count: 1,
+            cleanup_failed_count: 2,
+            cleanup_failed_paths: [
+              { path: '/tmp/a', reason: 'corrupt_file' },
+              { path: '/tmp/b', reason: 'http_403' },
+            ],
           }),
           error_msg: '',
           update_time: new Date().toISOString(),
@@ -244,6 +258,30 @@ describe('TaskItem', () => {
     const exportCard = screen.getByTestId('task-center-export-card')
     expect(within(exportCard).getByText('out.md')).toBeInTheDocument()
     expect(within(exportCard).getByText('准备导出')).toBeInTheDocument()
+
+    expect(screen.getByText('清理汇总')).toBeInTheDocument()
+    expect(screen.getByText('成功 1 · 失败 2 · 共 3')).toBeInTheDocument()
+    expect(screen.getByText('文件异常 × 1')).toBeInTheDocument()
+    expect(screen.getByText('403 无权限 × 1')).toBeInTheDocument()
+
+    const retryButton = screen.getByRole('button', { name: '重试清理' })
+    expect(retryButton).toBeEnabled()
+
+    fireEvent.click(retryButton)
+
+    const { retryCreatorTranscribeCleanup } = await import('@/lib/api')
+    const { useStore } = await import('@/store/useStore')
+    const { toast } = await import('sonner')
+
+    await waitFor(() => {
+      expect(vi.mocked(retryCreatorTranscribeCleanup)).toHaveBeenCalledWith('running-export-meta-1')
+    })
+    await waitFor(() => {
+      expect(toast.success).toHaveBeenCalled()
+    })
+    await waitFor(() => {
+      expect(useStore.getState().fetchInitialTasks).toHaveBeenCalled()
+    })
   })
 
 })

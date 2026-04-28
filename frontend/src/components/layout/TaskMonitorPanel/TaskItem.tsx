@@ -11,7 +11,7 @@ import {
   getTaskStatusLabel,
   taskTypeLabel,
 } from '@/lib/task-utils';
-import { cancelTask, rerunTask, setAutoRetry, deleteTask, recoverAwemeAndTranscribe } from '@/lib/api';
+import { cancelTask, rerunTask, setAutoRetry, deleteTask, recoverAwemeAndTranscribe, retryCreatorTranscribeCleanup } from '@/lib/api';
 import { Badge } from '@/components/ui/badge';
 import type { Task } from '@/lib/api';
 import type { PipelineProgress } from '@/types';
@@ -34,6 +34,10 @@ type TaskPayload = {
   subtasks?: unknown;
   missing_items?: unknown;
   result_summary?: unknown;
+  cleanup_deleted_count?: unknown;
+  cleanup_failed_count?: unknown;
+  cleanup_failed_paths?: unknown;
+  cleanup_retry_at?: unknown;
   uid?: string;
   creator_uid?: string;
 };
@@ -131,6 +135,27 @@ function exportStatusTone(status: unknown) {
   if (s === 'failed') return 'destructive';
   if (s === 'writing') return 'secondary';
   return 'default';
+}
+
+const CLEANUP_REASON_LABELS: Record<string, string> = {
+  corrupt_file: '文件异常',
+  http_403: '403 无权限',
+  forbidden: '403 无权限',
+  removed: '已删除',
+  deleted: '已删除',
+  not_found: '未找到',
+  permission_denied: '无权限',
+  path_outside_root: '路径越界',
+  private: '已设为私密',
+  rate_limited: '触发限流',
+  timeout: '超时',
+  unknown: '未知原因',
+};
+
+function cleanupReasonLabel(reason: string) {
+  const normalized = reason.trim();
+  if (!normalized) return CLEANUP_REASON_LABELS.unknown;
+  return CLEANUP_REASON_LABELS[normalized] ?? normalized;
 }
 
 function TaskCenterStageDots({ stage }: { stage: string }) {
@@ -260,6 +285,119 @@ function TaskCenterExportCard({
   );
 }
 
+function TaskCenterCleanupSummary({ parsed, taskId }: { parsed: TaskPayload | null; taskId: string }) {
+  const [isRetrying, setIsRetrying] = useState(false);
+
+  const cleanupDeletedRaw = parsed?.cleanup_deleted_count;
+  const cleanupFailedRaw = parsed?.cleanup_failed_count;
+
+  const cleanupDeletedCount =
+    typeof cleanupDeletedRaw === 'number' ? cleanupDeletedRaw : typeof cleanupDeletedRaw === 'string' ? Number(cleanupDeletedRaw) : null;
+  const cleanupFailedCount =
+    typeof cleanupFailedRaw === 'number' ? cleanupFailedRaw : typeof cleanupFailedRaw === 'string' ? Number(cleanupFailedRaw) : null;
+
+  const summary = parsed?.result_summary as { success?: number; failed?: number; total?: number } | undefined;
+  const hasCleanupSummary = cleanupDeletedCount != null || cleanupFailedCount != null;
+  const hasResultSummary = !!summary && summary.total != null;
+
+  const reasonCounts = (() => {
+    const counts = new Map<string, number>();
+
+    const cleanupFailedPaths = parsed?.cleanup_failed_paths;
+    if (Array.isArray(cleanupFailedPaths)) {
+      for (const raw of cleanupFailedPaths) {
+        if (!raw || typeof raw !== 'object' || Array.isArray(raw)) continue;
+        const reason = typeof (raw as { reason?: unknown }).reason === 'string' ? String((raw as { reason?: unknown }).reason) : '';
+        if (!reason) continue;
+        const label = cleanupReasonLabel(reason);
+        counts.set(label, (counts.get(label) ?? 0) + 1);
+      }
+    } else if (Array.isArray(parsed?.missing_items)) {
+      for (const raw of parsed.missing_items) {
+        if (!raw || typeof raw !== 'object' || Array.isArray(raw)) continue;
+        const reason = typeof (raw as { reason?: unknown }).reason === 'string' ? String((raw as { reason?: unknown }).reason) : '';
+        if (!reason) continue;
+        const label = cleanupReasonLabel(reason);
+        counts.set(label, (counts.get(label) ?? 0) + 1);
+      }
+    }
+
+    return [...counts.entries()]
+      .sort((a, b) => b[1] - a[1])
+      .map(([label, count]) => ({ label, count }));
+  })();
+
+  if (!hasCleanupSummary && !hasResultSummary && reasonCounts.length === 0) return null;
+
+  const success = (cleanupDeletedCount ?? (summary?.success ?? 0)) || 0;
+  const failed = (cleanupFailedCount ?? (summary?.failed ?? 0)) || 0;
+  const total = (hasResultSummary ? summary?.total : null) ?? success + failed;
+
+  const canRetry = (cleanupFailedCount ?? 0) > 0;
+  const isDisabled = !canRetry || isRetrying;
+
+  return (
+    <div className="rounded-[var(--radius-card)] border border-border/60 bg-secondary/20 px-3 py-3">
+      <div className="flex items-center justify-between gap-3">
+        <div className="text-[12px] font-semibold text-foreground/80">清理汇总</div>
+        <button
+          type="button"
+          disabled={isDisabled}
+          onClick={async () => {
+            if (!canRetry || isRetrying) return;
+            setIsRetrying(true);
+            try {
+              const data = await retryCreatorTranscribeCleanup(taskId);
+              const deletedCount = Number(data.deleted_count || 0);
+              const failedCount = Number(data.failed_count || 0);
+              if (failedCount > 0) {
+                toast.success(`清理已重试：本次删除 ${deletedCount} 个，仍失败 ${failedCount} 个`);
+              } else {
+                toast.success(`清理已完成：本次删除 ${deletedCount} 个`);
+              }
+              const { fetchInitialTasks } = useStore.getState();
+              await fetchInitialTasks();
+            } catch {
+              void 0;
+            } finally {
+              setIsRetrying(false);
+            }
+          }}
+          className={cn(
+            'flex h-7 items-center gap-1 rounded-md px-2 text-[11px] font-medium transition-colors duration-200',
+            isDisabled
+              ? 'text-muted-foreground/70 cursor-not-allowed opacity-60'
+              : 'text-primary hover:bg-primary/10',
+          )}
+          title={canRetry ? '重试删除失败的文件（安全白名单）' : '暂无可重试的失败项'}
+        >
+          {isRetrying ? <Loader2 className="size-3 animate-spin" aria-hidden="true" /> : <RotateCw className="size-3" aria-hidden="true" />}
+          重试清理
+        </button>
+      </div>
+
+      {(hasCleanupSummary || hasResultSummary) && (
+        <p className="mt-1 text-[12px] text-muted-foreground">
+          成功 {success} · 失败 {failed} · 共 {total}
+        </p>
+      )}
+
+      {reasonCounts.length > 0 && (
+        <div className={cn('mt-2 flex flex-wrap gap-1.5', !(hasCleanupSummary || hasResultSummary) && 'mt-1')}>
+          {reasonCounts.map(({ label, count }) => (
+            <span
+              key={label}
+              className="rounded-md border border-border/60 bg-background/60 px-2 py-1 text-[11px] text-foreground/70"
+            >
+              {label} × {count}
+            </span>
+          ))}
+        </div>
+      )}
+    </div>
+  );
+}
+
 interface TaskItemProps {
   task: Task;
   onRetry: (task: Task) => void;
@@ -382,6 +520,7 @@ export function TaskItem({ task, onRetry, isExpanded, onToggleExpand }: TaskItem
               {(pp.export || String(pp.stage || '') === 'export' || String(pp.stage || '') === 'done') && (
                 <TaskCenterExportCard file={pp.export?.file ?? null} status={pp.export?.status} />
               )}
+              <TaskCenterCleanupSummary parsed={parsed} taskId={task.task_id} />
             </div>
 
             {!isRunning && <div className="mt-3 text-sm leading-6 text-muted-foreground">{message}</div>}

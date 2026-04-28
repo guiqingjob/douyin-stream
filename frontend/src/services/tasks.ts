@@ -87,3 +87,23 @@ export const recoverAwemeAndTranscribe = async (
   );
   return response.data;
 };
+
+export type CreatorTranscribeCleanupRetryResponse = {
+  task_id: string;
+  deleted_count: number;
+  failed_count: number;
+  failed_paths: Array<{ path: string; reason: string }>;
+  total_deleted_count: number;
+};
+
+export const retryCreatorTranscribeCleanup = async (
+  taskId: string,
+  signal?: AbortSignal,
+): Promise<CreatorTranscribeCleanupRetryResponse> => {
+  const response = await apiClient.post(
+    '/tasks/transcribe/creator/cleanup-retry',
+    { task_id: taskId },
+    { signal },
+  );
+  return response.data;
+};
