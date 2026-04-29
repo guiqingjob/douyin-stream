@@ -93,5 +93,8 @@ def scan_directory(directory: str):
     files = []
     for f in sorted(dir_path.iterdir()):
         if f.is_file() and f.suffix.lower() in extensions:
-            files.append({"path": str(f), "name": f.name, "size_mb": round(f.stat().st_size / 1024 / 1024, 1)})
+            try:
+                files.append({"path": str(f), "name": f.name, "size_mb": round(f.stat().st_size / 1024 / 1024, 1)})
+            except OSError:
+                continue
     return {"directory": str(dir_path), "files": files}

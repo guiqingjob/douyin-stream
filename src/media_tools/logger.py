@@ -8,7 +8,12 @@
 - 彩色终端输出
 - 文件持久化
 - 日志轮转（自动清理旧日志）
+- 结构化 JSON 日志（MEDIA_TOOLS_LOG_FORMAT=json）
 - 性能追踪
+
+环境变量：
+- MEDIA_TOOLS_LOG_FORMAT=json  → 所有 handler 切换为 JSON 行格式
+- MEDIA_TOOLS_JSON_LOGS=1      → 额外输出一份 .jsonl 文件（与人类可读日志并存）
 """
 
 import json
@@ -37,8 +42,31 @@ class StripAnsiFormatter(logging.Formatter):
         return _ANSI_RE.sub("", s)
 
 
+class AnsiStripFilter(logging.Filter):
+    """在 handler 层清洗 ANSI 码，确保所有 logger（包括 get_logger 返回的原生 Logger）都生效。"""
+
+    def filter(self, record: logging.LogRecord) -> bool:
+        if record.msg and isinstance(record.msg, str):
+            record.msg = _ANSI_RE.sub("", record.msg)
+        if record.args:
+            if isinstance(record.args, dict):
+                record.args = {k: _ANSI_RE.sub("", str(v)) if isinstance(v, str) else v for k, v in record.args.items()}
+            elif isinstance(record.args, tuple):
+                record.args = tuple(_ANSI_RE.sub("", str(v)) if isinstance(v, str) else v for v in record.args)
+        return True
+
+
 class JsonFormatter(logging.Formatter):
     """JSON 结构化日志 formatter，便于日志采集系统解析。"""
+
+    # LogRecord 内部字段集合，用于过滤 extra 字段
+    _RESERVED_ATTRS: frozenset[str] = frozenset({
+        "name", "msg", "args", "levelname", "levelno", "pathname",
+        "filename", "module", "exc_info", "exc_text", "stack_info",
+        "lineno", "funcName", "created", "msecs", "relativeCreated",
+        "thread", "threadName", "processName", "process", "message",
+        "asctime", "taskName",
+    })
 
     def format(self, record: logging.LogRecord) -> str:
         payload: dict[str, Any] = {
@@ -47,19 +75,48 @@ class JsonFormatter(logging.Formatter):
             "logger": record.name,
             "msg": _ANSI_RE.sub("", str(record.getMessage())),
         }
-        if hasattr(record, "exc_info") and record.exc_info:
+        if record.exc_info:
             payload["exception"] = self.formatException(record.exc_info)
-        if hasattr(record, "stack_info") and record.stack_info:
+        if record.stack_info:
             payload["stack"] = record.stack_info
         # 支持额外字段
         for key, value in record.__dict__.items():
-            if key not in {
-                "name", "msg", "args", "levelname", "levelno", "pathname",
-                "filename", "module", "exc_info", "exc_text", "stack_info",
-                "lineno", "funcName", "created", "msecs", "relativeCreated",
-                "thread", "threadName", "processName", "process", "message",
-                "asctime", "taskName",
-            }:
+            if key not in self._RESERVED_ATTRS:
+                payload[key] = value
+        return json.dumps(payload, ensure_ascii=False, default=str)
+
+
+class StructuredFormatter(logging.Formatter):
+    """结构化 JSON 日志 formatter，输出标准字段 timestamp/level/logger/message。
+
+    通过 MEDIA_TOOLS_LOG_FORMAT=json 启用，适用于日志采集系统（ELK、Loki 等）。
+    extra 字段会平铺到 JSON 顶层；exc_info 渲染为 traceback 字段。
+    """
+
+    # LogRecord 内部字段集合，用于过滤 extra 字段
+    _RESERVED_ATTRS: frozenset[str] = frozenset({
+        "name", "msg", "args", "levelname", "levelno", "pathname",
+        "filename", "module", "exc_info", "exc_text", "stack_info",
+        "lineno", "funcName", "created", "msecs", "relativeCreated",
+        "thread", "threadName", "processName", "process", "message",
+        "asctime", "taskName",
+    })
+
+    def format(self, record: logging.LogRecord) -> str:
+        payload: dict[str, Any] = {
+            "timestamp": datetime.fromtimestamp(record.created).isoformat(),
+            "level": record.levelname,
+            "logger": record.name,
+            "message": _ANSI_RE.sub("", str(record.getMessage())),
+        }
+        # 异常信息渲染为 traceback 字段
+        if record.exc_info and record.exc_info[0] is not None:
+            payload["traceback"] = self.formatException(record.exc_info)
+        if record.stack_info:
+            payload["stack_info"] = record.stack_info
+        # 平铺 extra 字段到顶层
+        for key, value in record.__dict__.items():
+            if key not in self._RESERVED_ATTRS:
                 payload[key] = value
         return json.dumps(payload, ensure_ascii=False, default=str)
 
@@ -92,19 +149,24 @@ class MediaLogger:
         # 避免重复添加handler
         if not self.logger.handlers:
             self._setup_handlers()
+            # 启动时清理过期日志文件
+            self._cleanup_old_logs()
 
     def _setup_handlers(self):
         """配置日志handler"""
+        # 全局 ANSI 清洗 filter，挂在根 logger 上，所有子 logger 自动生效
+        self.logger.addFilter(AnsiStripFilter())
+
         # 1. 终端输出（Rich）
         rich_handler = RichHandler(
             console=console,
             show_time=True,
             show_level=True,
             show_path=False,
-            markup=True,
+            markup=False,
         )
         rich_handler.setLevel(logging.INFO)
-        rich_handler.setFormatter(logging.Formatter(
+        rich_handler.setFormatter(StripAnsiFormatter(
             "%(message)s",
             datefmt="[%X]"
         ))
@@ -239,7 +301,7 @@ def get_logger(name: str = "media_tools") -> logging.Logger:
 
 
 def init_logging(
-    level: str = "INFO",
+    level: str | None = None,
     log_dir: Path = Path("logs"),
     max_files: int = 10,
     max_age_days: int = 30,
@@ -247,7 +309,7 @@ def init_logging(
     """初始化日志系统
 
     Args:
-        level: 日志级别 (DEBUG/INFO/WARNING/ERROR)
+        level: 日志级别 (DEBUG/INFO/WARNING/ERROR)，未设置时读取 MEDIA_TOOLS_LOG_LEVEL 环境变量，默认 INFO
         log_dir: 日志目录
         max_files: 最大日志文件数
         max_age_days: 日志保留天数
@@ -257,6 +319,9 @@ def init_logging(
     """
     global _logger
 
+    if level is None:
+        level = os.environ.get("MEDIA_TOOLS_LOG_LEVEL", "INFO")
+
     level_map = {
         "DEBUG": logging.DEBUG,
         "INFO": logging.INFO,
@@ -264,7 +329,9 @@ def init_logging(
         "ERROR": logging.ERROR,
     }
 
-    json_logs = os.environ.get("MEDIA_TOOLS_JSON_LOGS", "").lower() in ("1", "true", "yes")
+    json_logs = os.environ.get("MEDIA_TOOLS_JSON_LOGS", "1").lower() in ("1", "true", "yes")
+    structured = _should_use_structured_logging()
+
     _logger = MediaLogger(
         name="media_tools",
         log_dir=log_dir,
@@ -274,8 +341,42 @@ def init_logging(
         json_logs=json_logs,
     )
 
-    _logger.info(f"日志系统初始化完成 (级别: {level}, JSON日志: {json_logs})")
+    # MEDIA_TOOLS_LOG_FORMAT=json → 所有 handler 切换为结构化 JSON 输出
+    if structured:
+        setup_structured_logging(level)
+
+    _logger.info(f"日志系统初始化完成 (级别: {level}, JSON日志: {json_logs}, 结构化: {structured})")
     return _logger
+
+
+def setup_structured_logging(level: str = "INFO") -> None:
+    """将所有 handler 切换为 JSON 结构化输出。
+
+    调用后，控制台和文件日志统一输出 JSON 行格式，适用于日志采集系统。
+    可在应用启动时显式调用，也可通过 MEDIA_TOOLS_LOG_FORMAT=json 环境变量自动启用。
+
+    Args:
+        level: 日志级别 (DEBUG/INFO/WARNING/ERROR)
+    """
+    level_map = {
+        "DEBUG": logging.DEBUG,
+        "INFO": logging.INFO,
+        "WARNING": logging.WARNING,
+        "ERROR": logging.ERROR,
+    }
+    log_level = level_map.get(level.upper(), logging.INFO)
+
+    formatter = StructuredFormatter()
+
+    root = logging.getLogger("media_tools")
+    root.setLevel(log_level)
+    for handler in root.handlers:
+        handler.setFormatter(formatter)
+
+
+def _should_use_structured_logging() -> bool:
+    """检查环境变量是否启用结构化 JSON 日志。"""
+    return os.environ.get("MEDIA_TOOLS_LOG_FORMAT", "").lower() == "json"
 
 
 def main():

@@ -84,6 +84,16 @@ async def _background_full_sync_worker(task_id: str, mode: str = "incremental", 
                 if isinstance(result, dict) and result.get("success"):
                     creator_success += 1
                     new_video_count += len(result.get("new_files") or [])
+                    # 更新 last_fetch_time，避免下次重复拉取全部列表
+                    try:
+                        from datetime import datetime
+                        with get_db_connection() as conn:
+                            conn.execute(
+                                "UPDATE creators SET last_fetch_time = ? WHERE uid = ?",
+                                (datetime.now().isoformat(), uid),
+                            )
+                    except sqlite3.Error:
+                        pass
                 else:
                     creator_failed += 1
             except (RuntimeError, OSError, asyncio.CancelledError) as exc:

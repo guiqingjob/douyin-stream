@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useMemo } from 'react';
 import { Activity, AlertTriangle, Clock3, Loader2, Trash2 } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { useStore } from '@/store/useStore';
@@ -31,8 +31,17 @@ export function TaskMonitorPanel() {
   const [filter, setFilter] = useState<TaskFilterCategory>('all');
   const [, setTick] = useState(0);
   const [expandedTasks, setExpandedTasks] = useState<Set<string>>(new Set());
-  const allTasks = sortTasks(useStore((state) => state.tasks));
+  const rawTasks = useStore((state) => state.tasks);
+  const fetchInitialTasks = useStore((state) => state.fetchInitialTasks);
+  const allTasks = useMemo(() => sortTasks(rawTasks), [rawTasks]);
   const { handleClearHistory, handleRetry } = useTaskActions();
+
+  // 打开对话框时，如果还没有加载任务，主动拉取一次
+  useEffect(() => {
+    if (open && rawTasks.length === 0) {
+      fetchInitialTasks();
+    }
+  }, [open, rawTasks.length, fetchInitialTasks]);
 
   // Tick every 10s to refresh durations
   useEffect(() => {
@@ -41,28 +50,30 @@ export function TaskMonitorPanel() {
     return () => clearInterval(interval);
   }, [open]);
 
-  const filteredTasks = filterTasksByCategory(allTasks, filter);
+  const filteredTasks = useMemo(() => filterTasksByCategory(allTasks, filter), [allTasks, filter]);
 
-  const activeTasks = allTasks.filter((task) => {
+  const activeTasks = useMemo(() => allTasks.filter((task) => {
     const state = getTaskDisplayState(task);
     return state === 'running' || state === 'paused';
-  });
-  const failedTasks = allTasks.filter((task) => {
+  }), [allTasks]);
+  const failedTasks = useMemo(() => allTasks.filter((task) => {
     const state = getTaskDisplayState(task);
     return state === 'failed' || state === 'stale';
-  });
+  }), [allTasks]);
 
-  const triggerCaption =
+  const triggerCaption = useMemo(() =>
     activeTasks.length > 0
       ? `${activeTasks.length} 个任务进行中`
       : failedTasks.length > 0
         ? `最近 ${failedTasks.length} 个任务异常`
-        : '后台空闲';
+        : '后台空闲',
+    [activeTasks.length, failedTasks.length],
+  );
 
-  const hasNonRunning = allTasks.some((t) => {
+  const hasNonRunning = useMemo(() => allTasks.some((t) => {
     const state = getTaskDisplayState(t);
     return state !== 'running' && state !== 'paused';
-  });
+  }), [allTasks]);
 
   return (
     <Dialog open={open} onOpenChange={setOpen}>
@@ -86,8 +97,8 @@ export function TaskMonitorPanel() {
         )}
       </DialogTrigger>
 
-      <DialogContent className="flex max-h-[85vh] flex-col overflow-hidden rounded-[var(--radius-card)] border border-border/60 bg-card p-0 apple-shadow-md sm:max-w-[680px]">
-        <DialogHeader className="border-b border-border/60 px-6 py-4">
+      <DialogContent className="flex max-h-[85vh] flex-col gap-0 overflow-hidden rounded-[var(--radius-card)] border border-border/60 bg-card p-0 apple-shadow-md sm:max-w-[680px]">
+        <DialogHeader className="shrink-0 border-b border-border/60 px-6 py-4 pr-12">
           <div className="flex items-center justify-between">
             <DialogTitle className="flex items-center gap-2.5 text-[15px] font-semibold">
               <div className="flex size-8 items-center justify-center rounded-md bg-primary/10">
@@ -109,7 +120,7 @@ export function TaskMonitorPanel() {
           </div>
         </DialogHeader>
 
-        <div className="grid grid-cols-4 gap-3 border-b border-border/60 px-6 py-4">
+        <div className="shrink-0 grid grid-cols-4 gap-3 border-b border-border/60 px-6 py-4">
           {[
             { label: '进行中', value: activeTasks.length, tone: 'text-primary' },
             { label: '成功', value: allTasks.filter((t) => getTaskDisplayState(t) === 'success').length, tone: 'text-success' },
@@ -124,7 +135,7 @@ export function TaskMonitorPanel() {
         </div>
 
         {/* Filter tabs */}
-        <div className="border-b border-border/60 px-6 py-3">
+        <div className="shrink-0 border-b border-border/60 px-6 py-3">
           <div className="inline-flex rounded-[var(--radius-card)] border border-border/60 bg-muted p-1">
             {FILTER_TABS.map((tab) => (
               <button
@@ -143,7 +154,7 @@ export function TaskMonitorPanel() {
           </div>
         </div>
 
-        <div className="flex-1 overflow-y-auto p-6 space-y-3">
+        <div className="min-h-0 flex-1 overflow-y-auto p-6">
           {filteredTasks.length === 0 ? (
             <div className="flex flex-col items-center justify-center py-12 text-center">
               <div className="flex size-12 items-center justify-center rounded-[var(--radius-card)] bg-muted">
@@ -154,22 +165,24 @@ export function TaskMonitorPanel() {
               </p>
             </div>
           ) : (
-            filteredTasks.map((task) => (
-              <TaskItem
-                key={task.task_id}
-                task={task}
-                onRetry={handleRetry}
-                isExpanded={expandedTasks.has(task.task_id)}
-                onToggleExpand={(taskId) => {
-                  setExpandedTasks((prev) => {
-                    const next = new Set(prev);
-                    if (next.has(taskId)) next.delete(taskId);
-                    else next.add(taskId);
-                    return next;
-                  });
-                }}
-              />
-            ))
+            <div className="space-y-3">
+              {filteredTasks.map((task) => (
+                <TaskItem
+                  key={task.task_id}
+                  task={task}
+                  onRetry={handleRetry}
+                  isExpanded={expandedTasks.has(task.task_id)}
+                  onToggleExpand={(taskId) => {
+                    setExpandedTasks((prev) => {
+                      const next = new Set(prev);
+                      if (next.has(taskId)) next.delete(taskId);
+                      else next.add(taskId);
+                      return next;
+                    });
+                  }}
+                />
+              ))}
+            </div>
           )}
         </div>
       </DialogContent>

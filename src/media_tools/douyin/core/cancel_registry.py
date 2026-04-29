@@ -2,22 +2,40 @@
 from __future__ import annotations
 
 import threading
+import time
 
 _cancel_events: dict[str, threading.Event] = {}
 
 # 下载进度追踪（供 API 轮询使用）
 _download_progress: dict[str, dict] = {}
 
+# TTL 清理：超过此时间未清理的条目将被自动移除（秒）
+_ENTRY_TTL = 3600  # 1 小时
+_last_activity: dict[str, float] = {}
+
+
+def _maybe_cleanup() -> None:
+    """惰性清理过期条目，防止内存泄漏。"""
+    now = time.monotonic()
+    expired = [k for k, ts in _last_activity.items() if now - ts > _ENTRY_TTL]
+    for k in expired:
+        _cancel_events.pop(k, None)
+        _download_progress.pop(k, None)
+        _last_activity.pop(k, None)
+
 
 def set_cancel_event(task_id: str) -> None:
     """标记指定任务为已取消。"""
     _cancel_events[task_id] = threading.Event()
     _cancel_events[task_id].set()
+    _last_activity[task_id] = time.monotonic()
 
 
 def clear_cancel_event(task_id: str) -> None:
     """清理指定任务的取消标志。"""
     _cancel_events.pop(task_id, None)
+    _download_progress.pop(task_id, None)
+    _last_activity.pop(task_id, None)
 
 
 def is_task_cancelled(task_id: str | None) -> bool:
@@ -36,8 +54,13 @@ def get_download_progress(task_id: str) -> dict | None:
 def set_download_progress(task_id: str, info: dict) -> None:
     """设置指定任务的下载进度信息。"""
     _download_progress[task_id] = info
+    _last_activity[task_id] = time.monotonic()
+    # 每 100 次设置时清理一次过期条目
+    if len(_last_activity) % 100 == 0:
+        _maybe_cleanup()
 
 
 def clear_download_progress(task_id: str) -> None:
     """清理指定任务的下载进度信息。"""
     _download_progress.pop(task_id, None)
+    _last_activity.pop(task_id, None)

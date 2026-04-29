@@ -62,6 +62,10 @@ def load_accounts_config(config_path: str | Path | None = None) -> tuple[Path, l
         parsed = json.loads(path.read_text(encoding="utf-8"))
     except FileNotFoundError:
         return path, []
+    except json.JSONDecodeError as e:
+        from media_tools.logger import get_logger
+        get_logger("accounts").warning(f"accounts config JSON 损坏，返回空列表: {path} ({e})")
+        return path, []
     if not isinstance(parsed, list):
         raise ConfigurationError(f"accounts file must be a JSON array: {path}")
     accounts = [account for item in parsed if (account := _normalize_account_entry(item))]
@@ -106,14 +110,17 @@ def _pool_state_path() -> Path:
 
 def _read_pool_state() -> dict[str, str]:
     state_path = _pool_state_path()
+    default = {
+        "statePath": str(state_path),
+        "lastSuccessfulAccountId": "",
+        "updatedAt": "",
+    }
     try:
         parsed = json.loads(state_path.read_text(encoding="utf-8"))
-    except FileNotFoundError:
-        return {
-            "statePath": str(state_path),
-            "lastSuccessfulAccountId": "",
-            "updatedAt": "",
-        }
+    except (FileNotFoundError, json.JSONDecodeError):
+        return default
+    if not isinstance(parsed, dict):
+        return default
     return {
         "statePath": str(state_path),
         "lastSuccessfulAccountId": str(parsed.get("lastSuccessfulAccountId", "")),
@@ -191,13 +198,14 @@ def mark_account_success(account_id: str) -> None:
         return
     state_path = _pool_state_path()
     ensure_dir(state_path.parent)
-    state_path.write_text(
-        json.dumps(
-            {
-                "lastSuccessfulAccountId": selected_account_id,
-                "updatedAt": datetime.now(UTC).isoformat(timespec="seconds"),
-            },
-            indent=2,
-        ),
-        encoding="utf-8",
+    content = json.dumps(
+        {
+            "lastSuccessfulAccountId": selected_account_id,
+            "updatedAt": datetime.now(UTC).isoformat(timespec="seconds"),
+        },
+        indent=2,
     )
+    tmp_path = state_path.with_suffix(".tmp")
+    tmp_path.write_text(content, encoding="utf-8")
+    import os
+    os.replace(str(tmp_path), str(state_path))

@@ -106,7 +106,7 @@ def _extract_export_meta(payload: dict[str, Any]) -> tuple[str | None, str | int
                 continue
             candidate = item.get("transcript_path") or item.get("export_file") or item.get("file")
             if isinstance(candidate, str) and candidate.strip():
-                status = payload.get("export_status")
+                status = item.get("export_status") or item.get("status")
                 return candidate.strip(), (status if status is not None else None)
 
     return None, None

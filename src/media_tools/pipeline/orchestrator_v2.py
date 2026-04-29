@@ -34,8 +34,8 @@ from ..db.core import get_db_connection
 logger = logging.getLogger(__name__)
 
 
-# 进度回调类型定义
-ProgressCallback = Callable[[int, int, Path, str], None]
+# 进度回调类型定义（最后一位可选参数为当前转写账户ID）
+ProgressCallback = Callable[..., None]
 
 
 class OrchestratorV2:
@@ -75,6 +75,7 @@ class OrchestratorV2:
         self.on_progress = on_progress
         self._creator_folder_override = creator_folder_override
         self._account_pool: AccountPool | None = None  # 账号轮换池
+        self._current_account_id: str | None = None  # 当前转写使用的账户
         # 导出限流信号量（通义 API 限频），默认 2 并发
         self._export_gate = export_gate or asyncio.Semaphore(
             getattr(self.config, 'export_concurrency', 2)
@@ -105,7 +106,7 @@ class OrchestratorV2:
         """
         if self.on_progress:
             try:
-                self.on_progress(current, total, video_path, status)
+                self.on_progress(current, total, video_path, status, self._current_account_id)
             except (RuntimeError, TypeError, ValueError) as e:
                 logger.warning(f"进度回调执行失败: {e}")
 
@@ -246,17 +247,20 @@ class OrchestratorV2:
                 if self._account_pool is None:
                     break
 
-                account = self._account_pool.get_account()
+                account = await self._account_pool.acquire()
                 if account is None:
                     break
 
                 account_id = str(account.get("account_id", "") or "")
                 if account_id in accounts_tried:
+                    self._account_pool.release(account_id)
                     continue
                 accounts_tried.add(account_id)
+                self._current_account_id = account_id
 
                 auth_state_path = account.get("auth_state_path")
                 if auth_state_path is None:
+                    self._account_pool.release(account_id)
                     continue
 
                 try:
@@ -295,6 +299,8 @@ class OrchestratorV2:
                     # 其他错误，记录并继续尝试下一个账号
                     logger.warning(f"转写失败 [{last_error_type.value}]，尝试下一个账号: {e}")
                     continue
+                finally:
+                    self._account_pool.release(account_id)
 
             duration = time.time() - start_time
             return PipelineResultV2(

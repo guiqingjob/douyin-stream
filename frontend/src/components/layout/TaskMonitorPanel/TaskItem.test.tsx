@@ -1,5 +1,5 @@
 import { describe, it, expect, vi } from 'vitest'
-import { render, screen, within, fireEvent, waitFor } from '@testing-library/react'
+import { render, screen, within, fireEvent, waitFor, act } from '@testing-library/react'
 import { TaskItem } from './TaskItem'
 
 vi.mock('@/lib/api', () => ({
@@ -189,7 +189,7 @@ describe('TaskItem', () => {
     )
 
     expect(screen.queryByText('0/0')).not.toBeInTheDocument()
-    expect(screen.getAllByText('1/--').length).toBeGreaterThan(0)
+    expect(screen.getByText(/1\/--/)).toBeInTheDocument()
   })
 
   it('toggles drawer when clicking collapsed row', () => {
@@ -221,7 +221,7 @@ describe('TaskItem', () => {
     expect(onToggleExpand).toHaveBeenCalledWith('running-toggle-1')
   })
 
-  it('shows export file + status inside drawer export card', async () => {
+  it('shows cleanup summary and retry button in drawer', async () => {
     render(
       <TaskItem
         task={{
@@ -255,9 +255,7 @@ describe('TaskItem', () => {
       />,
     )
 
-    const exportCard = screen.getByTestId('task-center-export-card')
-    expect(within(exportCard).getByText('out.md')).toBeInTheDocument()
-    expect(within(exportCard).getByText('准备导出')).toBeInTheDocument()
+    // 导出信息已在摘要行显示（subtitle），抽屉不再单独显示导出卡片
 
     expect(screen.getByText('清理汇总')).toBeInTheDocument()
     expect(screen.getByText('成功 1 · 失败 2 · 共 3')).toBeInTheDocument()
@@ -267,7 +265,9 @@ describe('TaskItem', () => {
     const retryButton = screen.getByRole('button', { name: '重试清理' })
     expect(retryButton).toBeEnabled()
 
-    fireEvent.click(retryButton)
+    await act(async () => {
+      fireEvent.click(retryButton)
+    })
 
     const { retryCreatorTranscribeCleanup } = await import('@/lib/api')
     const { useStore } = await import('@/store/useStore')

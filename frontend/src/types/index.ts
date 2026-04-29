@@ -58,6 +58,7 @@ export type PipelineProgressStage =
 export interface PipelineProgressCounter {
   done: number;
   total: number;
+  account_id?: string;
 }
 
 export interface PipelineProgressExport {

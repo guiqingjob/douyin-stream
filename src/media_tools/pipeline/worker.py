@@ -2,6 +2,7 @@ import asyncio
 import inspect
 import sqlite3
 from pathlib import Path
+from typing import Any
 from media_tools.logger import get_logger
 from media_tools.db.core import local_asset_id
 from media_tools.pipeline.task_helpers import call_progress, create_managed_task, filter_supported_media_paths
@@ -140,7 +141,8 @@ async def run_pipeline_for_user(url: str, max_counts: int, update_progress_fn, d
     from media_tools.pipeline.config import load_pipeline_config
     from media_tools.pipeline.orchestrator_v2 import create_orchestrator
 
-    await call_progress(update_progress_fn, 0.1, "正在下载视频...", stage="download")
+    await call_progress(update_progress_fn, 0.1, "正在下载视频...", stage="download",
+                        pipeline_progress={"download": {"done": 0, "total": max_counts or 0}})
 
     # 1. Download - 使用 router（会自动选择 yt-dlp 或回退到 F2）
     platform = resolve_platform(url)
@@ -179,7 +181,8 @@ async def run_pipeline_for_user(url: str, max_counts: int, update_progress_fn, d
         await call_progress(update_progress_fn, 1.0, "没有下载到新视频", stage="done")
         return {"success_count": 0, "failed_count": 0}
 
-    await call_progress(update_progress_fn, 0.4, f"下载完成，准备转写 {len(new_files)} 个视频...", stage="transcribe")
+    await call_progress(update_progress_fn, 0.4, f"下载完成，准备转写 {len(new_files)} 个视频...", stage="transcribe",
+                        pipeline_progress={"download": {"done": len(new_files), "total": len(new_files)}})
 
     # 2. Transcribe (并发批量转写)
     config = load_pipeline_config()
@@ -190,12 +193,19 @@ async def run_pipeline_for_user(url: str, max_counts: int, update_progress_fn, d
     total = len(new_files)
 
     # 使用批量并发转写
-    def _progress_callback(current: int, total: int, video_path: Path, status: str):
+    def _progress_callback(current: int, total: int, video_path: Path, status: str, account_id: str | None = None):
         progress = 0.4 + 0.6 * (current / total) if total > 0 else 0.4
+        transcribe_info: dict[str, Any] = {"done": current, "total": total}
+        if account_id:
+            transcribe_info["account_id"] = account_id
+        pp = {"transcribe": transcribe_info}
         try:
-            result = update_progress_fn(progress, status, "transcribe")
+            result = update_progress_fn(progress, status, "transcribe", pp)
         except TypeError:
-            result = update_progress_fn(progress, status)
+            try:
+                result = update_progress_fn(progress, status, "transcribe")
+            except TypeError:
+                result = update_progress_fn(progress, status)
         if inspect.isawaitable(result):
             create_managed_task(result)
         elif result is not None:
@@ -304,12 +314,19 @@ async def run_batch_pipeline(video_urls: list[str], update_progress_fn, delete_a
     orchestrator = create_orchestrator(config, state_file=state_file)
 
     # 使用批量并发转写
-    def _progress_callback(current: int, total: int, video_path: Path, status: str):
+    def _progress_callback(current: int, total: int, video_path: Path, status: str, account_id: str | None = None):
         progress = 0.4 + 0.6 * (current / total) if total > 0 else 0.4
+        transcribe_info: dict[str, Any] = {"done": current, "total": total}
+        if account_id:
+            transcribe_info["account_id"] = account_id
+        pp = {"transcribe": transcribe_info}
         try:
-            result = update_progress_fn(progress, status, "transcribe")
+            result = update_progress_fn(progress, status, "transcribe", pp)
         except TypeError:
-            result = update_progress_fn(progress, status)
+            try:
+                result = update_progress_fn(progress, status, "transcribe")
+            except TypeError:
+                result = update_progress_fn(progress, status)
         if inspect.isawaitable(result):
             create_managed_task(result)
         elif result is not None:
@@ -381,7 +398,7 @@ async def run_batch_pipeline(video_urls: list[str], update_progress_fn, delete_a
 
 async def run_download_only(video_urls: list[str], update_progress_fn, task_id: str | None = None):
     """仅下载视频，不转写"""
-    from media_tools.pipeline.download_router import download_by_url as download_router
+    from media_tools.pipeline.download_router import download_by_url as download_router, DownloadResult
 
     total = len(video_urls)
     if total == 0:
@@ -397,7 +414,9 @@ async def run_download_only(video_urls: list[str], update_progress_fn, task_id: 
                 asyncio.to_thread(download_router, url, 1, True, True, task_id),
                 timeout=300,
             )
-            if isinstance(result, dict) and result.get("success"):
+            if isinstance(result, DownloadResult) and result.success:
+                success_count += 1
+            elif isinstance(result, dict) and result.get("success"):
                 success_count += 1
             else:
                 failed_count += 1
@@ -408,4 +427,11 @@ async def run_download_only(video_urls: list[str], update_progress_fn, task_id: 
             logger.error(f"下载失败 {url}: {exc}")
             failed_count += 1
 
+    # 下载循环结束，报告最终进度，确保前端和状态机能看到完成状态
+    await call_progress(
+        update_progress_fn,
+        1.0,
+        f"全部下载完成！共 {success_count} 个视频",
+        stage="done",
+    )
     return {"success_count": success_count, "failed_count": failed_count}

@@ -2,13 +2,13 @@ import asyncio
 from typing import Any
 from media_tools.pipeline.worker import run_pipeline_for_user, run_batch_pipeline, run_download_only
 from media_tools.repositories.task_repository import TaskRepository
-from media_tools.services.task_ops import update_task_progress, _complete_task, _fail_task
+from media_tools.services.task_ops import update_task_progress, _complete_task, _fail_task, _mark_task_cancelled
 from media_tools.services.task_state import _task_heartbeat
 
 
 async def _background_pipeline_worker(task_id: str, req: Any):
-    async def _progress_fn(p, m, stage=""):
-        await update_task_progress(task_id, p, m, "pipeline", stage=stage)
+    async def _progress_fn(p, m, stage="", pipeline_progress=None):
+        await update_task_progress(task_id, p, m, "pipeline", stage=stage, pipeline_progress=pipeline_progress)
 
     heartbeat = asyncio.create_task(_task_heartbeat(task_id))
     try:
@@ -52,7 +52,8 @@ async def _background_pipeline_worker(task_id: str, req: Any):
             msg = "未找到新视频或链接无效"
         elif s_count == 0 and f_count > 0:
             status = "FAILED"
-            first_error = subtasks[0].get("error") if subtasks else "全部视频转写失败"
+            first = subtasks[0] if subtasks and isinstance(subtasks[0], dict) else {}
+            first_error = first.get("error") if first else "全部视频转写失败"
             msg = f"全部转写失败：共 {f_count} 个"
             error_msg = first_error
         else:
@@ -80,8 +81,8 @@ async def _background_pipeline_worker(task_id: str, req: Any):
 
 
 async def _background_batch_worker(task_id: str, req: Any):
-    async def _progress_fn(p, m, stage=""):
-        await update_task_progress(task_id, p, m, "pipeline", stage=stage)
+    async def _progress_fn(p, m, stage="", pipeline_progress=None):
+        await update_task_progress(task_id, p, m, "pipeline", stage=stage, pipeline_progress=pipeline_progress)
 
     heartbeat = asyncio.create_task(_task_heartbeat(task_id))
     try:
@@ -126,6 +127,9 @@ async def _background_batch_worker(task_id: str, req: Any):
                 result_summary=result_summary,
                 subtasks=subtasks,
             )
+    except asyncio.CancelledError:
+        await _mark_task_cancelled(task_id, "pipeline")
+        raise
     except (RuntimeError, OSError) as e:
         await _fail_task(task_id, "pipeline", str(e))
     finally:
@@ -151,6 +155,9 @@ async def _background_download_worker(task_id: str, req: Any):
             task_id, "download",
             f"下载完成：成功 {result.get('success_count', 0)} 个，失败 {result.get('failed_count', 0)} 个"
         )
+    except asyncio.CancelledError:
+        await _mark_task_cancelled(task_id, "download")
+        raise
     except (RuntimeError, OSError) as e:
         await _fail_task(task_id, "download", str(e))
     finally:

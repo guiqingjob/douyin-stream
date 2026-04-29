@@ -4,12 +4,14 @@
 终端美化输出模块 - 提供统一的颜色、进度条、表格等 UI 组件
 """
 
+import logging
 import sys
 from datetime import datetime
 
 from rich.console import Console
 
-console = Console()
+console = Console(no_color=True)
+_logger = logging.getLogger("media_tools.douyin.ui")
 
 
 class Colors:
@@ -94,11 +96,11 @@ def separator(char="=", length=60):
 def print_header(title):
     """打印标题头"""
     width = 60
-    console.print()
-    console.print(separator("=", width))
-    console.print(f"  {bold(title)}")
-    console.print(separator("=", width))
-    console.print()
+    _logger.info("")
+    _logger.info(separator("=", width))
+    _logger.info(f"  {title}")
+    _logger.info(separator("=", width))
+    _logger.info("")
 
 
 def print_menu(items):

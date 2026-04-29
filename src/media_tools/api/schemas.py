@@ -44,7 +44,7 @@ class FullSyncRequest(BaseModel):
 
 class LocalTranscribeRequest(BaseModel):
     file_paths: List[str]
-    delete_after: bool = False
+    delete_after: bool | None = None
     directory_root: str | None = None
 
 

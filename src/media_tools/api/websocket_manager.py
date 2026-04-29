@@ -1,5 +1,6 @@
 import asyncio
 import logging
+import time
 from typing import List
 from fastapi import WebSocket, WebSocketDisconnect
 from starlette.websockets import WebSocketState
@@ -9,21 +10,50 @@ logger = logging.getLogger(__name__)
 # 跟踪所有后台任务，防止 GC 导致静默失败
 _background_tasks: set[asyncio.Task] = set()
 
+# 半开连接检测：超过此时间无活动的连接将被清理（秒）
+_STALE_CONNECTION_TIMEOUT = 120
+
 
 class ConnectionManager:
     def __init__(self):
         self.active_connections: List[WebSocket] = []
+        self._connect_times: dict[int, float] = {}
+        self._last_activity: dict[int, float] = {}
         self._stats = {"connected": 0, "disconnected": 0, "broadcast_success": 0, "broadcast_failed": 0}
 
     async def connect(self, websocket: WebSocket):
         await websocket.accept()
         self.active_connections.append(websocket)
+        ws_id = id(websocket)
+        self._connect_times[ws_id] = time.monotonic()
+        self._last_activity[ws_id] = time.monotonic()
         self._stats["connected"] += 1
 
     def disconnect(self, websocket: WebSocket):
         if websocket in self.active_connections:
             self.active_connections.remove(websocket)
+            ws_id = id(websocket)
+            self._connect_times.pop(ws_id, None)
+            self._last_activity.pop(ws_id, None)
             self._stats["disconnected"] += 1
+
+    def _touch(self, websocket: WebSocket) -> None:
+        """更新连接的最后活动时间"""
+        self._last_activity[id(websocket)] = time.monotonic()
+
+    def cleanup_stale_connections(self) -> int:
+        """清理超过超时时间无活动的连接，返回清理数量"""
+        now = time.monotonic()
+        stale = []
+        for conn in self.active_connections:
+            ws_id = id(conn)
+            last = self._last_activity.get(ws_id, 0)
+            if now - last > _STALE_CONNECTION_TIMEOUT:
+                stale.append(conn)
+        for conn in stale:
+            logger.info(f"清理超时 WebSocket 连接: {id(conn)}")
+            self.disconnect(conn)
+        return len(stale)
 
     def get_stats(self) -> dict:
         return {
@@ -32,8 +62,12 @@ class ConnectionManager:
         }
 
     async def broadcast(self, message: dict):
+        # 先清理超时连接
+        self.cleanup_stale_connections()
+
+        snapshot = list(self.active_connections)
         dead_connections = []
-        for conn in self.active_connections:
+        for conn in snapshot:
             try:
                 if conn.client_state == WebSocketState.DISCONNECTED:
                     dead_connections.append(conn)
@@ -43,9 +77,12 @@ class ConnectionManager:
         for conn in dead_connections:
             self.disconnect(conn)
 
-        for connection in list(self.active_connections):
+        for connection in snapshot:
+            if connection in dead_connections:
+                continue
             try:
                 await connection.send_json(message)
+                self._touch(connection)
                 self._stats["broadcast_success"] += 1
             except (ConnectionResetError, OSError, BrokenPipeError, RuntimeError) as e:
                 logger.info(f"WebSocket 连接已关闭，移除连接: {id(connection)}")
@@ -83,7 +120,7 @@ async def websocket_endpoint(websocket: WebSocket):
             if data:
                 logger.debug(f"WebSocket received: {data[:50]}...")
     except WebSocketDisconnect:
-        manager.disconnect(websocket)
+        pass
     except (RuntimeError, OSError) as e:
         logger.exception(f"WebSocket unexpected error: {e}")
     finally:

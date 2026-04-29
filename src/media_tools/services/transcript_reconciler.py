@@ -13,7 +13,7 @@ def reconcile_transcripts():
     transcripts_dir = project_root / "transcripts"
 
     if not transcripts_dir.exists():
-        return {"status": "error", "message": f"transcripts 目录不存在: {transcripts_dir}"}
+        raise RuntimeError(f"transcripts 目录不存在: {transcripts_dir}")
 
     results = {
         "creators_found": 0,
@@ -33,7 +33,7 @@ def reconcile_transcripts():
                     actual_folders.add(folder.name)
     except FileNotFoundError:
         logger.warning(f"transcripts 目录在遍历时被删除: {transcripts_dir}")
-        return {"status": "error", "message": "transcripts 目录不存在"}
+        raise RuntimeError("transcripts 目录不存在")
 
     with get_db_connection() as conn:
         conn.row_factory = sqlite3.Row
@@ -58,7 +58,12 @@ def reconcile_transcripts():
         ).fetchall()
 
         creators = conn.execute("SELECT uid, nickname FROM creators").fetchall()
-        creator_map = {row['nickname']: row['uid'] for row in creators}
+        # 使用 uid 优先，nickname 碰撞时保留最早插入的
+        creator_map: dict[str, str] = {}
+        for row in creators:
+            nickname = row['nickname']
+            if nickname not in creator_map:
+                creator_map[nickname] = row['uid']
 
         for asset in legacy_assets:
             folder_name = asset['folder_path'] or ''

@@ -52,10 +52,13 @@ async def handle_auto_retry(task_id: str) -> None:
         )
 
         with get_db_connection() as conn:
-            conn.execute(
-                "UPDATE task_queue SET status='RUNNING', progress=0.0, auto_retry=1, payload=? WHERE task_id=?",
+            cursor = conn.execute(
+                "UPDATE task_queue SET status='RUNNING', progress=0.0, auto_retry=1, payload=? WHERE task_id=? AND status='FAILED'",
                 (payload_str, task_id),
             )
+            if cursor.rowcount == 0:
+                logger.info(f"任务 {task_id} 状态已变更，跳过自动重试")
+                return
 
         from media_tools.api.routers.tasks import _start_task_worker
 

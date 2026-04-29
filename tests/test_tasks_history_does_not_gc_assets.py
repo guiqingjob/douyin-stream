@@ -44,6 +44,7 @@ def test_cleanup_stale_tasks_does_not_delete_media_assets() -> None:
         conn.commit()
 
         cleanup_stale_tasks(conn)
+        conn.commit()
         TaskRepository.clear_all_history()
 
         remaining_assets = conn.execute(

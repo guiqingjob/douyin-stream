@@ -5,6 +5,7 @@ type SettingsPayload = Awaited<ReturnType<typeof getSettings>>;
 
 const CREATORS_CACHE_TTL = 30_000; // 30 seconds
 const ASSETS_CACHE_TTL = 30_000; // 30 seconds
+const MAX_TASKS = 200; // 任务列表上限，超出时淘汰已完成/失败的旧任务
 
 interface StoreState {
   activeTaskId: string | null;
@@ -23,6 +24,7 @@ interface StoreState {
   _wsRetryTimer: ReturnType<typeof setTimeout> | null;
   _wsClosing: boolean;
   settings: SettingsPayload | null;
+  _fetchingSettings: Promise<SettingsPayload | undefined> | null;
   fetchSettings: () => Promise<SettingsPayload | undefined>;
   creators: Creator[];
   creatorsLoadedAt: number;
@@ -84,6 +86,18 @@ export const useStore = create<StoreState>((set, get) => ({
       const creatorRelatedTypes = ['pipeline', 'download', 'batch_pipeline', 'creator_sync_incremental', 'creator_sync_full', 'full_sync_incremental', 'full_sync_full'];
       const shouldResetCreators = isCompleted && completedType ? creatorRelatedTypes.includes(completedType) : false;
 
+      // 超出上限时淘汰已完成/失败/取消的旧任务
+      if (updatedTasks.length > MAX_TASKS) {
+        const terminal = updatedTasks.filter(t => ['COMPLETED', 'FAILED', 'CANCELLED'].includes(t.status));
+        const active = updatedTasks.filter(t => !['COMPLETED', 'FAILED', 'CANCELLED'].includes(t.status));
+        const toEvict = Math.max(0, updatedTasks.length - MAX_TASKS);
+        if (toEvict > 0 && terminal.length > 0) {
+          // 淘汰最旧的终态任务（按 update_time 降序排列后截断尾部）
+          terminal.sort((a, b) => (b.update_time || '').localeCompare(a.update_time || ''));
+          updatedTasks = [...active, ...terminal.slice(0, terminal.length - toEvict)];
+        }
+      }
+
       return {
         tasks: updatedTasks,
         ...(isCompleted ? { lastCompletedTaskTime: Date.now(), lastCompletedTaskType: completedType, ...(shouldResetCreators ? { creatorsLoadedAt: 0, assetsLoadedAt: 0 } : { assetsLoadedAt: 0 }) } : {})
@@ -93,17 +107,19 @@ export const useStore = create<StoreState>((set, get) => ({
   fetchInitialTasks: async () => {
     try {
       const history = await getTaskHistory();
-      // 以 REST 返回的列表为基准，WS 更新覆盖其中的进度
       set((state) => {
+        const historyMap = new Map(history.map(t => [t.task_id, t]));
+        // 保留 store 中 WS 已有但 REST 未返回的任务（正在运行中尚未持久化）
+        const wsOnlyTasks = state.tasks.filter(t => !historyMap.has(t.task_id));
+        // REST 返回的任务：优先用 WS 的实时进度
         const merged = history.map((t) => {
           const wsTask = state.tasks.find(s => s.task_id === t.task_id);
-          // WS 的进度更新更实时，优先采用
           if (wsTask && wsTask.update_time && t.update_time) {
             return new Date(wsTask.update_time) > new Date(t.update_time) ? wsTask : t;
           }
           return wsTask && wsTask.progress > t.progress ? wsTask : t;
         });
-        return { tasks: merged };
+        return { tasks: [...merged, ...wsOnlyTasks] };
       });
     } catch (error) {
       console.error("Failed to fetch initial task history", error);
@@ -156,14 +172,22 @@ export const useStore = create<StoreState>((set, get) => ({
     return promise;
   },
   settings: null,
+  _fetchingSettings: null as Promise<SettingsPayload | undefined> | null,
   fetchSettings: async () => {
-    try {
-      const data = await getSettings();
-      set({ settings: data });
-      return data;
-    } catch (error) {
-      console.error("Failed to fetch settings", error);
-    }
+    const { _fetchingSettings } = get();
+    if (_fetchingSettings) return _fetchingSettings;
+    const promise = (async () => {
+      try {
+        const data = await getSettings();
+        set({ settings: data, _fetchingSettings: null });
+        return data;
+      } catch (error) {
+        console.error("Failed to fetch settings", error);
+        set({ _fetchingSettings: null });
+      }
+    })();
+    set({ _fetchingSettings: promise });
+    return promise;
   },
   wsConnected: false,
   _wsRetryCount: 0,
@@ -173,6 +197,11 @@ export const useStore = create<StoreState>((set, get) => ({
     // 如果已有有效连接或正在连接，直接返回
     const { _wsInstance, wsConnected } = get();
     if (wsConnected || (_wsInstance && (_wsInstance.readyState === WebSocket.OPEN || _wsInstance.readyState === WebSocket.CONNECTING))) return;
+
+    // 重置 StrictMode 残留的 _wsClosing 状态，确保新连接不会被误判为主动断开
+    if (get()._wsClosing) {
+      set({ _wsClosing: false });
+    }
 
     const ws = new WebSocket(API_WS_URL);
     set({ _wsInstance: ws });
@@ -214,22 +243,17 @@ export const useStore = create<StoreState>((set, get) => ({
           if (msg) payload.msg = msg;
           if (data.subtasks) payload.subtasks = data.subtasks;
           if (data.result_summary) payload.result_summary = data.result_summary;
-          if (data.pipeline_progress && typeof data.pipeline_progress === 'object' && !Array.isArray(data.pipeline_progress)) {
+          if (data.stage || (data.pipeline_progress && typeof data.pipeline_progress === 'object' && !Array.isArray(data.pipeline_progress))) {
             const existingProgress = payload.pipeline_progress;
             const base =
               existingProgress && typeof existingProgress === 'object' && !Array.isArray(existingProgress)
                 ? (existingProgress as Record<string, unknown>)
                 : {};
-            payload.pipeline_progress = { ...base, ...(data.pipeline_progress as Record<string, unknown>) };
-          }
-          if (data.stage) {
-            payload.stage = data.stage;
-            const existingProgress = payload.pipeline_progress;
-            const base =
-              existingProgress && typeof existingProgress === 'object' && !Array.isArray(existingProgress)
-                ? (existingProgress as Record<string, unknown>)
-                : {};
-            payload.pipeline_progress = { ...base, stage: data.stage };
+            const incoming = (data.pipeline_progress && typeof data.pipeline_progress === 'object' && !Array.isArray(data.pipeline_progress))
+              ? (data.pipeline_progress as Record<string, unknown>)
+              : {};
+            payload.pipeline_progress = { ...base, ...incoming, ...(data.stage ? { stage: data.stage } : {}) };
+            if (data.stage) payload.stage = data.stage;
           }
           update.payload = JSON.stringify(payload);
         }
@@ -243,6 +267,8 @@ export const useStore = create<StoreState>((set, get) => ({
     };
 
     ws.onclose = () => {
+      // 如果已有新连接，忽略旧连接的 onclose（React StrictMode 会 mount→unmount→mount）
+      if (get()._wsInstance !== ws) return;
       set({ wsConnected: false, _wsInstance: null });
       // 如果是主动断开，不重连
       if (get()._wsClosing) {
@@ -282,6 +308,6 @@ export const useStore = create<StoreState>((set, get) => ({
       set({ _wsClosing: true });
       _wsInstance.close();
     }
-    set({ _wsInstance: null, wsConnected: false, _wsRetryTimer: null, _wsRetryCount: 0 });
+    set({ _wsInstance: null, wsConnected: false, _wsRetryTimer: null, _wsRetryCount: 0, _wsClosing: false });
   }
 }));

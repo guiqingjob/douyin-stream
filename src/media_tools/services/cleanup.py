@@ -109,7 +109,10 @@ def cleanup_task_cache_dir(cache_dir: Path) -> CleanupOutcome:
     failed_paths: list[CleanupFailedPath] = []
 
     try:
-        shutil.rmtree(resolved, ignore_errors=False)
+        if resolved.is_file():
+            resolved.unlink()
+        else:
+            shutil.rmtree(resolved, ignore_errors=False)
     except FileNotFoundError:
         return CleanupOutcome(deleted_count=0, failed_count=0, failed_paths=[])
     except OSError as exc:

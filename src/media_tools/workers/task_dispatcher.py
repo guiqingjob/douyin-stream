@@ -1,6 +1,8 @@
 from typing import Any
 import uuid
 
+from fastapi import HTTPException
+
 from media_tools.api.schemas import (
     PipelineRequest,
     BatchPipelineRequest,
@@ -74,7 +76,7 @@ async def _start_task_worker(task_id: str, task_type: str, original_params: dict
         return {"task_id": task_id, "status": "started", "message": "Local transcribe task rerun"}
 
     else:
-        return {"status": "error", "message": f"Unsupported task type: {task_type}"}
+        raise HTTPException(status_code=400, detail=f"Unsupported task type: {task_type}")
 
 
 async def _retry_task_worker(task_id: str, task_type: str, original_params: dict[str, Any]):
@@ -156,4 +158,4 @@ async def _retry_task_worker(task_id: str, task_type: str, original_params: dict
         return {"task_id": new_task_id, "status": "started", "message": "Local transcribe task retry started"}
 
     else:
-        return {"status": "error", "message": f"Unsupported task type for retry: {task_type}"}
+        raise HTTPException(status_code=400, detail=f"Unsupported task type for retry: {task_type}")

@@ -1,5 +1,5 @@
 import { NavLink } from 'react-router-dom';
-import { Compass, Users, Settings, Sun, Moon, Monitor } from 'lucide-react';
+import { Compass, Users, Settings, Sun, Moon } from 'lucide-react';
 import { useTheme } from 'next-themes';
 import { cn } from '@/lib/utils';
 import { TaskMonitorPanel } from '@/components/layout/TaskMonitorPanel';
@@ -55,21 +55,16 @@ function SidebarItem({
 
 function ThemeToggle() {
   const { theme, setTheme } = useTheme();
-  const cycle = () => {
-    if (theme === 'light') setTheme('dark');
-    else if (theme === 'dark') setTheme('system');
-    else setTheme('light');
-  };
-  const icon = theme === 'light' ? <Sun className="size-4" /> : theme === 'dark' ? <Moon className="size-4" /> : <Monitor className="size-4" />;
-  const label = theme === 'light' ? '浅色' : theme === 'dark' ? '深色' : '系统';
+  const isDark = theme === 'dark';
+  const toggle = () => setTheme(isDark ? 'light' : 'dark');
   return (
     <button
-      onClick={cycle}
+      onClick={toggle}
       className="flex items-center gap-3 h-8 px-3 rounded-md cursor-pointer select-none transition-colors duration-200 hover:bg-foreground/[0.03] text-foreground font-medium w-full"
-      aria-label={`当前主题: ${label}，点击切换`}
+      aria-label={`当前主题: ${isDark ? '深色' : '浅色'}，点击切换`}
     >
-      {icon}
-      <span className="text-[14px]">主题 · {label}</span>
+      {isDark ? <Moon className="size-4" /> : <Sun className="size-4" />}
+      <span className="text-[14px]">主题 · {isDark ? '深色' : '浅色'}</span>
     </button>
   );
 }

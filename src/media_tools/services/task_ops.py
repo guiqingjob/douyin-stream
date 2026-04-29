@@ -8,6 +8,7 @@ from media_tools.api.websocket_manager import manager
 from media_tools.db.core import get_db_connection
 from media_tools.core.config import get_runtime_setting_int
 from media_tools.services.auto_retry import schedule_auto_retry
+from media_tools.repositories.task_repository import _merge_task_payload, _merge_payload_from_db
 
 logger = logging.getLogger(__name__)
 DEFAULT_TASK_STALE_MINUTES = 20
@@ -101,8 +102,6 @@ def cleanup_stale_tasks(conn: sqlite3.Connection, stale_minutes: int | None = No
         (delete_cutoff,),
     )
 
-    conn.commit()
-
 
 async def notify_task_update(
     task_id: str,
@@ -113,6 +112,7 @@ async def notify_task_update(
     result_summary: dict | None = None,
     subtasks: list | None = None,
     stage: str = "",
+    pipeline_progress: dict | None = None,
 ):
     message = {
         "task_id": task_id,
@@ -127,49 +127,12 @@ async def notify_task_update(
         message["result_summary"] = result_summary
     if subtasks:
         message["subtasks"] = subtasks[-20:]
+    if pipeline_progress:
+        message["pipeline_progress"] = pipeline_progress
     await manager.broadcast(message)
 
 
-def _merge_task_payload(
-    existing_payload: str | None,
-    msg: str,
-    result_summary: dict | None = None,
-    subtasks: list | None = None,
-) -> str:
-    base_payload: dict = {}
-    if existing_payload:
-        try:
-            parsed = json.loads(existing_payload)
-            if isinstance(parsed, dict):
-                base_payload = parsed
-        except (json.JSONDecodeError, TypeError):
-            base_payload = {}
-    base_payload["msg"] = msg
-    if result_summary:
-        base_payload["total"] = result_summary.get("total", 0)
-        base_payload["completed"] = result_summary.get("success", 0)
-        base_payload["failed"] = result_summary.get("failed", 0)
-        base_payload["result_summary"] = result_summary
-    if subtasks:
-        base_payload["subtasks"] = subtasks[-100:]
-    return json.dumps(base_payload, ensure_ascii=False)
-
-
-def _merge_payload_from_db(
-    conn: sqlite3.Connection,
-    task_id: str,
-    msg: str,
-    result_summary: dict | None = None,
-    subtasks: list | None = None,
-) -> str:
-    try:
-        cursor = conn.execute("SELECT payload FROM task_queue WHERE task_id = ?", (task_id,))
-        row = cursor.fetchone()
-        existing = row["payload"] if row else None
-    except sqlite3.Error as e:
-        logger.warning(f"读取任务payload失败: {e}")
-        existing = None
-    return _merge_task_payload(existing, msg, result_summary, subtasks)
+# _merge_task_payload 和 _merge_payload_from_db 从 task_repository.py 导入，消除重复代码
 
 
 async def update_task_progress(
@@ -180,6 +143,7 @@ async def update_task_progress(
     result_summary: dict | None = None,
     subtasks: list | None = None,
     stage: str = "",
+    pipeline_progress: dict | None = None,
 ):
     try:
         now = datetime.now().isoformat()
@@ -193,17 +157,20 @@ async def update_task_progress(
                 return
 
             payload_str = _merge_payload_from_db(conn, task_id, msg, result_summary, subtasks)
-            if stage:
+            if stage or pipeline_progress:
                 try:
                     parsed = json.loads(payload_str) if payload_str else {}
                 except (json.JSONDecodeError, TypeError, ValueError):
                     parsed = {}
                 if isinstance(parsed, dict):
-                    pipeline_progress = parsed.get("pipeline_progress")
-                    if not isinstance(pipeline_progress, dict):
-                        pipeline_progress = {}
-                    pipeline_progress["stage"] = stage
-                    parsed["pipeline_progress"] = pipeline_progress
+                    pp = parsed.get("pipeline_progress")
+                    if not isinstance(pp, dict):
+                        pp = {}
+                    if stage:
+                        pp["stage"] = stage
+                    if pipeline_progress:
+                        pp.update(pipeline_progress)
+                    parsed["pipeline_progress"] = pp
                     payload_str = json.dumps(parsed, ensure_ascii=False)
             if row is None:
                 conn.execute(
@@ -218,7 +185,7 @@ async def update_task_progress(
                        WHERE task_id=? AND status IN ('PENDING', 'RUNNING', 'PAUSED')""",
                     (progress, payload_str, now, task_id),
                 )
-        await notify_task_update(task_id, progress, msg, "RUNNING", task_type, result_summary, subtasks, stage)
+        await notify_task_update(task_id, progress, msg, "RUNNING", task_type, result_summary, subtasks, stage, pipeline_progress)
     except (sqlite3.Error, OSError, RuntimeError) as e:
         logger.error(f"Error updating task: {e}")
 

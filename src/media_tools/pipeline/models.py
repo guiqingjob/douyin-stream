@@ -17,76 +17,90 @@ logger = logging.getLogger(__name__)
 class AccountPool:
     """账号轮换池 - 按余额权重分配任务，余额多的分配更多
 
-    支持互斥占用：acquire() 获取一个未被占用的账号，release() 归还。
-    并发转写时同一账号不会被分配给多个任务。
+    每个账号可同时处理多个任务（per-account 并发上限），
+    按余额加权选择账号：余额高的账号被分配更多并发任务。
     """
 
-    def __init__(self, accounts: list[dict[str, Any]], balances: list[int] | None = None):
+    # 每个账号默认最大并发数
+    DEFAULT_MAX_CONCURRENT = 10
+
+    def __init__(
+        self,
+        accounts: list[dict[str, Any]],
+        balances: list[int] | None = None,
+        max_concurrent_per_account: int | None = None,
+    ):
         self._accounts = accounts
         self._balances = balances or [0] * len(accounts)
         self._current = 0
         self._lock = asyncio.Lock()
-        self._in_use: set[str] = set()  # account_ids 当前正在使用
-        logger.info(f"初始化加权账号池，共 {len(accounts)} 个账号，总余额 {sum(self._balances)}")
+        self._max_concurrent = max_concurrent_per_account or self.DEFAULT_MAX_CONCURRENT
+        # 每个 account_id 当前正在处理的任务数
+        self._active_count: dict[str, int] = {}
+        logger.info(
+            f"初始化加权账号池，共 {len(accounts)} 个账号，"
+            f"总余额 {sum(self._balances)}，每账号最大并发 {self._max_concurrent}"
+        )
 
-    def get_account(self) -> dict[str, Any] | None:
-        """按权重分配账号（余额多的分配更多），不考虑占用状态"""
+    def _pick_account(self) -> dict[str, Any] | None:
+        """内部方法：按权重选一个有空闲槽位的账号（调用方需持锁）"""
         import random
 
         if not self._accounts:
             return None
 
-        total = sum(self._balances)
+        # 筛选有空闲槽位的账号
+        available = [
+            (i, a) for i, a in enumerate(self._accounts)
+            if self._active_count.get(str(a.get("account_id", "")), 0) < self._max_concurrent
+        ]
+
+        if not available:
+            return None
+
+        indices, accounts = zip(*available)
+        balances = [self._balances[i] for i in indices]
+        total = sum(balances)
+
         if total > 0:
-            selected = random.choices(self._accounts, weights=self._balances, k=1)[0]
+            safe_balances = [max(b, 1) for b in balances]
+            selected = random.choices(accounts, weights=safe_balances, k=1)[0]
         else:
-            account = self._accounts[self._current]
-            self._current = (self._current + 1) % len(self._accounts)
-            selected = account
+            selected = accounts[self._current % len(accounts)]
+            self._current = (self._current + 1) % len(accounts)
 
         return selected
 
     async def acquire(self) -> dict[str, Any] | None:
-        """异步获取一个未被占用的账号（互斥）
+        """获取一个有空闲槽位的账号（并发安全）
 
-        优先选余额高的未占用账号；全部占用时返回 None。
+        每个账号可同时处理 max_concurrent 个任务。
+        全部满载时阻塞等待，直到有槽位释放。
         """
-        async with self._lock:
-            import random
+        while True:
+            async with self._lock:
+                selected = self._pick_account()
+                if selected is not None:
+                    account_id = str(selected.get("account_id", ""))
+                    self._active_count[account_id] = self._active_count.get(account_id, 0) + 1
+                    return selected
 
-            if not self._accounts:
-                return None
-
-            # 筛选未占用账号
-            available = [
-                (i, a) for i, a in enumerate(self._accounts)
-                if str(a.get("account_id", "")) not in self._in_use
-            ]
-
-            if not available:
-                return None
-
-            indices, accounts = zip(*available)
-            balances = [self._balances[i] for i in indices]
-            total = sum(balances)
-
-            if total > 0:
-                selected = random.choices(accounts, weights=balances, k=1)[0]
-            else:
-                # 轮询：跳过已占用的，推进指针
-                selected = accounts[self._current % len(accounts)]
-                self._current = (self._current + 1) % len(accounts)
-
-            account_id = str(selected.get("account_id", ""))
-            self._in_use.add(account_id)
-            return selected
+            await asyncio.sleep(1)
 
     def release(self, account_id: str) -> None:
-        """释放账号占用"""
-        self._in_use.discard(account_id)
+        """释放一个并发槽位"""
+        cur = self._active_count.get(account_id, 0)
+        if cur > 1:
+            self._active_count[account_id] = cur - 1
+        else:
+            self._active_count.pop(account_id, None)
 
     def remaining(self) -> int:
-        return len(self._accounts)
+        """还有空闲槽位的账号数"""
+        return sum(
+            1 for a in self._accounts
+            if self._active_count.get(str(a.get("account_id", "")), 0) < self._max_concurrent
+        )
 
 
 @dataclass

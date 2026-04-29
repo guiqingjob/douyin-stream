@@ -88,7 +88,7 @@ def get_task_history():
     try:
         with get_db_connection() as conn:
             cleanup_stale_tasks(conn)
-        tasks = TaskRepository.list_recent(50)
+        tasks = TaskRepository.list_recent(200)
         for task in tasks:
             payload_raw = task.get("payload")
             payload: dict[str, Any] = {}
@@ -215,6 +215,10 @@ async def cancel_task(task_id: str):
         active_task = _active_tasks.pop(task_id, None)
         if active_task is not None:
             active_task.cancel()
+            try:
+                await asyncio.wait_for(active_task, timeout=5.0)
+            except (asyncio.CancelledError, asyncio.TimeoutError):
+                pass
             await _mark_task_cancelled(task_id, task_type)
             return {"status": "success", "message": "Task cancelled"}
         else:
@@ -332,12 +336,15 @@ async def trigger_full_sync(req: FullSyncRequest):
 
 @router.post("/transcribe/local")
 async def trigger_local_transcribe(req: LocalTranscribeRequest):
+    from media_tools.core.config import get_runtime_setting_bool
     task_id = str(uuid.uuid4())
-    _register_local_assets(req.file_paths, req.delete_after, req.directory_root)
+    delete_after = req.delete_after if req.delete_after is not None else get_runtime_setting_bool("auto_delete", True)
+    req.delete_after = delete_after
+    _register_local_assets(req.file_paths, delete_after, req.directory_root)
     await _create_task(
         task_id,
         "local_transcribe",
-        {"file_paths": req.file_paths, "delete_after": req.delete_after, "directory_root": req.directory_root},
+        {"file_paths": req.file_paths, "delete_after": delete_after, "directory_root": req.directory_root},
     )
     _register_background_task(task_id, _background_local_transcribe_worker(task_id, req))
     return {"task_id": task_id, "status": "started"}
@@ -482,4 +489,7 @@ def _scan_directory(req: ScanDirectoryRequest):
 
 @router.post("/reconcile-transcripts")
 def _reconcile_transcripts():
-    return reconcile_transcripts()
+    try:
+        return reconcile_transcripts()
+    except (OSError, RuntimeError, ValueError) as e:
+        raise HTTPException(status_code=500, detail=str(e))

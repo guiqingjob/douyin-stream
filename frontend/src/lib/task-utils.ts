@@ -50,7 +50,25 @@ export function isTaskStale(task: Task, now = Date.now()) {
 export function getTaskDisplayState(task: Task): DisplayTaskState {
   if (task.status === 'PAUSED') return 'paused';
   if (isTaskStale(task)) return 'stale';
-  if (ACTIVE_STATUSES.has(task.status)) return 'running';
+  if (ACTIVE_STATUSES.has(task.status)) {
+    // 后端可能未及时更新状态，检测消息内容判断是否实际已完成
+    const msg = parseTaskMessage(task.payload);
+    if (msg.includes('全部下载完成') || msg.includes('下载完成') || msg.includes('全部转写完成') || msg.includes('转写完成')) {
+      return 'success';
+    }
+    // 检查 pipeline_progress：下载任务所有视频已下载完成
+    if (task.task_type === 'download') {
+      try {
+        const parsed = JSON.parse(task.payload);
+        const pp = parsed?.pipeline_progress;
+        if (pp?.download && typeof pp.download.done === 'number' && typeof pp.download.total === 'number'
+            && pp.download.total > 0 && pp.download.done >= pp.download.total) {
+          return 'success';
+        }
+      } catch { /* ignore */ }
+    }
+    return 'running';
+  }
   if (SUCCESS_STATUSES.has(task.status)) return 'success';
   if (FAILURE_STATUSES.has(task.status)) return 'failed';
   return 'unknown';

@@ -31,15 +31,21 @@ class PipelineStateManager:
         self._load()
 
     def _load(self) -> None:
-        """从文件加载状态"""
+        """从文件加载状态（跳过损坏条目而非丢弃全部）"""
         if self.state_file.exists():
             try:
                 with open(self.state_file, "r", encoding="utf-8") as f:
                     data = json.load(f)
+                skipped = 0
                 for path_str, state_data in data.items():
-                    self.states[path_str] = VideoState(**state_data)
+                    try:
+                        self.states[path_str] = VideoState(**state_data)
+                    except (TypeError, ValueError):
+                        skipped += 1
+                if skipped:
+                    logger.warning(f"跳过 {skipped} 条损坏的状态记录")
                 logger.info(f"已加载状态文件: {self.state_file} ({len(self.states)} 条记录)")
-            except (json.JSONDecodeError, OSError, TypeError, ValueError) as e:
+            except (json.JSONDecodeError, OSError) as e:
                 logger.warning(f"加载状态文件失败，将创建新状态: {e}")
                 self.states = {}
         else:
@@ -99,6 +105,7 @@ class PipelineStateManager:
     def get_pending_videos(self, video_paths: list[Path]) -> list[Path]:
         """获取待处理的视频列表（排除已成功且无需重试的）"""
         pending = []
+        needs_save = False
         for path in video_paths:
             state = self.get_state(path)
             if state.status == "running":
@@ -107,8 +114,12 @@ class PipelineStateManager:
                 if Path(state.transcript_path).exists():
                     continue
                 logger.warning(f"缓存的转录文件已丢失，重新加入队列: {path}")
-                self.update_state(path, status="pending", transcript_path="")
+                state.status = "pending"
+                state.transcript_path = ""
+                needs_save = True
             pending.append(path)
+        if needs_save:
+            self._save()
         return pending
 
     def clear_completed(self) -> int:

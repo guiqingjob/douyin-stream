@@ -5,6 +5,7 @@ import logging
 import os
 import re
 import sqlite3
+import uuid as _uuid
 from datetime import datetime
 from pathlib import Path
 
@@ -149,31 +150,27 @@ def _discover_creator_files(uid: str) -> tuple[list[str], list[str]]:
             if nickname_row and nickname_row["nickname"]:
                 folder_names.append(nickname_row["nickname"])
 
-        completed_stems: set[str] = set()
-        with get_db_connection() as conn:
-            cursor = conn.execute(
+            cursor3 = conn.execute(
                 "SELECT video_path FROM media_assets WHERE creator_uid = ? AND video_path IS NOT NULL AND video_path != ''",
                 (uid,),
             )
-            for row in cursor.fetchall():
+            completed_stems: set[str] = set()
+            for row in cursor3.fetchall():
                 vp = row["video_path"] or ""
                 if vp:
                     completed_stems.add(_normalize_stem(Path(vp).stem))
 
-        for folder_name in folder_names:
-            folder = download_dir / folder_name
-            if not folder.is_dir():
-                continue
-            for f in folder.glob("*.mp4"):
-                if _normalize_stem(f.stem) in completed_stems:
+            for folder_name in folder_names:
+                folder = download_dir / folder_name
+                if not folder.is_dir():
                     continue
-                file_paths.append(str(f))
-                try:
-                    import uuid as _uuid
-
-                    asset_id = str(_uuid.uuid5(_uuid.NAMESPACE_URL, str(f.resolve())))
-                    now = datetime.now().isoformat()
-                    with get_db_connection() as conn:
+                for f in folder.glob("*.mp4"):
+                    if _normalize_stem(f.stem) in completed_stems:
+                        continue
+                    file_paths.append(str(f))
+                    try:
+                        asset_id = str(_uuid.uuid5(_uuid.NAMESPACE_URL, str(f.resolve())))
+                        now = datetime.now().isoformat()
                         conn.execute(
                             """INSERT OR IGNORE INTO media_assets
                                (asset_id, creator_uid, title, video_path, video_status, transcript_status, folder_path, create_time, update_time)
@@ -188,25 +185,20 @@ def _discover_creator_files(uid: str) -> tuple[list[str], list[str]]:
                                 now,
                             ),
                         )
-                except (sqlite3.Error, OSError, ValueError):
-                    pass
-    except (sqlite3.Error, OSError) as e:
-        logger.warning(f"扫描下载目录失败: {e}")
+                    except (sqlite3.Error, OSError, ValueError):
+                        pass
 
-    if file_paths:
-        try:
-            with get_db_connection() as conn:
+            if file_paths:
                 conn.execute(
                     """UPDATE media_assets SET transcript_status = 'pending'
                        WHERE creator_uid = ? AND transcript_status = 'none'
                           AND video_status IN ('downloaded', 'pending')""",
                     (uid,),
                 )
-        except sqlite3.Error:
-            pass
+    except (sqlite3.Error, OSError) as e:
+        logger.warning(f"扫描下载目录失败: {e}")
 
     return file_paths, not_found
-
 
 async def background_creator_transcribe_worker(task_id: str, uid: str) -> None:
     try:

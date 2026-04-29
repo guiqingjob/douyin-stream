@@ -44,14 +44,23 @@ class ErrorBoundary extends Component<{ children: ReactNode }, { hasError: boole
 function App() {
   const connectWebSocket = useStore((state) => state.connectWebSocket);
   const disconnectWebSocket = useStore((state) => state.disconnectWebSocket);
+  const lastCompletedTaskTime = useStore((state) => state.lastCompletedTaskTime);
+  const fetchCreators = useStore((state) => state.fetchCreators);
 
   useEffect(() => {
     connectWebSocket();
     return () => { disconnectWebSocket(); };
   }, [connectWebSocket, disconnectWebSocket]);
 
+  // 全局监听任务完成，任意页面都能触发创作者数据刷新
+  useEffect(() => {
+    if (lastCompletedTaskTime > 0) {
+      fetchCreators(true);
+    }
+  }, [lastCompletedTaskTime, fetchCreators]);
+
   return (
-    <ThemeProvider attribute="class" defaultTheme="system" enableSystem>
+    <ThemeProvider attribute="class" defaultTheme="light">
       <ErrorBoundary>
         <BrowserRouter>
           <Routes>

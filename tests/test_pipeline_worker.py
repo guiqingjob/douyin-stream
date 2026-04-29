@@ -39,9 +39,10 @@ class PipelineWorkerTests(unittest.IsolatedAsyncioTestCase):
         # Args: (url, max_counts, disable_auto_transcribe=True, skip_existing=True, task_id=None)
         self.assertEqual(mocked_to_thread.await_args.args[1:], ("https://www.douyin.com/user/test", 1, True, True, None))
         orchestrator.transcribe_batch.assert_awaited_once()
-        update_progress.assert_any_await(0.1, "正在下载视频...", "download")
-        update_progress.assert_any_await(0.4, "下载完成，准备转写 1 个视频...", "transcribe")
-        update_progress.assert_any_await(1.0, "流水线完成: 成功 1, 失败 0", "done")
+        # 下载和转写阶段现在带 pipeline_progress 计数器
+        update_progress.assert_any_await(0.1, "正在下载视频...", "download", {"download": {"done": 0, "total": 1}})
+        update_progress.assert_any_await(0.4, "下载完成，准备转写 1 个视频...", "transcribe", {"download": {"done": 1, "total": 1}})
+        update_progress.assert_any_await(1.0, "流水线完成: 成功 1, 失败 0", "done", None)
 
 
 if __name__ == "__main__":

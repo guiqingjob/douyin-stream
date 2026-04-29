@@ -17,15 +17,18 @@ _background_tasks: set[asyncio.Task[Any]] = set()
 MIN_VIDEO_BYTES = 10240  # 10KB
 
 
-async def call_progress(update_progress_fn, progress: float, msg: str, stage: str = "") -> None:
+async def call_progress(update_progress_fn, progress: float, msg: str, stage: str = "", pipeline_progress: dict | None = None) -> None:
     if not update_progress_fn:
         return
     try:
-        if stage:
+        if stage or pipeline_progress:
             try:
-                result = update_progress_fn(progress, msg, stage)
+                result = update_progress_fn(progress, msg, stage, pipeline_progress)
             except TypeError:
-                result = update_progress_fn(progress, msg)
+                try:
+                    result = update_progress_fn(progress, msg, stage)
+                except TypeError:
+                    result = update_progress_fn(progress, msg)
         else:
             result = update_progress_fn(progress, msg)
         if inspect.isawaitable(result):

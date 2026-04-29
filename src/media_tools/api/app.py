@@ -35,6 +35,7 @@ async def lifespan(app: FastAPI):
 
         with get_db_connection() as conn:
             cleanup_stale_tasks(conn)
+            conn.commit()
     except (sqlite3.Error, OSError) as e:
         logger.warning(f"startup cleanup failed: {e}")
 
@@ -46,19 +47,30 @@ async def lifespan(app: FastAPI):
 app = FastAPI(title="Media Tools API", version="1.0.0", lifespan=lifespan)
 
 
+_api_key_cache: str | None = None
+_api_key_cache_time: float = 0.0
+
+
 @app.middleware("http")
 async def api_key_auth(request: Request, call_next):
     """Optional API key authentication middleware."""
-    from media_tools.core.config import get_runtime_setting
+    global _api_key_cache, _api_key_cache_time
 
-    api_key = get_runtime_setting("api_key", "")
+    import time
+    now = time.monotonic()
+    if now - _api_key_cache_time > 10.0:
+        from media_tools.core.config import get_runtime_setting
+        _api_key_cache = get_runtime_setting("api_key", "")
+        _api_key_cache_time = now
+    api_key = _api_key_cache
 
     # Skip auth if no API key is configured
     if not api_key:
         return await call_next(request)
 
-    # Skip auth for health check and WebSocket
-    if request.url.path in ("/api/health", "/api/v1/tasks/ws") or request.url.path.startswith("/docs"):
+    # Skip auth for health check, WebSocket, and docs
+    skip_paths = ("/api/health", "/api/v1/tasks/ws", "/docs", "/openapi.json", "/redoc")
+    if request.url.path in skip_paths or request.url.path.startswith("/docs"):
         return await call_next(request)
 
     auth_header = request.headers.get("Authorization", "")
@@ -74,7 +86,7 @@ async def api_key_auth(request: Request, call_next):
 
 app.add_middleware(
     CORSMiddleware,
-    allow_origin_regex=r"http://(localhost|127\.0\.0\.1):\d+",
+    allow_origin_regex=r"https?://(localhost|127\.0\.0\.1):\d+",
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
@@ -83,9 +95,15 @@ app.add_middleware(
 @app.exception_handler(AppError)
 async def app_error_handler(request: Request, exc: AppError):
     """处理应用自定义异常 - 返回结构化错误"""
+    from media_tools.core.exceptions import NotFoundError, ValidationError, ConfigurationError
+    status_code = 400
+    if isinstance(exc, NotFoundError):
+        status_code = 404
+    elif isinstance(exc, ConfigurationError):
+        status_code = 500
     logger.warning(f"AppError: {exc.code} - {exc.message}")
     return JSONResponse(
-        status_code=400,
+        status_code=status_code,
         content={
             "code": exc.code,
             "message": exc.message,

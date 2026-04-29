@@ -57,7 +57,7 @@ def _read_quota_state() -> tuple[Path, dict[str, Any]]:
     file_path = quota_state_path()
     try:
         parsed = json.loads(file_path.read_text(encoding="utf-8"))
-    except FileNotFoundError:
+    except (FileNotFoundError, json.JSONDecodeError):
         return file_path, {}
     return file_path, parsed if isinstance(parsed, dict) else {}
 
@@ -65,7 +65,10 @@ def _read_quota_state() -> tuple[Path, dict[str, Any]]:
 def _write_quota_state(records: dict[str, Any]) -> Path:
     file_path = quota_state_path()
     ensure_dir(file_path.parent)
-    file_path.write_text(json.dumps(records, indent=2), encoding="utf-8")
+    tmp_path = file_path.with_suffix(".tmp")
+    tmp_path.write_text(json.dumps(records, indent=2), encoding="utf-8")
+    import os
+    os.replace(str(tmp_path), str(file_path))
     return file_path
 
 
@@ -199,20 +202,32 @@ def record_quota_consumption(
     before_snapshot: QuotaSnapshot,
     after_snapshot: QuotaSnapshot,
 ) -> None:
+    import fcntl
+
     minutes = max(0, number_value(consumed_minutes))
-    _, records = _read_quota_state()
-    key = account_key(account_id)
-    day = today_key()
-    account_record = records.get(key, {})
-    account_record[day] = merge_consumption_record(
-        account_record.get(day, {}),
-        consumed_minutes=minutes,
-        before_remaining=before_snapshot.remaining_upload,
-        after_remaining=after_snapshot.remaining_upload,
-        updated_at=datetime.now(UTC).isoformat(timespec="seconds"),
-    )
-    records[key] = account_record
-    _write_quota_state(records)
+    file_path = quota_state_path()
+    ensure_dir(file_path.parent)
+
+    # 使用文件锁防止并发写入丢失数据
+    lock_path = file_path.with_suffix(".lock")
+    with open(lock_path, "w") as lock_fd:
+        fcntl.flock(lock_fd, fcntl.LOCK_EX)
+        try:
+            _, records = _read_quota_state()
+            key = account_key(account_id)
+            day = today_key()
+            account_record = records.get(key, {})
+            account_record[day] = merge_consumption_record(
+                account_record.get(day, {}),
+                consumed_minutes=minutes,
+                before_remaining=before_snapshot.remaining_upload,
+                after_remaining=after_snapshot.remaining_upload,
+                updated_at=datetime.now(UTC).isoformat(timespec="seconds"),
+            )
+            records[key] = account_record
+            _write_quota_state(records)
+        finally:
+            fcntl.flock(lock_fd, fcntl.LOCK_UN)
 
 
 def get_daily_quota_record(account_id: str) -> dict[str, Any]:
@@ -251,19 +266,29 @@ def _write_equity_claim_record(
     before_snapshot: QuotaSnapshot,
     after_snapshot: QuotaSnapshot,
 ) -> None:
-    _, records = _read_quota_state()
-    key = account_key(account_id)
-    day = today_key()
-    account_record = records.get(key, {})
-    claimed_at = datetime.now(UTC).isoformat(timespec="seconds")
-    account_record[day] = merge_equity_claim_record(
-        account_record.get(day, {}),
-        before_remaining=before_snapshot.remaining_upload,
-        after_remaining=after_snapshot.remaining_upload,
-        claimed_at=claimed_at,
-    )
-    records[key] = account_record
-    _write_quota_state(records)
+    import fcntl
+
+    file_path = quota_state_path()
+    ensure_dir(file_path.parent)
+    lock_path = file_path.with_suffix(".lock")
+    with open(lock_path, "w") as lock_fd:
+        fcntl.flock(lock_fd, fcntl.LOCK_EX)
+        try:
+            _, records = _read_quota_state()
+            key = account_key(account_id)
+            day = today_key()
+            account_record = records.get(key, {})
+            claimed_at = datetime.now(UTC).isoformat(timespec="seconds")
+            account_record[day] = merge_equity_claim_record(
+                account_record.get(day, {}),
+                before_remaining=before_snapshot.remaining_upload,
+                after_remaining=after_snapshot.remaining_upload,
+                claimed_at=claimed_at,
+            )
+            records[key] = account_record
+            _write_quota_state(records)
+        finally:
+            fcntl.flock(lock_fd, fcntl.LOCK_UN)
 
 
 async def claim_equity_quota(

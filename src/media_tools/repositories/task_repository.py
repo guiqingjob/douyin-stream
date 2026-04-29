@@ -209,10 +209,13 @@ class TaskRepository:
 
     @staticmethod
     def mark_running(task_id: str, progress: float = 0.0, payload: str | None = None) -> None:
-        """标记任务为 RUNNING"""
-        TaskRepository._validate_transition(task_id, "RUNNING")
+        """标记任务为 RUNNING（校验+更新在同一连接中完成，避免 TOCTOU 竞态）"""
         now = datetime.now().isoformat()
         with get_db_connection() as conn:
+            cursor = conn.execute("SELECT status FROM task_queue WHERE task_id = ?", (task_id,))
+            row = cursor.fetchone()
+            from_status = row[0] if row else "PENDING"
+            validate_transition_by_str(from_status, "RUNNING")
             if payload:
                 conn.execute(
                     "UPDATE task_queue SET status='RUNNING', progress=?, payload=?, update_time=? WHERE task_id=?",
@@ -231,10 +234,13 @@ class TaskRepository:
         result_summary: dict | None = None,
         subtasks: list | None = None,
     ) -> None:
-        """标记任务为 COMPLETED"""
-        TaskRepository._validate_transition(task_id, "COMPLETED")
+        """标记任务为 COMPLETED（校验+更新在同一连接中完成）"""
         now = datetime.now().isoformat()
         with get_db_connection() as conn:
+            cursor = conn.execute("SELECT status FROM task_queue WHERE task_id = ?", (task_id,))
+            row = cursor.fetchone()
+            from_status = row[0] if row else "PENDING"
+            validate_transition_by_str(from_status, "COMPLETED")
             payload_str = _merge_payload_from_db(conn, task_id, msg, result_summary, subtasks)
             conn.execute(
                 "UPDATE task_queue SET status='COMPLETED', progress=1.0, payload=?, update_time=? WHERE task_id=?",
@@ -243,9 +249,12 @@ class TaskRepository:
 
     @staticmethod
     def mark_failed(task_id: str, error: str) -> None:
-        """标记任务为 FAILED"""
-        TaskRepository._validate_transition(task_id, "FAILED")
+        """标记任务为 FAILED（校验+更新在同一连接中完成）"""
         with get_db_connection() as conn:
+            cursor = conn.execute("SELECT status FROM task_queue WHERE task_id = ?", (task_id,))
+            row = cursor.fetchone()
+            from_status = row[0] if row else "PENDING"
+            validate_transition_by_str(from_status, "FAILED")
             conn.execute(
                 "UPDATE task_queue SET status='FAILED', error_msg=? WHERE task_id=?",
                 (str(error), task_id),

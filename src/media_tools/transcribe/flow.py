@@ -82,7 +82,8 @@ async def poll_until_done(context: Any, gen_record_id: str, timeout_seconds: flo
                         if status in (40, 41):
                             fail_reason = record.get("failReason") or record.get("errorMessage") or f"recordStatus={status}"
                             raise RuntimeError(f"转写失败: {fail_reason}")
-            await asyncio.sleep(5)
+            import random
+            await asyncio.sleep(5 + random.uniform(0, 2))
 
     try:
         return await asyncio.wait_for(_poll_loop(), timeout=timeout_seconds)
@@ -228,6 +229,8 @@ async def run_real_flow(
                 "tag": build_upload_tag(input_path, mime_type),
             },
         )
+        if not isinstance(token_json, dict) or "data" not in token_json:
+            raise RuntimeError(f"获取上传凭证失败: {token_json}")
         token = token_json["data"]
         log(f"genRecordId: {token['genRecordId']}")
         log(f"recordId: {token['recordId']}")

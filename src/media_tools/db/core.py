@@ -115,7 +115,7 @@ class DBConnection:
         _set_wal_mode(self._conn)
         self._conn.row_factory = sqlite3.Row
 
-        # 监控连接数
+        # 监控连接数（keep_open 连接在 close() 时递减）
         with DBConnection._open_count_lock:
             DBConnection._open_count += 1
             if DBConnection._open_count > DBConnection._max_connections_warning:
@@ -126,9 +126,6 @@ class DBConnection:
 
     def __exit__(self, exc_type, _exc_val, _exc_tb) -> None:
         """自动 commit/rollback + close"""
-        if not self._keep_open:
-            with DBConnection._open_count_lock:
-                DBConnection._open_count -= 1
 
         try:
             if self._committed:
@@ -142,6 +139,8 @@ class DBConnection:
         finally:
             if not self._keep_open:
                 self._conn.close()
+                with DBConnection._open_count_lock:
+                    DBConnection._open_count -= 1
 
     def commit(self) -> None:
         """显式提交（可选）"""
@@ -171,11 +170,19 @@ def get_db_connection(keep_open: bool = False) -> DBConnection:
     return DBConnection(keep_open=keep_open)
 
 
+_COLUMN_DEF_RE = re.compile(
+    r"^(TEXT|INTEGER|REAL|BOOLEAN|DATETIME|JSON|TIMESTAMP)"
+    r"(\s+DEFAULT\s+('(?:[^']*|'')*'|[\w.]+|\([\w.,\s]+\)))?$",
+    re.IGNORECASE,
+)
+
+
 def _ensure_column(conn: sqlite3.Connection, table: str, column: str, column_def: str) -> None:
     """确保列存在，不存在则添加（带标识符校验）"""
-    # 校验标识符安全
     safe_table = _check_table_name(table)
     safe_column = validate_identifier(column, "column_name")
+    if not _COLUMN_DEF_RE.match(column_def.strip()):
+        raise ValueError(f"Invalid column_def: {column_def!r}")
 
     existing = get_table_columns(conn, safe_table)
     if safe_column not in existing:
@@ -356,6 +363,12 @@ def init_db(db_path: str | Path):
         cursor.execute("CREATE INDEX IF NOT EXISTS idx_media_assets_video_status ON media_assets(video_status)")
         cursor.execute("CREATE INDEX IF NOT EXISTS idx_media_assets_transcript_status ON media_assets(transcript_status)")
         cursor.execute("CREATE INDEX IF NOT EXISTS idx_task_queue_status ON task_queue(status)")
+        # 复合索引：覆盖 creator_transcribe_worker 的高频查询
+        cursor.execute(
+            "CREATE INDEX IF NOT EXISTS idx_media_assets_creator_status "
+            "ON media_assets(creator_uid, video_status, transcript_status)"
+        )
+        cursor.execute("CREATE INDEX IF NOT EXISTS idx_task_queue_update_time ON task_queue(update_time)")
 
         _ensure_column(conn, "task_queue", "update_time", "DATETIME")
         _ensure_column(conn, "task_queue", "cancel_requested", "INTEGER DEFAULT 0")

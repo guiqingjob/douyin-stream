@@ -1,4 +1,4 @@
-import { useMemo, useState } from 'react';
+import { memo, useMemo, useState } from 'react';
 import { CheckCircle2, ChevronDown, FileText, Loader2, MinusCircle, RotateCw, Trash2, XCircle } from 'lucide-react';
 import { toast } from 'sonner';
 import { cn } from '@/lib/utils';
@@ -405,7 +405,7 @@ interface TaskItemProps {
   onToggleExpand: (taskId: string) => void;
 }
 
-export function TaskItem({ task, onRetry, isExpanded, onToggleExpand }: TaskItemProps) {
+export const TaskItem = memo(function TaskItem({ task, onRetry, isExpanded, onToggleExpand }: TaskItemProps) {
   const state = getTaskDisplayState(task);
   const message = getTaskMessage(task);
   const error = getTaskError(task);
@@ -426,14 +426,35 @@ export function TaskItem({ task, onRetry, isExpanded, onToggleExpand }: TaskItem
     const stage = pp?.stage ? String(pp.stage) : '';
     const stageText = stageLabel(stage);
     const missingCount = pp?.audit?.missing ?? (Array.isArray(parsed?.missing_items) ? parsed?.missing_items.length : 0);
-    const downloadDone = pp?.download?.done ?? 0;
+    let downloadDone = pp?.download?.done ?? 0;
     const downloadTotal = pp?.download?.total ?? 0;
+
+    // pipeline_progress.download.done 从 progress 字段估算，下载进行中时 progress 为 0
+    // 从消息文本解析实际下载进度（格式: "正在下载 (3/10)" 或 "正在下载 3/10"）
+    if (downloadDone === 0 && isRunning && message) {
+      const m = message.match(/正在下载\s*\(?\s*(\d+)\s*\/\s*(\d+)\s*\)?/);
+      if (m) {
+        downloadDone = parseInt(m[1], 10);
+      }
+    }
+
+    // 同理，转写阶段也从消息文本解析实际进度（格式: "正在转写 (2/5)" 或 "正在转写 2/5"）
+    let transcribeDone = pp?.transcribe?.done ?? 0;
+    const transcribeTotal = pp?.transcribe?.total ?? 0;
+    if (transcribeDone === 0 && isRunning && message) {
+      const m = message.match(/正在转写\s*\(?\s*(\d+)\s*\/\s*(\d+)\s*\)?/);
+      if (m) {
+        transcribeDone = parseInt(m[1], 10);
+      }
+    }
+
     const remaining = downloadTotal > 0 ? Math.max(downloadTotal - downloadDone, 0) : 0;
     const exportStatus = exportStatusLabel(pp?.export?.status);
+    const transcribeAccountId = pp?.transcribe?.account_id;
 
     const subtitleParts = [
       pp?.download ? `下载 ${formatDoneTotal(downloadDone, downloadTotal)}` : '',
-      pp?.transcribe ? `转写 ${formatDoneTotal(pp.transcribe.done, pp.transcribe.total)}` : '',
+      pp?.transcribe ? `转写 ${formatDoneTotal(transcribeDone, transcribeTotal)}${transcribeAccountId ? ` [${transcribeAccountId}]` : ''}` : '',
       missingCount > 0 ? `缺失 ${missingCount}` : '',
       pp?.export ? `导出 ${exportStatus}` : '',
     ].filter(Boolean);
@@ -509,21 +530,8 @@ export function TaskItem({ task, onRetry, isExpanded, onToggleExpand }: TaskItem
             </div>
 
             {(isRunning || isPaused) && (
-              <div className="mt-3 space-y-1 text-xs">
-                <div className="text-muted-foreground">{message}</div>
-                <div className="text-muted-foreground tabular-nums">{taskCenterProgressLine}</div>
-              </div>
+              <div className="mt-3 text-xs text-muted-foreground">{message}</div>
             )}
-
-            <div className="mt-3 space-y-2">
-              <TaskCenterPipelineSteps pipelineProgress={pp} missingCount={missingCount} />
-              {(pp.export || String(pp.stage || '') === 'export' || String(pp.stage || '') === 'done') && (
-                <TaskCenterExportCard file={pp.export?.file ?? null} status={pp.export?.status} />
-              )}
-              <TaskCenterCleanupSummary parsed={parsed} taskId={task.task_id} />
-            </div>
-
-            {!isRunning && <div className="mt-3 text-sm leading-6 text-muted-foreground">{message}</div>}
 
             {error && (
               <div className="mt-3 rounded-[var(--radius-card)] border border-destructive/20 bg-destructive/10 p-3 text-xs leading-6 text-destructive whitespace-pre-wrap">
@@ -531,12 +539,22 @@ export function TaskItem({ task, onRetry, isExpanded, onToggleExpand }: TaskItem
               </div>
             )}
 
-            <TaskStats task={task} />
+            {/* 清理汇总（仅转写任务有） */}
+            <TaskCenterCleanupSummary parsed={parsed} taskId={task.task_id} />
+
+            {/* 运行中：直接展示实时视频列表；已完成/失败：折叠显示 */}
             <TaskSubtasks
               task={task}
-              isExpanded={subtasksExpanded}
+              isExpanded={isRunning || isPaused ? true : subtasksExpanded}
               onToggleExpand={() => setSubtasksExpanded((prev) => !prev)}
+              showToggle={!(isRunning || isPaused)}
             />
+
+            {/* 已完成的任务显示汇总统计 */}
+            {!isRunning && <TaskStats task={task} />}
+
+            {/* 已完成的任务显示最终消息 */}
+            {!isRunning && !isPaused && <div className="mt-2 text-xs text-muted-foreground">{message}</div>}
           </div>
         )}
       </div>
@@ -607,7 +625,7 @@ export function TaskItem({ task, onRetry, isExpanded, onToggleExpand }: TaskItem
       <TaskSubtasks task={task} isExpanded={isExpanded} onToggleExpand={onToggleExpand} />
     </div>
   );
-}
+});
 
 function TaskActions({
   task,
@@ -767,10 +785,12 @@ function TaskSubtasks({
   task,
   isExpanded,
   onToggleExpand,
+  showToggle = true,
 }: {
   task: Task;
   isExpanded: boolean;
   onToggleExpand: (taskId: string) => void;
+  showToggle?: boolean;
 }) {
   const parsed = useMemo(() => parsePayload(task.payload), [task.payload]);
   const subtasks = useMemo(() => {
@@ -849,16 +869,32 @@ function TaskSubtasks({
   const failed = subtasks.filter((s) => s.status === 'failed').length;
   return (
     <div className="mt-3">
-      <button
-        onClick={() => onToggleExpand(task.task_id)}
-        className="flex items-center gap-1.5 text-xs text-muted-foreground hover:text-foreground transition-colors"
-      >
-        <ChevronDown className={cn('size-3.5 transition-transform', isExpanded ? 'rotate-180' : '')} />
-        <FileText className="size-3" />
-        详情 {completed}/{subtasks.length}
-        {skipped > 0 && <span className="text-[10px] text-muted-foreground/60">(跳过 {skipped})</span>}
-        {failed > 0 && <span className="text-[10px] text-destructive/70">(失败 {failed})</span>}
-      </button>
+      {showToggle ? (
+        <button
+          onClick={() => onToggleExpand(task.task_id)}
+          className="flex items-center gap-1.5 text-xs text-muted-foreground hover:text-foreground transition-colors"
+        >
+          <ChevronDown className={cn('size-3.5 transition-transform', isExpanded ? 'rotate-180' : '')} />
+          <FileText className="size-3" />
+          详情 {completed}/{subtasks.length}
+          {skipped > 0 && <span className="text-[10px] text-muted-foreground/60">(跳过 {skipped})</span>}
+          {failed > 0 && <span className="text-[10px] text-destructive/70">(失败 {failed})</span>}
+        </button>
+      ) : (
+        <div className="flex items-center gap-2 text-[11px] text-muted-foreground">
+          <span className="flex items-center gap-1">
+            <CheckCircle2 className="size-3 text-success" />
+            {completed}
+          </span>
+          {failed > 0 && (
+            <span className="flex items-center gap-1">
+              <XCircle className="size-3 text-destructive" />
+              {failed}
+            </span>
+          )}
+          <span>/ {subtasks.length}</span>
+        </div>
+      )}
       {isExpanded && (
         <div className="mt-2 space-y-1 max-h-48 overflow-y-auto rounded-[var(--radius-card)] border border-border/40 bg-muted/30 p-2">
           {enhancedSubtasks.map((sub, idx) => {

@@ -163,7 +163,7 @@ def list_creators(
             return creators
     except sqlite3.Error:
         logger.exception("list_creators failed")
-        return []
+        raise HTTPException(status_code=500, detail="获取创作者列表失败")
 
 
 @router.post("/")
