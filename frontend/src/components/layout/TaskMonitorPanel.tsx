@@ -36,19 +36,18 @@ export function TaskMonitorPanel() {
   const allTasks = useMemo(() => sortTasks(rawTasks), [rawTasks]);
   const { handleClearHistory, handleRetry } = useTaskActions();
 
-  // 打开对话框时，如果还没有加载任务，主动拉取一次
-  useEffect(() => {
-    if (open && rawTasks.length === 0) {
-      fetchInitialTasks();
-    }
-  }, [open, rawTasks.length, fetchInitialTasks]);
-
-  // Tick every 10s to refresh durations
+  // 打开对话框时，定时轮询 REST 接口作为 WebSocket 兜底
   useEffect(() => {
     if (!open) return;
-    const interval = setInterval(() => setTick((t) => t + 1), 10_000);
+    // 立即拉取一次
+    fetchInitialTasks();
+    // 每 5 秒轮询，确保和后端状态同步
+    const interval = setInterval(() => {
+      fetchInitialTasks();
+      setTick((t) => t + 1);
+    }, 5_000);
     return () => clearInterval(interval);
-  }, [open]);
+  }, [open, fetchInitialTasks]);
 
   const filteredTasks = useMemo(() => filterTasksByCategory(allTasks, filter), [allTasks, filter]);
 

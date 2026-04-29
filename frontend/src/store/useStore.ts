@@ -224,7 +224,7 @@ export const useStore = create<StoreState>((set, get) => ({
           progress: data.progress,
           status: data.status,
           task_type: data.task_type,
-          update_time: new Date().toISOString(),
+          update_time: data.update_time || new Date().toISOString(),
         };
         const msg = typeof data.msg === 'string' ? data.msg : '';
         if ('msg' in data || data.subtasks || data.result_summary || data.stage || data.pipeline_progress) {

@@ -120,6 +120,7 @@ async def notify_task_update(
         "msg": msg,
         "status": status,
         "task_type": task_type,
+        "update_time": datetime.now().isoformat(),
     }
     if stage:
         message["stage"] = stage
