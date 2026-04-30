@@ -224,6 +224,7 @@ async def background_creator_transcribe_worker(task_id: str, uid: str) -> None:
         f"扫描完成，准备转写 {len(file_paths)} 个文件",
         "local_transcribe",
         stage="queued",
+        pipeline_progress={"transcribe": {"done": 0, "total": int(len(file_paths) or 0)}},
     )
 
     downloads_root = get_download_path().resolve()
@@ -233,8 +234,8 @@ async def background_creator_transcribe_worker(task_id: str, uid: str) -> None:
     cache_dir.mkdir(parents=True, exist_ok=True)
     TaskRepository.patch_payload(task_id, {"cleanup_cache_dir": str(cache_dir)})
 
-    async def _progress_fn(p, m, stage=""):  # noqa: ANN001
-        await update_task_progress(task_id, p, m, "local_transcribe", stage=stage)
+    async def _progress_fn(p, m, stage="", pipeline_progress=None):  # noqa: ANN001
+        await update_task_progress(task_id, p, m, "local_transcribe", stage=stage, pipeline_progress=pipeline_progress)
 
     heartbeat = asyncio.create_task(_task_heartbeat(task_id))
     try:
@@ -297,7 +298,17 @@ async def background_creator_transcribe_worker(task_id: str, uid: str) -> None:
             if total == 0
             else f"转写完成：成功 {s_count} 个，失败 {f_count} 个；清理：已删除 {deleted_count} 个，失败 {len(failed_paths)} 个"
         )
-        await _complete_task(task_id, "local_transcribe", msg)
+        await update_task_progress(
+            task_id,
+            1.0,
+            msg,
+            "local_transcribe",
+            stage="done",
+            pipeline_progress={"transcribe": {"done": int(total or 0), "total": int(total or 0)}},
+        )
+        result_summary = {"success": int(s_count or 0), "failed": int(f_count or 0), "total": int(total or 0)}
+        subtasks = result.get("subtasks") if isinstance(result, dict) else None
+        await _complete_task(task_id, "local_transcribe", msg, result_summary=result_summary, subtasks=subtasks)
     except asyncio.CancelledError:
         raise
     except (RuntimeError, OSError, ValueError, TypeError) as e:

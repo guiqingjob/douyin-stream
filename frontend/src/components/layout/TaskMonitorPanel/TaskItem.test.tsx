@@ -1,6 +1,8 @@
 import { describe, it, expect, vi } from 'vitest'
 import { render, screen, within, fireEvent, waitFor, act } from '@testing-library/react'
 import { TaskItem } from './TaskItem'
+import { rerunTask } from '@/lib/api'
+import { toast } from 'sonner'
 
 vi.mock('@/lib/api', () => ({
   cancelTask: vi.fn(),
@@ -164,6 +166,35 @@ describe('TaskItem', () => {
     expect(screen.getByText(/缺失 2/)).toBeInTheDocument()
   })
 
+  it('shows transcribe progress and current title for local_transcribe tasks when pipeline_progress provides it', () => {
+    render(
+      <TaskItem
+        task={{
+          task_id: 'running-local-transcribe-1',
+          task_type: 'local_transcribe',
+          status: 'RUNNING',
+          progress: 0.1,
+          payload: JSON.stringify({
+            msg: 'x',
+            pipeline_progress: {
+              stage: 'transcribe',
+              transcribe: { done: 2, total: 8, current_title: '测试文件A' },
+            },
+          }),
+          error_msg: '',
+          update_time: new Date().toISOString(),
+        }}
+        onRetry={vi.fn()}
+        isExpanded={false}
+        onToggleExpand={vi.fn()}
+      />
+    )
+
+    expect(screen.getByText(/转写 2\/8/)).toBeInTheDocument()
+    expect(screen.getByText(/当前：测试文件A/)).toBeInTheDocument()
+    expect(screen.getByText(/剩余 6 条/)).toBeInTheDocument()
+  })
+
   it('renders -- instead of 0/0 when totals missing in pipeline_progress', () => {
     render(
       <TaskItem
@@ -190,6 +221,89 @@ describe('TaskItem', () => {
 
     expect(screen.queryByText('0/0')).not.toBeInTheDocument()
     expect(screen.getByText(/1\/--/)).toBeInTheDocument()
+  })
+
+  it('shows friendly error label and suggestion for failed subtasks', () => {
+    render(
+      <TaskItem
+        task={{
+          task_id: 'completed-subtasks-1',
+          task_type: 'local_transcribe',
+          status: 'COMPLETED',
+          progress: 1,
+          payload: JSON.stringify({
+            msg: 'ok',
+            subtasks: [
+              { title: 'a', status: 'failed', error: 'timeout: request timed out (attempts=2)', error_type: 'timeout' },
+            ],
+          }),
+          error_msg: '',
+          update_time: new Date().toISOString(),
+        }}
+        onRetry={vi.fn()}
+        isExpanded={true}
+        onToggleExpand={vi.fn()}
+      />
+    )
+
+    expect(screen.getByText('网络超时')).toBeInTheDocument()
+    expect(screen.getByText('建议：重试或检查网络')).toBeInTheDocument()
+    expect(screen.getByRole('button', { name: '重试任务' })).toBeInTheDocument()
+  })
+
+  it('triggers rerun when clicking retry action from failed subtask', async () => {
+    const rerun = vi.mocked(rerunTask)
+    rerun.mockResolvedValueOnce({ task_id: 'new-task-1', status: 'started' } as never)
+
+    render(
+      <TaskItem
+        task={{
+          task_id: 'completed-subtasks-2',
+          task_type: 'local_transcribe',
+          status: 'COMPLETED',
+          progress: 1,
+          payload: JSON.stringify({
+            msg: 'ok',
+            subtasks: [{ title: 'a', status: 'failed', error: 'timeout: request timed out', error_type: 'timeout' }],
+          }),
+          error_msg: '',
+          update_time: new Date().toISOString(),
+        }}
+        onRetry={vi.fn()}
+        isExpanded={true}
+        onToggleExpand={vi.fn()}
+      />
+    )
+
+    fireEvent.click(screen.getByRole('button', { name: '重试任务' }))
+    await waitFor(() => expect(rerun).toHaveBeenCalledWith('completed-subtasks-2'))
+    expect(vi.mocked(toast.success)).toHaveBeenCalled()
+  })
+
+  it('navigates to settings when clicking open-settings action', () => {
+    window.history.pushState({}, '', '/creators')
+    render(
+      <TaskItem
+        task={{
+          task_id: 'completed-subtasks-3',
+          task_type: 'local_transcribe',
+          status: 'COMPLETED',
+          progress: 1,
+          payload: JSON.stringify({
+            msg: 'ok',
+            subtasks: [{ title: 'a', status: 'failed', error: 'auth: 401', error_type: 'auth' }],
+          }),
+          error_msg: '',
+          update_time: new Date().toISOString(),
+        }}
+        onRetry={vi.fn()}
+        isExpanded={true}
+        onToggleExpand={vi.fn()}
+      />
+    )
+
+    fireEvent.click(screen.getByRole('button', { name: '去设置' }))
+    expect(window.location.pathname).toBe('/settings')
   })
 
   it('toggles drawer when clicking collapsed row', () => {

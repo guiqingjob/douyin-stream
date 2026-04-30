@@ -20,6 +20,8 @@ type TaskSubtask = {
   title: string;
   status: string;
   error?: string;
+  error_type?: string;
+  attempts?: number;
   reason?: string;
   aweme_id?: string;
   creator_uid?: string;
@@ -59,6 +61,31 @@ function parsePayload(payload?: string): TaskPayload | null {
   } catch {
     return null;
   }
+}
+
+function resolveSubtaskErrorInfo(
+  sub: TaskSubtask
+): { label: string; suggestion?: string; action?: { label: string; kind: 'retry_task' | 'open_settings' } } | null {
+  const rawType = typeof sub.error_type === 'string' ? sub.error_type.trim().toLowerCase() : '';
+  const error = typeof sub.error === 'string' ? sub.error : '';
+  const inferredType = !rawType && error.includes(':') ? (error.split(':')[0] || '').trim().toLowerCase() : '';
+  const type = rawType || inferredType;
+
+  const mapping: Record<string, { label: string; suggestion?: string; action?: { label: string; kind: 'retry_task' | 'open_settings' } }> =
+    {
+      timeout: { label: '网络超时', suggestion: '重试或检查网络', action: { label: '重试任务', kind: 'retry_task' } },
+      network: { label: '网络异常', suggestion: '检查网络或代理后重试', action: { label: '重试任务', kind: 'retry_task' } },
+      quota: { label: '额度不足/限流', suggestion: '更换账号或稍后重试', action: { label: '去设置', kind: 'open_settings' } },
+      auth: { label: '鉴权失败', suggestion: '检查账号/Cookie 状态', action: { label: '去设置', kind: 'open_settings' } },
+    file_not_found: { label: '文件不存在', suggestion: '确认文件路径与权限' },
+    permission: { label: '权限不足', suggestion: '检查文件权限或运行权限' },
+    validation: { label: '参数错误', suggestion: '检查输入参数或文件格式' },
+    cancelled: { label: '已取消', suggestion: '重新发起任务' },
+    unknown: { label: '未知错误' },
+  };
+
+  if (!type) return error ? { label: '失败', suggestion: error } : null;
+  return mapping[type] || { label: type.toUpperCase(), suggestion: error || undefined };
 }
 
 function buildTaskCenterProgressLine(task: Task, parsed: TaskPayload | null) {
@@ -416,7 +443,10 @@ export const TaskItem = memo(function TaskItem({ task, onRetry, isExpanded, onTo
   const isFailed = state === 'failed' || state === 'stale';
   const parsed = useMemo(() => parsePayload(task.payload), [task.payload]);
   const showTaskCenterProgress =
-    task.task_type === 'pipeline' || task.task_type === 'download' || task.task_type.startsWith('creator_sync_');
+    task.task_type === 'pipeline' ||
+    task.task_type === 'download' ||
+    task.task_type === 'local_transcribe' ||
+    task.task_type.startsWith('creator_sync_');
   const pp = parsed?.pipeline_progress;
   const shouldShowTaskCenterProgress = showTaskCenterProgress && !!pp;
   const taskCenterProgressLine = shouldShowTaskCenterProgress ? buildTaskCenterProgressLine(task, parsed) : '';
@@ -448,13 +478,31 @@ export const TaskItem = memo(function TaskItem({ task, onRetry, isExpanded, onTo
       }
     }
 
-    const remaining = downloadTotal > 0 ? Math.max(downloadTotal - downloadDone, 0) : 0;
+    const currentTitleRaw =
+      stage === 'download'
+        ? pp?.download && typeof pp.download.current_title === 'string'
+          ? pp.download.current_title
+          : ''
+        : stage === 'transcribe'
+          ? pp?.transcribe && typeof pp.transcribe.current_title === 'string'
+            ? pp.transcribe.current_title
+            : ''
+          : '';
+    const currentTitle = currentTitleRaw ? `当前：${currentTitleRaw.slice(0, 40)}` : '';
+
+    const remaining =
+      stage === 'transcribe' && transcribeTotal > 0
+        ? Math.max(transcribeTotal - transcribeDone, 0)
+        : downloadTotal > 0
+          ? Math.max(downloadTotal - downloadDone, 0)
+          : 0;
     const exportStatus = exportStatusLabel(pp?.export?.status);
     const transcribeAccountId = pp?.transcribe?.account_id;
 
     const subtitleParts = [
       pp?.download ? `下载 ${formatDoneTotal(downloadDone, downloadTotal)}` : '',
       pp?.transcribe ? `转写 ${formatDoneTotal(transcribeDone, transcribeTotal)}${transcribeAccountId ? ` [${transcribeAccountId}]` : ''}` : '',
+      currentTitle,
       missingCount > 0 ? `缺失 ${missingCount}` : '',
       pp?.export ? `导出 ${exportStatus}` : '',
     ].filter(Boolean);
@@ -793,6 +841,7 @@ function TaskSubtasks({
   showToggle?: boolean;
 }) {
   const parsed = useMemo(() => parsePayload(task.payload), [task.payload]);
+  const [retryingTask, setRetryingTask] = useState(false);
   const subtasks = useMemo(() => {
     const raw = parsed?.subtasks;
     if (!Array.isArray(raw)) return EMPTY_SUBTASKS;
@@ -914,6 +963,7 @@ function TaskSubtasks({
             const successToast = isCorruptFile ? '已创建重下并转写任务' : '已创建补齐任务';
             const actionTitle = isCorruptFile ? '创建重下并转写任务' : '创建补齐并转写任务';
             const shouldShowErrorText = !!sub.error && !(sub.status === 'manual_required' && sub.error === 'corrupt_file');
+            const errorInfo = sub.status === 'failed' ? resolveSubtaskErrorInfo(sub) : null;
             return (
             <div
               key={idx}
@@ -951,9 +1001,43 @@ function TaskSubtasks({
                     </span>
                   )}
                 </div>
-                {shouldShowErrorText && (
+                {shouldShowErrorText && errorInfo ? (
+                  <div className="mt-0.5 space-y-0.5 text-[10px] text-destructive/80">
+                    <div>{errorInfo.label}</div>
+                    {errorInfo.suggestion ? <div className="text-muted-foreground">建议：{errorInfo.suggestion}</div> : null}
+                    {errorInfo.action ? (
+                      <button
+                        disabled={retryingTask}
+                        onClick={async () => {
+                          if (errorInfo.action?.kind === 'open_settings') {
+                            window.history.pushState({}, '', '/settings');
+                            window.dispatchEvent(new PopStateEvent('popstate'));
+                            return;
+                          }
+                          if (retryingTask) return;
+                          try {
+                            setRetryingTask(true);
+                            await rerunTask(task.task_id);
+                            const { fetchInitialTasks } = useStore.getState();
+                            await fetchInitialTasks();
+                            toast.success('已重新提交任务');
+                          } catch {
+                          } finally {
+                            setRetryingTask(false);
+                          }
+                        }}
+                        className={cn(
+                          'mt-1 inline-flex h-7 items-center rounded-md px-2 text-[11px] font-medium text-primary transition-colors duration-200 hover:bg-primary/10',
+                          retryingTask ? 'cursor-not-allowed opacity-50' : ''
+                        )}
+                      >
+                        {errorInfo.action.label}
+                      </button>
+                    ) : null}
+                  </div>
+                ) : shouldShowErrorText ? (
                   <span className="block truncate text-[10px] text-destructive/80 mt-0.5">{sub.error}</span>
-                )}
+                ) : null}
               </div>
               {sub.status === 'manual_required' && (
                 <button

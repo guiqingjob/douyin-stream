@@ -71,9 +71,9 @@ def test_creators_disk_counts_strict_stem_matching(tmp_path, monkeypatch) -> Non
     assert len(rows) == 1
     row = rows[0]
 
-    assert row["disk_asset_count"] == 3
-    assert row["disk_transcript_completed_count"] == 1
-    assert row["disk_transcript_pending_count"] == 2
+    assert row["disk_asset_count"] == 4
+    assert row["disk_transcript_completed_count"] == 3
+    assert row["disk_transcript_pending_count"] == 1
     assert "asset_count" in row
     assert "transcript_completed_count" in row
     assert "transcript_pending_count" in row

@@ -217,16 +217,35 @@ async def _complete_task(
     subtasks: list | None = None,
 ) -> None:
     progress = 1.0 if status == "COMPLETED" else 0.0
+    pipeline_progress: dict | None = None
     try:
+        now = datetime.now().isoformat()
         with get_db_connection() as conn:
             payload_str = _merge_payload_from_db(conn, task_id, msg, result_summary, subtasks)
+            try:
+                parsed = json.loads(payload_str) if payload_str else {}
+            except (json.JSONDecodeError, TypeError, ValueError):
+                parsed = {}
+            if isinstance(parsed, dict):
+                pp = parsed.get("pipeline_progress")
+                if isinstance(pp, dict) and pp:
+                    pipeline_progress = dict(pp)
             conn.execute(
-                "UPDATE task_queue SET status=?, progress=?, payload=?, error_msg=? WHERE task_id=?",
-                (status, progress, payload_str, error_msg, task_id),
+                "UPDATE task_queue SET status=?, progress=?, payload=?, error_msg=?, update_time=? WHERE task_id=?",
+                (status, progress, payload_str, error_msg, now, task_id),
             )
     except (sqlite3.Error, OSError, RuntimeError) as e:
         logger.error(f"Failed to complete task {task_id} in DB: {e}")
-    await notify_task_update(task_id, progress, msg, status, task_type, result_summary, subtasks)
+    await notify_task_update(
+        task_id,
+        progress,
+        msg,
+        status,
+        task_type,
+        result_summary,
+        subtasks,
+        pipeline_progress=pipeline_progress,
+    )
     if status == "FAILED":
         schedule_auto_retry(task_id)
 

@@ -59,6 +59,9 @@ export interface PipelineProgressCounter {
   done: number;
   total: number;
   account_id?: string;
+  current_title?: string;
+  current_aweme_id?: string;
+  skipped?: number;
 }
 
 export interface PipelineProgressExport {

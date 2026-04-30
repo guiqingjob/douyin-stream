@@ -28,30 +28,46 @@ def _scan_creator_disk_counts(folder_name: str) -> dict[str, int]:
     download_dir = get_download_path() / folder_name
     transcripts_dir = get_project_root() / "transcripts" / folder_name
 
-    mp4_stems: set[str] = set()
-    md_stems: set[str] = set()
+    from collections import Counter
+
+    media_counts: Counter[str] = Counter()
+    transcript_counts: Counter[str] = Counter()
+    suffix_re = re.compile(r"_\d+$")
+    try:
+        from media_tools.pipeline.media_extensions import MEDIA_EXTENSIONS
+        exts = set(MEDIA_EXTENSIONS)
+    except Exception:
+        exts = {".mp4"}
 
     try:
         if download_dir.is_dir():
-            for p in download_dir.rglob("*.mp4"):
-                if p.is_file():
-                    mp4_stems.add(p.stem)
+            for p in download_dir.rglob("*"):
+                if p.is_file() and p.suffix.lower() in exts:
+                    base = suffix_re.sub("", p.stem)
+                    media_counts[base] += 1
     except OSError:
-        mp4_stems = set()
+        media_counts = Counter()
 
     try:
         if transcripts_dir.is_dir():
-            for p in transcripts_dir.glob("*.md"):
-                if p.is_file():
-                    md_stems.add(p.stem)
+            for p in transcripts_dir.rglob("*"):
+                if not p.is_file():
+                    continue
+                if ".cache" in p.parts:
+                    continue
+                if p.suffix.lower() in {".md", ".docx"}:
+                    base = suffix_re.sub("", p.stem)
+                    transcript_counts[base] += 1
     except OSError:
-        md_stems = set()
+        transcript_counts = Counter()
 
-    completed = len(mp4_stems & md_stems)
-    pending = len(mp4_stems - md_stems)
+    keys = set(media_counts.keys()) | set(transcript_counts.keys())
+    disk_assets = sum(max(media_counts.get(k, 0), transcript_counts.get(k, 0)) for k in keys)
+    pending = sum(max(media_counts.get(k, 0) - transcript_counts.get(k, 0), 0) for k in keys)
+    completed = sum(transcript_counts.values())
 
     return {
-        "disk_asset_count": len(mp4_stems),
+        "disk_asset_count": disk_assets,
         "disk_transcript_completed_count": completed,
         "disk_transcript_pending_count": pending,
     }
