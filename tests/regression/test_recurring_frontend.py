@@ -27,12 +27,20 @@ FRONTEND_ROOT = REPO_ROOT / "frontend" / "src"
 
 # FRONTEND-001: WebSocket 生命周期
 class TestWebSocketLifecycle:
+    def _store_text(self) -> str:
+        """聚合 store 入口及 slice 内容，覆盖按职责拆分后的实现。"""
+        store_dir = FRONTEND_ROOT / "store"
+        chunks: list[str] = []
+        for f in [store_dir / "useStore.ts", *sorted((store_dir / "slices").glob("*.ts"))]:
+            if f.exists():
+                chunks.append(f.read_text())
+        return "\n".join(chunks)
+
     def test_connect_websocket_has_disconnect(self):
         """
-        验证 useStore 中同时存在 connectWebSocket 和 disconnectWebSocket。
+        验证 store 中同时存在 connectWebSocket 和 disconnectWebSocket。
         """
-        store_file = FRONTEND_ROOT / "store" / "useStore.ts"
-        content = store_file.read_text()
+        content = self._store_text()
         assert "connectWebSocket" in content, "缺少 connectWebSocket"
         assert "disconnectWebSocket" in content, "缺少 disconnectWebSocket (FRONTEND-001)"
 
@@ -50,8 +58,7 @@ class TestWebSocketLifecycle:
         """
         验证 WebSocket 重连逻辑中没有无引用的 setTimeout。
         """
-        store_file = FRONTEND_ROOT / "store" / "useStore.ts"
-        content = store_file.read_text()
+        content = self._store_text()
         # 简单检查：如果 setTimeout 的结果未被存储到 ref 或变量，警告
         # 这是一个启发式检查
         assert "_wsRetryTimer" in content or "retryTimerRef" in content, (
