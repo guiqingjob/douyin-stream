@@ -5,12 +5,12 @@ import json
 import logging
 import sqlite3
 
+from media_tools.core import background
 from media_tools.db.core import get_db_connection
 
 logger = logging.getLogger(__name__)
 
 MAX_AUTO_RETRY = 2
-_background_tasks: set[asyncio.Task] = set()
 
 # 仅以下 task_type 受 auto_retry 支持；其它（如 recover_aweme_transcribe、
 # 以 creator_uid 启动的 local_transcribe）原始参数不足以复现，重试只会再次失败。
@@ -45,13 +45,11 @@ def schedule_auto_retry(task_id: str) -> None:
     No-op if there is no running event loop (e.g. called outside the server runtime).
     """
     try:
-        loop = asyncio.get_running_loop()
+        asyncio.get_running_loop()
     except RuntimeError:
         logger.debug(f"schedule_auto_retry skipped (no running loop) task_id={task_id}")
         return
-    t = loop.create_task(handle_auto_retry(task_id))
-    _background_tasks.add(t)
-    t.add_done_callback(lambda t: _background_tasks.discard(t))
+    background.create(handle_auto_retry(task_id), name=f"auto_retry:{task_id}")
 
 
 async def handle_auto_retry(task_id: str) -> None:

@@ -2,8 +2,9 @@ from contextlib import asynccontextmanager
 from fastapi import FastAPI, Request, HTTPException
 from fastapi.responses import JSONResponse
 from fastapi.middleware.cors import CORSMiddleware
-from media_tools.api.routers import creators, assets, tasks, settings, douyin, scheduler
+from media_tools.api.routers import creators, assets, tasks, settings, douyin, scheduler, metrics
 from media_tools.api.websocket_manager import stale_connection_sweeper
+from media_tools.core import background
 from media_tools.core.exceptions import AppError
 import asyncio
 import uvicorn
@@ -51,6 +52,10 @@ async def lifespan(app: FastAPI):
         await sweeper_task
     except asyncio.CancelledError:
         pass
+    # 取消 registry 中所有 in-flight 后台任务（worker / heartbeat / auto_retry / ...）
+    cancelled = await background.cancel_all(timeout=5.0)
+    if cancelled:
+        logger.info(f"shutdown: cancelled {cancelled} background task(s)")
     scheduler.shutdown_scheduler()
 
 
@@ -155,6 +160,7 @@ app.include_router(tasks.router)
 app.include_router(settings.router)
 app.include_router(douyin.router)
 app.include_router(scheduler.router)
+app.include_router(metrics.router)
 
 import shutil
 import sqlite3

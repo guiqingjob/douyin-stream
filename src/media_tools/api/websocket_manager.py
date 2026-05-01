@@ -5,10 +5,9 @@ from typing import List
 from fastapi import WebSocket, WebSocketDisconnect
 from starlette.websockets import WebSocketState
 
-logger = logging.getLogger(__name__)
+from media_tools.core import background
 
-# 跟踪所有后台任务，防止 GC 导致静默失败
-_background_tasks: set[asyncio.Task] = set()
+logger = logging.getLogger(__name__)
 
 # 半开连接检测：超过此时间无活动的连接将被清理（秒）
 _STALE_CONNECTION_TIMEOUT = 120
@@ -140,9 +139,7 @@ async def websocket_endpoint(websocket: WebSocket):
         except (RuntimeError, OSError):
             logger.exception("Heartbeat task unexpected error")
 
-    heartbeat_task = asyncio.create_task(_heartbeat())
-    _background_tasks.add(heartbeat_task)
-    heartbeat_task.add_done_callback(lambda t: _background_tasks.discard(t))
+    heartbeat_task = background.create(_heartbeat(), name=f"ws_heartbeat:{id(websocket)}")
 
     try:
         while True:
