@@ -1,15 +1,12 @@
 import sqlite3
 from datetime import datetime, timedelta
-from unittest.mock import patch
 
-from fastapi.testclient import TestClient
-
-from media_tools.api.app import app
-
-client = TestClient(app)
+from media_tools.services.task_ops import cleanup_stale_tasks
 
 
-def test_task_history_triggers_stale_gc(monkeypatch) -> None:
+def test_cleanup_stale_tasks_marks_long_running_failed(monkeypatch) -> None:
+    """GC 由 scheduler 后台 job 调用 cleanup_stale_tasks 完成；
+    本测试直接验证函数行为，不再依赖 GET /tasks/history 触发。"""
     conn = sqlite3.connect(":memory:", check_same_thread=False)
     conn.row_factory = sqlite3.Row
     conn.execute(
@@ -48,13 +45,10 @@ def test_task_history_triggers_stale_gc(monkeypatch) -> None:
     conn.commit()
 
     monkeypatch.setenv("MEDIA_TOOLS_TASK_STALE_MINUTES", "20")
-    with patch("media_tools.api.routers.tasks.get_db_connection", return_value=conn), patch(
-        "media_tools.repositories.task_repository.get_db_connection", return_value=conn
-    ):
-        resp = client.get("/api/v1/tasks/history")
+    cleanup_stale_tasks(conn)
 
-    assert resp.status_code == 200
-    tasks = resp.json()
-    task = next(t for t in tasks if t["task_id"] == "t-stale")
-    assert task["status"] == "FAILED"
-    assert task["error_msg"]
+    row = conn.execute(
+        "SELECT status, error_msg FROM task_queue WHERE task_id = ?", ("t-stale",)
+    ).fetchone()
+    assert row["status"] == "FAILED"
+    assert row["error_msg"]

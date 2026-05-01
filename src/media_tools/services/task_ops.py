@@ -174,10 +174,17 @@ async def update_task_progress(
                     parsed["pipeline_progress"] = pp
                     payload_str = json.dumps(parsed, ensure_ascii=False)
             if row is None:
+                # 用 OR IGNORE 避免与并发 INSERT 撞主键，再走 UPDATE 路径补齐进度
                 conn.execute(
-                    """INSERT INTO task_queue (task_id, task_type, status, progress, payload, create_time, update_time)
+                    """INSERT OR IGNORE INTO task_queue (task_id, task_type, status, progress, payload, create_time, update_time)
                        VALUES (?, ?, 'RUNNING', ?, ?, ?, ?)""",
                     (task_id, task_type, progress, payload_str, now, now),
+                )
+                conn.execute(
+                    """UPDATE task_queue
+                       SET status='RUNNING', progress=?, payload=?, update_time=?
+                       WHERE task_id=? AND status IN ('PENDING', 'RUNNING', 'PAUSED')""",
+                    (progress, payload_str, now, task_id),
                 )
             else:
                 conn.execute(
@@ -216,11 +223,17 @@ async def _complete_task(
     result_summary: dict | None = None,
     subtasks: list | None = None,
 ) -> None:
-    progress = 1.0 if status == "COMPLETED" else 0.0
     pipeline_progress: dict | None = None
+    progress_for_notify: float = 0.0
     try:
         now = datetime.now().isoformat()
         with get_db_connection() as conn:
+            conn.row_factory = sqlite3.Row
+            existing = conn.execute(
+                "SELECT progress FROM task_queue WHERE task_id = ?",
+                (task_id,),
+            ).fetchone()
+            existing_progress = float(existing["progress"]) if existing and existing["progress"] is not None else 0.0
             payload_str = _merge_payload_from_db(conn, task_id, msg, result_summary, subtasks)
             try:
                 parsed = json.loads(payload_str) if payload_str else {}
@@ -230,15 +243,21 @@ async def _complete_task(
                 pp = parsed.get("pipeline_progress")
                 if isinstance(pp, dict) and pp:
                     pipeline_progress = dict(pp)
+            # COMPLETED → 1.0；FAILED 保留现有进度（避免突然回退）
+            new_progress = 1.0 if status == "COMPLETED" else existing_progress
+            progress_for_notify = new_progress
+            # 状态机：COMPLETED / CANCELLED 是终态，不允许被其他状态覆盖
             conn.execute(
-                "UPDATE task_queue SET status=?, progress=?, payload=?, error_msg=?, update_time=? WHERE task_id=?",
-                (status, progress, payload_str, error_msg, now, task_id),
+                """UPDATE task_queue
+                   SET status=?, progress=?, payload=?, error_msg=?, update_time=?
+                   WHERE task_id=? AND status NOT IN ('COMPLETED', 'CANCELLED')""",
+                (status, new_progress, payload_str, error_msg, now, task_id),
             )
     except (sqlite3.Error, OSError, RuntimeError) as e:
         logger.error(f"Failed to complete task {task_id} in DB: {e}")
     await notify_task_update(
         task_id,
-        progress,
+        progress_for_notify,
         msg,
         status,
         task_type,
@@ -254,8 +273,9 @@ async def _fail_task(task_id: str, task_type: str, error: str) -> None:
     try:
         with get_db_connection() as conn:
             conn.execute(
-                "UPDATE task_queue SET status='FAILED', error_msg=? WHERE task_id=?",
-                (str(error), task_id),
+                """UPDATE task_queue SET status='FAILED', error_msg=?, update_time=?
+                   WHERE task_id=? AND status NOT IN ('COMPLETED', 'CANCELLED')""",
+                (str(error), datetime.now().isoformat(), task_id),
             )
     except (sqlite3.Error, OSError) as e:
         logger.error(f"Failed to fail task {task_id} in DB: {e}")

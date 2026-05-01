@@ -63,6 +63,8 @@ def delete_asset_files(
         transcripts_dir = get_project_root() / "transcripts"
 
     # Delete video file
+    # 注：本地素材的 video 是用户主目录中的原始文件（不在 downloads 内），
+    # 单独删除素材记录时不应连带删除用户文件——只删 DB 行。
     if creator_uid != LOCAL_CREATOR_UID and (source_url or video_path):
         full_video_path = _resolve_asset_video_file(
             creator_uid=creator_uid,

@@ -3,7 +3,9 @@ from fastapi import FastAPI, Request, HTTPException
 from fastapi.responses import JSONResponse
 from fastapi.middleware.cors import CORSMiddleware
 from media_tools.api.routers import creators, assets, tasks, settings, douyin, scheduler
+from media_tools.api.websocket_manager import stale_connection_sweeper
 from media_tools.core.exceptions import AppError
+import asyncio
 import uvicorn
 import logging
 
@@ -39,8 +41,16 @@ async def lifespan(app: FastAPI):
     except (sqlite3.Error, OSError) as e:
         logger.warning(f"startup cleanup failed: {e}")
 
+    # 后台清扫 WebSocket 半开连接（每 60s）
+    sweeper_task = asyncio.create_task(stale_connection_sweeper(60))
+
     yield
     # Shutdown
+    sweeper_task.cancel()
+    try:
+        await sweeper_task
+    except asyncio.CancelledError:
+        pass
     scheduler.shutdown_scheduler()
 
 

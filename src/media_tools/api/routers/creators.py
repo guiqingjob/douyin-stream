@@ -36,7 +36,7 @@ def _scan_creator_disk_counts(folder_name: str) -> dict[str, int]:
     try:
         from media_tools.pipeline.media_extensions import MEDIA_EXTENSIONS
         exts = set(MEDIA_EXTENSIONS)
-    except Exception:
+    except ImportError:
         exts = {".mp4"}
 
     try:
@@ -300,56 +300,67 @@ def delete_creator(uid: str):
             cursor = conn.execute("SELECT asset_id, video_path, transcript_path FROM media_assets WHERE creator_uid = ?", (uid,))
             assets = cursor.fetchall()
 
-            # Phase 1: 删除文件（先删文件）
-            for asset in assets:
-                video_path = asset['video_path']
-                transcript_name = asset['transcript_path']
-
-                # Delete video file
-                if video_path:
-                    full_video_path = resolve_safe_path(get_download_path(), video_path)
-                    if full_video_path and full_video_path.exists():
-                        try:
-                            full_video_path.unlink()
-                        except OSError as e:
-                            conn.rollback()
-                            raise HTTPException(status_code=500, detail=f"删除视频失败: {full_video_path} ({e})")
-
-                # Delete transcript file
-                if transcript_name:
-                    full_transcript_path = resolve_safe_path(get_project_root() / "transcripts", transcript_name)
-                    if full_transcript_path and full_transcript_path.exists():
-                        try:
-                            full_transcript_path.unlink()
-                        except OSError as e:
-                            conn.rollback()
-                            raise HTTPException(status_code=500, detail=f"删除转写失败: {full_transcript_path} ({e})")
-
-            # Also try to delete the creator's download folder if it exists
-            download_base = get_download_path().resolve()
-            for folder_name in [nickname, uid]:
-                if folder_name:
-                    creator_dir = resolve_safe_path(download_base, folder_name)
-                    if creator_dir and creator_dir.exists() and creator_dir.is_dir():
-                        try:
-                            shutil.rmtree(creator_dir)
-                        except OSError as e:
-                            conn.rollback()
-                            raise HTTPException(status_code=500, detail=f"删除创作者目录失败: {creator_dir} ({e})")
-
-            # Phase 2: 删除 DB 记录（后删DB）
+            # Phase 1: DB deletes first (inside transaction)
+            asset_ids = [str(a['asset_id']) for a in assets if a['asset_id']]
+            if asset_ids:
+                placeholders = ",".join("?" * len(asset_ids))
+                conn.execute(f"DELETE FROM assets_fts WHERE asset_id IN ({placeholders})", asset_ids)
             conn.execute("DELETE FROM media_assets WHERE creator_uid = ?", (uid,))
-
-            # Delete creator from database
             conn.execute("DELETE FROM creators WHERE uid = ?", (uid,))
-
             conn.commit()
 
-            return {"status": "success", "message": f"Creator {uid} and all their assets deleted successfully"}
+        # Phase 2: Delete files after DB commit (outside transaction)
+        for asset in assets:
+            video_path = asset['video_path']
+            transcript_name = asset['transcript_path']
+
+            # Delete video file
+            if video_path:
+                full_video_path = resolve_safe_path(get_download_path(), video_path)
+                if full_video_path and full_video_path.exists():
+                    try:
+                        full_video_path.unlink()
+                    except OSError as e:
+                        logger.warning(f"删除视频文件失败: {full_video_path} ({e})")
+
+            # Delete transcript file
+            if transcript_name:
+                full_transcript_path = resolve_safe_path(get_project_root() / "transcripts", transcript_name)
+                if full_transcript_path and full_transcript_path.exists():
+                    try:
+                        full_transcript_path.unlink()
+                    except OSError as e:
+                        logger.warning(f"删除转写文件失败: {full_transcript_path} ({e})")
+
+        # Also try to delete the creator's download folder if it exists
+        # 重名保护：仅当没有其他 creator 仍以此 folder_name 作为 nickname/uid 时才删除
+        download_base = get_download_path().resolve()
+        for folder_name in [nickname, uid]:
+            if not folder_name:
+                continue
+            creator_dir = resolve_safe_path(download_base, folder_name)
+            if not (creator_dir and creator_dir.exists() and creator_dir.is_dir()):
+                continue
+            try:
+                with get_db_connection() as conn:
+                    in_use = conn.execute(
+                        "SELECT 1 FROM creators WHERE nickname = ? OR uid = ? LIMIT 1",
+                        (folder_name, folder_name),
+                    ).fetchone()
+            except sqlite3.Error as e:
+                logger.warning(f"检查 {folder_name} 是否被复用失败: {e}")
+                in_use = True  # 安全侧失败：宁可不删
+            if in_use:
+                logger.info(f"目录 {creator_dir} 仍被其他创作者使用，跳过删除")
+                continue
+            try:
+                shutil.rmtree(creator_dir)
+            except OSError as e:
+                logger.warning(f"删除创作者目录失败: {creator_dir} ({e})")
+
+        return {"status": "success", "message": f"Creator {uid} and all their assets deleted successfully"}
 
     except HTTPException:
-        raise
-    except OSError:
         raise
     except (sqlite3.Error, RuntimeError) as e:
         raise HTTPException(status_code=500, detail=str(e))

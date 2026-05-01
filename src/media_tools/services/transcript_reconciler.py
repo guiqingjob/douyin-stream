@@ -45,6 +45,15 @@ def reconcile_transcripts():
             nickname = creator['nickname']
             uid = creator['uid']
             if nickname not in actual_folders and nickname != "本地上传":
+                # Capture asset_ids before deletion so we can clean up FTS index
+                stale_assets = conn.execute(
+                    "SELECT asset_id FROM media_assets WHERE creator_uid = ?",
+                    (uid,),
+                ).fetchall()
+                stale_ids = [str(r['asset_id']) for r in stale_assets if r['asset_id']]
+                if stale_ids:
+                    placeholders = ",".join("?" * len(stale_ids))
+                    conn.execute(f"DELETE FROM assets_fts WHERE asset_id IN ({placeholders})", stale_ids)
                 deleted = conn.execute("DELETE FROM media_assets WHERE creator_uid = ?", (uid,))
                 conn.execute("DELETE FROM creators WHERE uid = ?", (uid,))
                 results['creators_removed'] += 1

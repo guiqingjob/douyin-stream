@@ -1,4 +1,5 @@
 import asyncio
+import sqlite3
 from media_tools.db.core import get_db_connection
 from media_tools.douyin.core.cancel_registry import clear_download_progress, get_download_progress
 from media_tools.douyin.core.downloader import download_by_uid

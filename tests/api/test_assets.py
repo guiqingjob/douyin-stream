@@ -15,7 +15,10 @@ def test_get_assets_by_creator():
     assert isinstance(response.json(), list)
 
 
-def test_bulk_delete_does_not_begin_immediate_before_file_delete():
+def test_bulk_delete_commits_db_before_file_delete():
+    """新设计：先在事务里删除 DB 行（避免 partial failure 留下 DB-File 不一致），
+    commit 后再尽力删除文件；文件删除失败仅记录日志，不影响 DB 提交。
+    """
     from media_tools.db.core import init_db
     from media_tools.api.routers import assets as assets_router
 
@@ -56,7 +59,7 @@ def test_bulk_delete_does_not_begin_immediate_before_file_delete():
         )
         conn.commit()
 
-        began = {"value": False}
+        events: dict[str, bool] = {"began": False, "committed": False}
 
         class _ConnProxy:
             def __init__(self, inner):
@@ -67,8 +70,12 @@ def test_bulk_delete_does_not_begin_immediate_before_file_delete():
 
             def execute(self, sql, params=()):
                 if sql == "BEGIN IMMEDIATE":
-                    began["value"] = True
+                    events["began"] = True
                 return self._inner.execute(sql, params)
+
+            def commit(self):
+                events["committed"] = True
+                return self._inner.commit()
 
             def __enter__(self):
                 return self
@@ -77,7 +84,9 @@ def test_bulk_delete_does_not_begin_immediate_before_file_delete():
                 return False
 
         def _delete_asset_files(*_args, **_kwargs):
-            assert began["value"] is False
+            # File delete must happen AFTER DB commit so partial failure can never leave DB-File mismatch
+            assert events["began"] is True, "BEGIN IMMEDIATE should have run before file delete"
+            assert events["committed"] is True, "DB commit must precede file delete"
             return []
 
         with patch.object(assets_router, "get_db_connection", return_value=_ConnProxy(conn)), patch.object(
@@ -88,7 +97,8 @@ def test_bulk_delete_does_not_begin_immediate_before_file_delete():
             resp = client.post("/api/v1/assets/bulk_delete", json={"ids": ["a1"]})
 
         assert resp.status_code == 200
-        assert began["value"] is True
+        assert events["began"] is True
+        assert events["committed"] is True
 
 
 def test_get_asset_transcript_missing_file_does_not_write_db() -> None:

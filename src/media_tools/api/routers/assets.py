@@ -60,12 +60,16 @@ def list_assets(
         raise HTTPException(status_code=500, detail=str(e))
 
 @router.get("/search")
-def search_assets(q: str = Query(..., min_length=1)):
+def search_assets(q: str = Query(..., min_length=1, max_length=200)):
     """搜索素材标题和转写文稿内容（FTS5全文索引）"""
     try:
-        # Sanitize user query: escape FTS5 special chars, allow prefix match with *
-        safe_q = q.replace('"', '""')
-        # Use prefix match (q*) for better UX
+        # 1) 移除控制字符（防 tokenizer 异常）
+        cleaned = "".join(c for c in q if c.isprintable() or c.isspace()).strip()
+        if not cleaned:
+            return []
+        # 2) 双引号转义后整体包成 FTS5 phrase + 末尾 prefix 匹配；
+        #    包成 phrase 后 OR / AND / NEAR / * / : 等保留语义都被当字面字符处理
+        safe_q = cleaned.replace('"', '""')
         fts_query = f'"{safe_q}"*'
 
         with get_db_connection() as conn:
@@ -84,7 +88,7 @@ def search_assets(q: str = Query(..., min_length=1)):
                   a.update_time DESC
                 LIMIT 50
                 """,
-                (f"%{q}%", fts_query, f"%{q}%"),
+                (f"%{cleaned}%", fts_query, f"%{cleaned}%"),
             )
             return [dict(row) for row in cursor.fetchall()]
     except (sqlite3.Error, OSError, RuntimeError) as e:
@@ -188,6 +192,7 @@ def delete_asset(asset_id: str):
                 raise HTTPException(status_code=500, detail=f"删除文件失败: {failed[0]}")
 
             # Phase 3: Delete from database (后删DB)
+            conn.execute("DELETE FROM assets_fts WHERE asset_id = ?", (asset_id,))
             conn.execute("DELETE FROM media_assets WHERE asset_id = ?", (asset_id,))
             conn.commit()
 
@@ -291,14 +296,18 @@ def bulk_delete_assets(req: BulkAssetDeleteRequest):
 
     download_dir = get_download_path()
     transcripts_dir = get_project_root() / "transcripts"
-    failed_deletions: list[str] = []
 
+    # Phase 1: 收集 + 删除 DB 行（事务内），磁盘删除留到 commit 后做。
+    # 这样即便磁盘删除部分失败，也不会出现「DB 已回滚但文件已删除」的不一致。
+    rows_to_clean: list[dict] = []
     deleted = 0
     with get_db_connection() as conn:
         conn.row_factory = sqlite3.Row
         source_url_select = get_source_url_column(conn)
 
         try:
+            conn.execute("BEGIN IMMEDIATE")
+
             for start in range(0, len(req.ids), 500):
                 chunk = req.ids[start:start + 500]
                 placeholders = ",".join("?" * len(chunk))
@@ -306,22 +315,14 @@ def bulk_delete_assets(req: BulkAssetDeleteRequest):
                     f"SELECT asset_id, creator_uid, {source_url_select} video_path, transcript_path FROM media_assets WHERE asset_id IN ({placeholders})",
                     chunk,
                 )
-                rows = cursor.fetchall()
+                for row in cursor.fetchall():
+                    rows_to_clean.append({
+                        "creator_uid": row["creator_uid"],
+                        "source_url": row["source_url"],
+                        "video_path": row["video_path"],
+                        "transcript_path": row["transcript_path"],
+                    })
 
-                for row in rows:
-                    failed = delete_asset_files(
-                        row["creator_uid"], row["source_url"], row["video_path"], row["transcript_path"],
-                        download_dir=download_dir, transcripts_dir=transcripts_dir,
-                    )
-                    failed_deletions.extend(failed)
-
-            if failed_deletions:
-                raise HTTPException(status_code=500, detail=f"部分文件删除失败: {failed_deletions[:10]}")
-
-            conn.execute("BEGIN IMMEDIATE")
-            for start in range(0, len(req.ids), 500):
-                chunk = req.ids[start:start + 500]
-                placeholders = ",".join("?" * len(chunk))
                 conn.execute(
                     f"DELETE FROM assets_fts WHERE asset_id IN ({placeholders})",
                     chunk,
@@ -332,15 +333,23 @@ def bulk_delete_assets(req: BulkAssetDeleteRequest):
                 )
                 deleted += cursor.rowcount
             conn.commit()
-        except HTTPException:
-            raise
-        except OSError:
-            raise
         except sqlite3.Error:
             conn.rollback()
             raise
 
-    return {"status": "success", "deleted": deleted}
+    # Phase 2: DB 已提交，再做磁盘清理；失败仅记录日志，不影响接口结果
+    failed_deletions: list[str] = []
+    for row in rows_to_clean:
+        failed = delete_asset_files(
+            row["creator_uid"], row["source_url"], row["video_path"], row["transcript_path"],
+            download_dir=download_dir, transcripts_dir=transcripts_dir,
+        )
+        if failed:
+            failed_deletions.extend(failed)
+    if failed_deletions:
+        logger.warning(f"bulk_delete: {len(failed_deletions)} files failed to delete; sample={failed_deletions[:5]}")
+
+    return {"status": "success", "deleted": deleted, "file_cleanup_failed": len(failed_deletions)}
 
 
 @router.post("/cleanup")

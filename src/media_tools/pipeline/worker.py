@@ -48,17 +48,19 @@ async def run_local_transcribe(file_paths: list[str], update_progress_fn=None, d
 
     async def _run_one(video_path: Path):
         title = video_path.stem[:60]
-        progress = 0.02 + 0.93 * (completed_count / total) if total > 0 else 0.02
-        create_managed_task(
-            call_progress(
-                update_progress_fn,
-                progress,
-                f"正在转写 ({completed_count}/{total}) · {title}",
-                stage="transcribe",
-                pipeline_progress={"transcribe": {"done": int(completed_count), "total": int(total), "current_title": title}},
-            )
-        )
         async with semaphore:
+            # 拿到并发槽时再报当前进度，避免一次创建 N 个任务时全部上报 (0/total)
+            started = completed_count
+            progress = 0.02 + 0.93 * (started / total) if total > 0 else 0.02
+            create_managed_task(
+                call_progress(
+                    update_progress_fn,
+                    progress,
+                    f"正在转写 ({started}/{total}) · {title}",
+                    stage="transcribe",
+                    pipeline_progress={"transcribe": {"done": int(started), "total": int(total), "current_title": title}},
+                )
+            )
             return await orchestrator.transcribe_with_retry(video_path)
 
     tasks = [asyncio.create_task(_run_one(p)) for p in valid_paths]
@@ -87,29 +89,28 @@ async def run_local_transcribe(file_paths: list[str], update_progress_fn=None, d
                         full_text = extract_transcript_text(str(tp))
                     try:
                         with get_db_connection() as conn:
+                            asset_id = local_asset_id(video_path)
                             conn.execute(
                                 """
                                 UPDATE media_assets
                                 SET transcript_path = ?, transcript_status = 'completed', transcript_preview = ?, transcript_text = ?, update_time = CURRENT_TIMESTAMP
                                 WHERE asset_id = ?
                                 """,
-                                (transcript_name, preview, full_text, local_asset_id(video_path)),
+                                (transcript_name, preview, full_text, asset_id),
                             )
-                            conn.commit()
+                            # 在同一连接里同步 FTS，避免主事务回滚时 FTS 索引漂移
                             try:
-                                from media_tools.db.core import update_fts_for_asset
-
                                 title_row = conn.execute(
                                     "SELECT title FROM media_assets WHERE asset_id = ?",
-                                    (local_asset_id(video_path),),
+                                    (asset_id,),
                                 ).fetchone()
-                                update_fts_for_asset(
-                                    local_asset_id(video_path),
-                                    title_row["title"] if title_row else "",
-                                    full_text,
+                                conn.execute(
+                                    "INSERT OR REPLACE INTO assets_fts(asset_id, title, transcript_text) VALUES (?, ?, ?)",
+                                    (asset_id, title_row["title"] if title_row else "", full_text or ""),
                                 )
                             except sqlite3.Error as fts_err:
-                                logger.error(f"FTS索引更新失败 (asset={local_asset_id(video_path)}): {fts_err}")
+                                logger.error(f"FTS索引更新失败 (asset={asset_id}): {fts_err}")
+                            conn.commit()
                     except sqlite3.Error as db_err:
                         logger.error(f"DB更新失败 (asset={local_asset_id(video_path)}): {db_err}")
 

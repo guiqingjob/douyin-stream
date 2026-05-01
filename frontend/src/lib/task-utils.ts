@@ -89,7 +89,11 @@ export function getTaskStatusLabel(task: Task) {
 }
 
 export function getTaskMessage(task: Task) {
-  return parseTaskMessage(task.payload) || task.error_msg || '暂无详细信息';
+  const msg = parseTaskMessage(task.payload) || task.error_msg || '';
+  if (msg) return msg;
+  // Completed tasks with no message is normal — don't show a confusing fallback
+  if (task.status === 'COMPLETED' || task.status === 'SUCCESS') return '';
+  return '暂无详细信息';
 }
 
 export function getTaskError(task: Task) {

@@ -25,7 +25,7 @@ except BaseException as exc:  # pragma: no cover - depends on optional runtime d
 
         async def fetch_user_post_videos(self, *_args, **_kwargs):
             raise RuntimeError(f"f2 unavailable: {_f2_import_error}")
-            yield
+            yield  # makes this an async generator so `async for` raises the RuntimeError above instead of TypeError
 
     class SecUserIdFetcher:  # type: ignore[no-redef]
         @staticmethod

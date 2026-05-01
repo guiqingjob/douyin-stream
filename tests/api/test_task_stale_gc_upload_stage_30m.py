@@ -1,16 +1,13 @@
 import json
 import sqlite3
 from datetime import datetime, timedelta
-from unittest.mock import patch
 
-from fastapi.testclient import TestClient
-
-from media_tools.api.app import app
-
-client = TestClient(app)
+from media_tools.services.task_ops import cleanup_stale_tasks
 
 
-def test_task_stale_gc_upload_stage_uses_30m(monkeypatch) -> None:
+def test_cleanup_stale_tasks_upload_stage_uses_30m(monkeypatch) -> None:
+    """upload 阶段任务的 stale 阈值需要至少 30 分钟（OSS 大文件上传可能慢）。
+    GC 由 scheduler 后台 job 调用 cleanup_stale_tasks 完成；本测试直接验证函数行为。"""
     conn = sqlite3.connect(":memory:", check_same_thread=False)
     conn.row_factory = sqlite3.Row
     conn.execute(
@@ -83,14 +80,12 @@ def test_task_stale_gc_upload_stage_uses_30m(monkeypatch) -> None:
     conn.commit()
 
     monkeypatch.setenv("MEDIA_TOOLS_TASK_STALE_MINUTES", "20")
-    with patch("media_tools.api.routers.tasks.get_db_connection", return_value=conn), patch(
-        "media_tools.repositories.task_repository.get_db_connection", return_value=conn
-    ):
-        resp = client.get("/api/v1/tasks/history")
+    cleanup_stale_tasks(conn)
 
-    assert resp.status_code == 200
-    tasks = resp.json()
-    by_id = {t["task_id"]: t for t in tasks}
+    by_id = {
+        row["task_id"]: dict(row)
+        for row in conn.execute("SELECT task_id, status FROM task_queue").fetchall()
+    }
 
     assert by_id["t-upload-25m"]["status"] == "RUNNING"
     assert by_id["t-upload-35m"]["status"] == "FAILED"

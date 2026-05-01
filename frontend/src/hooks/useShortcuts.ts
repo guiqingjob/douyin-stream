@@ -1,4 +1,4 @@
-import { useEffect } from 'react';
+import { useEffect, useRef } from 'react';
 
 type ShortcutHandler = (e: KeyboardEvent) => void;
 
@@ -21,9 +21,14 @@ export interface ShortcutOptions {
  *     'shift+x', 'shift+$mod+a'
  *
  * Handlers receive the raw KeyboardEvent and may call preventDefault().
+ *
+ * The `map` is read through a ref so callers can safely pass a new object
+ * literal each render without forcing a window listener re-attach.
  */
 export function useShortcuts(map: ShortcutMap, opts: ShortcutOptions = {}): void {
   const { enabled = true, ignoreEditable = true } = opts;
+  const mapRef = useRef<ShortcutMap>(map);
+  mapRef.current = map;
 
   useEffect(() => {
     if (!enabled) return;
@@ -50,9 +55,6 @@ export function useShortcuts(map: ShortcutMap, opts: ShortcutOptions = {}): void
       return [...mods, key].join('+');
     };
 
-    const bindings: Record<string, ShortcutHandler> = {};
-    for (const [k, v] of Object.entries(map)) bindings[normalizeBinding(k)] = v;
-
     const handler = (e: KeyboardEvent) => {
       if ((e as unknown as { isComposing?: boolean }).isComposing) return;
       if (ignoreEditable) {
@@ -61,11 +63,16 @@ export function useShortcuts(map: ShortcutMap, opts: ShortcutOptions = {}): void
         if (tag === 'INPUT' || tag === 'TEXTAREA' || target?.isContentEditable) return;
       }
       const sig = normalizeEvent(e);
-      const fn = bindings[sig];
-      if (fn) fn(e);
+      const current = mapRef.current;
+      for (const k of Object.keys(current)) {
+        if (normalizeBinding(k) === sig) {
+          current[k](e);
+          return;
+        }
+      }
     };
 
     window.addEventListener('keydown', handler);
     return () => window.removeEventListener('keydown', handler);
-  }, [map, enabled, ignoreEditable]);
+  }, [enabled, ignoreEditable]);
 }

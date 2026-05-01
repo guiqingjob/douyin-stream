@@ -4,7 +4,7 @@ from __future__ import annotations
 import json
 import logging
 import sqlite3
-from datetime import datetime
+from datetime import datetime, timedelta
 
 logger = logging.getLogger(__name__)
 from typing import Any
@@ -192,20 +192,32 @@ class TaskRepository:
         result_summary: dict | None = None,
         subtasks: list | None = None,
     ) -> None:
-        """更新任务进度"""
+        """更新任务进度。
+
+        - 不存在则插入新行（RUNNING）
+        - 已存在且非终态时更新进度
+        - 已是 COMPLETED / FAILED / CANCELLED 时不会被覆盖（避免 worker 晚到的进度复活终态任务）
+        """
         now = datetime.now().isoformat()
         with get_db_connection() as conn:
+            existing = conn.execute(
+                "SELECT status FROM task_queue WHERE task_id = ?",
+                (task_id,),
+            ).fetchone()
             payload_str = _merge_payload_from_db(conn, task_id, msg, result_summary, subtasks)
-            conn.execute(
-                """INSERT INTO task_queue (task_id, task_type, status, progress, payload, create_time, update_time)
-                   VALUES (?, ?, 'RUNNING', ?, ?, ?, ?)
-                   ON CONFLICT(task_id) DO UPDATE SET
-                       status = 'RUNNING',
-                       progress = excluded.progress,
-                       payload = excluded.payload,
-                       update_time = excluded.update_time""",
-                (task_id, task_type, progress, payload_str, now, now),
-            )
+            if existing is None:
+                conn.execute(
+                    """INSERT INTO task_queue (task_id, task_type, status, progress, payload, create_time, update_time)
+                       VALUES (?, ?, 'RUNNING', ?, ?, ?, ?)""",
+                    (task_id, task_type, progress, payload_str, now, now),
+                )
+            else:
+                conn.execute(
+                    """UPDATE task_queue
+                       SET status='RUNNING', progress=?, payload=?, update_time=?
+                       WHERE task_id=? AND status NOT IN ('COMPLETED', 'FAILED', 'CANCELLED')""",
+                    (progress, payload_str, now, task_id),
+                )
 
     @staticmethod
     def mark_running(task_id: str, progress: float = 0.0, payload: str | None = None) -> None:
@@ -315,7 +327,7 @@ class TaskRepository:
     @staticmethod
     def clear_history(hours: int = 2) -> None:
         """清除历史任务"""
-        cutoff = datetime.now() - __import__('datetime').timedelta(hours=hours)
+        cutoff = datetime.now() - timedelta(hours=hours)
         with get_db_connection() as conn:
             conn.execute(
                 "DELETE FROM task_queue WHERE status IN ('COMPLETED', 'FAILED', 'CANCELLED') AND update_time < ?",

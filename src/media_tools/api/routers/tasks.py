@@ -86,8 +86,6 @@ def get_active_tasks():
 @router.get("/history")
 def get_task_history():
     try:
-        with get_db_connection() as conn:
-            cleanup_stale_tasks(conn)
         tasks = TaskRepository.list_recent(200)
         for task in tasks:
             payload_raw = task.get("payload")
@@ -119,8 +117,6 @@ def get_task_history():
 @router.delete("/history")
 def clear_task_history():
     try:
-        with get_db_connection() as conn:
-            cleanup_stale_tasks(conn)
         active_task_ids = set(_active_tasks.keys())
         deleted_task_ids = TaskRepository.delete_all_except(active_task_ids)
         for task_id in deleted_task_ids:
@@ -165,8 +161,6 @@ async def delete_task(task_id: str):
 @router.get("/{task_id}")
 def get_task_status(task_id: str):
     try:
-        with get_db_connection() as conn:
-            cleanup_stale_tasks(conn)
         task = TaskRepository.find_by_id(task_id)
         if task:
             payload_raw = task.get("payload")
@@ -254,9 +248,11 @@ async def resume_task(task_id: str):
 @router.post("/{task_id}/rerun")
 async def rerun_task(task_id: str):
     try:
-        task_type, payload_str, current_status = TaskRepository.get_task_type_payload_status(task_id)
-        if not task_type:
+        task = TaskRepository.find_by_id(task_id)
+        if not task:
             raise HTTPException(status_code=404, detail="任务不存在")
+
+        task_type, payload_str, current_status = TaskRepository.get_task_type_payload_status(task_id)
 
         if current_status not in ("FAILED", "CANCELLED", "PAUSED"):
             raise HTTPException(status_code=409, detail=f"当前状态 {current_status} 不能重新运行")

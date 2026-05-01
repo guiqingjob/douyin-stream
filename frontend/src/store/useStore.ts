@@ -216,8 +216,17 @@ export const useStore = create<StoreState>((set, get) => ({
     ws.onmessage = (event) => {
       try {
         const data = JSON.parse(event.data);
-        // 忽略 ping 消息
-        if (data.type === 'ping') return;
+        // 收到 ping 立即回 pong，让服务端能基于 _last_activity 判定连接存活
+        if (data.type === 'ping') {
+          if (ws.readyState === WebSocket.OPEN) {
+            try {
+              ws.send(JSON.stringify({ type: 'pong' }));
+            } catch {
+              // ignore: client send errors will surface via onclose
+            }
+          }
+          return;
+        }
         if (!data.task_id) return;
         const update: Partial<Task> & { task_id: string } = {
           task_id: data.task_id,

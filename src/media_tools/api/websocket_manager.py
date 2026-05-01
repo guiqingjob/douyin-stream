@@ -62,35 +62,65 @@ class ConnectionManager:
         }
 
     async def broadcast(self, message: dict):
-        # 先清理超时连接
-        self.cleanup_stale_connections()
-
+        # 先清理标记为 DISCONNECTED 的连接
         snapshot = list(self.active_connections)
-        dead_connections = []
+        dead_connections: list[WebSocket] = []
         for conn in snapshot:
             try:
                 if conn.client_state == WebSocketState.DISCONNECTED:
                     dead_connections.append(conn)
             except (AttributeError, RuntimeError):
                 dead_connections.append(conn)
-
         for conn in dead_connections:
             self.disconnect(conn)
 
-        for connection in snapshot:
-            if connection in dead_connections:
-                continue
-            try:
-                await connection.send_json(message)
-                self._touch(connection)
+        live = [c for c in snapshot if c not in dead_connections]
+        if not live:
+            return
+
+        # 并发推送：慢连接不会拖累快连接
+        results = await asyncio.gather(
+            *(c.send_json(message) for c in live),
+            return_exceptions=True,
+        )
+        for conn, result in zip(live, results):
+            if isinstance(result, BaseException):
+                if isinstance(result, (ConnectionResetError, OSError, BrokenPipeError, RuntimeError)):
+                    logger.info(f"WebSocket 连接已关闭，移除连接: {id(conn)}")
+                    self.disconnect(conn)
+                    self._stats["broadcast_failed"] += 1
+                else:
+                    logger.exception(
+                        f"WebSocket 广播未预期异常: {id(conn)}",
+                        exc_info=result,
+                    )
+                    self.disconnect(conn)
+                    self._stats["broadcast_failed"] += 1
+            else:
+                self._touch(conn)
                 self._stats["broadcast_success"] += 1
-            except (ConnectionResetError, OSError, BrokenPipeError, RuntimeError) as e:
-                logger.info(f"WebSocket 连接已关闭，移除连接: {id(connection)}")
-                self.disconnect(connection)
-                self._stats["broadcast_failed"] += 1
 
 
 manager = ConnectionManager()
+
+
+async def stale_connection_sweeper(interval_seconds: int = 60) -> None:
+    """后台任务：周期性清理无活动 WebSocket 连接。
+
+    `cleanup_stale_connections` 原本只在 broadcast 时调用，空闲期不会触发；
+    本任务由 lifespan 拉起，确保任何时段半开连接都会被回收。
+    """
+    while True:
+        try:
+            await asyncio.sleep(interval_seconds)
+            removed = manager.cleanup_stale_connections()
+            if removed:
+                logger.info(f"stale_connection_sweeper 清理 {removed} 个连接")
+        except asyncio.CancelledError:
+            logger.debug("stale_connection_sweeper cancelled")
+            return
+        except (RuntimeError, OSError) as e:
+            logger.warning(f"stale_connection_sweeper iteration failed: {e}")
 
 
 async def websocket_endpoint(websocket: WebSocket):
@@ -117,6 +147,8 @@ async def websocket_endpoint(websocket: WebSocket):
     try:
         while True:
             data = await websocket.receive_text()
+            # 收到任何客户端消息（含 pong）都视作连接活跃
+            manager._touch(websocket)
             if data:
                 logger.debug(f"WebSocket received: {data[:50]}...")
     except WebSocketDisconnect:

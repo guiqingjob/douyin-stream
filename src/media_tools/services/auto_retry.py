@@ -12,9 +12,44 @@ logger = logging.getLogger(__name__)
 MAX_AUTO_RETRY = 2
 _background_tasks: set[asyncio.Task] = set()
 
+# 仅以下 task_type 受 auto_retry 支持；其它（如 recover_aweme_transcribe、
+# 以 creator_uid 启动的 local_transcribe）原始参数不足以复现，重试只会再次失败。
+_AUTO_RETRY_SUPPORTED_TYPES: frozenset[str] = frozenset({
+    "pipeline",
+    "download",
+})
+_AUTO_RETRY_SUPPORTED_PREFIXES: tuple[str, ...] = (
+    "creator_sync",
+    "full_sync",
+)
+
+
+def _is_auto_retry_supported(task_type: str | None, payload: dict | None) -> bool:
+    if not task_type:
+        return False
+    if task_type in _AUTO_RETRY_SUPPORTED_TYPES:
+        return True
+    if any(task_type.startswith(p) for p in _AUTO_RETRY_SUPPORTED_PREFIXES):
+        return True
+    # local_transcribe 仅在能拿到 file_paths 列表时才能复现；
+    # creator_transcribe 路径只有 creator_uid，重试无法继续转写
+    if task_type == "local_transcribe":
+        return bool(payload and isinstance(payload.get("file_paths"), list) and payload["file_paths"])
+    return False
+
 
 def schedule_auto_retry(task_id: str) -> None:
-    t = asyncio.create_task(handle_auto_retry(task_id))
+    """Schedule auto-retry as a fire-and-forget task on the running event loop.
+
+    Sync-callable so it works from both async code and sync `Task.add_done_callback` callbacks.
+    No-op if there is no running event loop (e.g. called outside the server runtime).
+    """
+    try:
+        loop = asyncio.get_running_loop()
+    except RuntimeError:
+        logger.debug(f"schedule_auto_retry skipped (no running loop) task_id={task_id}")
+        return
+    t = loop.create_task(handle_auto_retry(task_id))
     _background_tasks.add(t)
     t.add_done_callback(lambda t: _background_tasks.discard(t))
 
@@ -39,6 +74,10 @@ async def handle_auto_retry(task_id: str) -> None:
             original_params = json.loads(payload_str) if payload_str else {}
         except (json.JSONDecodeError, TypeError):
             original_params = {}
+
+        if not _is_auto_retry_supported(task_type, original_params if isinstance(original_params, dict) else None):
+            logger.info(f"任务 {task_id} 类型 {task_type!r} 不支持自动重试，跳过")
+            return
 
         retry_count = int(original_params.get("_retry_count", 0) or 0)
         if retry_count >= MAX_AUTO_RETRY:
