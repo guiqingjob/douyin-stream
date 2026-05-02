@@ -219,11 +219,22 @@ def download_up_by_url(
             f.write(cookie_content)
             f.flush()
             ydl_opts["cookiefile"] = cookie_path
+            try:
+                with YoutubeDL(ydl_opts) as ydl:
+                    info = ydl.extract_info(url, download=True)
+            except BaseException:
+                # extract_info 抛错时立刻 unregister，否则 _cancel_flags 内存泄漏
+                if task_id:
+                    unregister_cancel_flag(task_id)
+                raise
+    else:
+        try:
             with YoutubeDL(ydl_opts) as ydl:
                 info = ydl.extract_info(url, download=True)
-    else:
-        with YoutubeDL(ydl_opts) as ydl:
-            info = ydl.extract_info(url, download=True)
+        except BaseException:
+            if task_id:
+                unregister_cancel_flag(task_id)
+            raise
 
     # 尝试从 info 中提取 uploader 信息（如果 hook 没有捕获到）
     if uploader_info is None and isinstance(info, dict):
