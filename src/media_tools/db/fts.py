@@ -28,11 +28,12 @@ def ensure_fts_populated() -> bool:
     """Ensure FTS5 index has data; rebuilds from media_assets if empty."""
     from .core import get_db_connection
     with get_db_connection() as conn:
+        # 表不存在时 SELECT 会抛 OperationalError，先确保表已就位
+        _ensure_fts_table(conn)
         cur = conn.execute("SELECT COUNT(*) FROM assets_fts")
         count = cur.fetchone()[0]
         if count > 0:
             return True
-        _ensure_fts_table(conn)
         _rebuild_fts_from_assets(conn)
         return True
 
