@@ -29,3 +29,11 @@ def test_metrics_endpoint_returns_expected_shape() -> None:
 
     db = body["db_connections"]
     assert "open_connections" in db
+
+
+def test_health_returns_200() -> None:
+    """验证 /api/health 正常响应（覆盖中间件不干扰正常路由）。"""
+    resp = client.get("/api/health")
+    assert resp.status_code == 200
+    body = resp.json()
+    assert body["status"] in ("ok", "degraded")

@@ -2,11 +2,14 @@ from contextlib import asynccontextmanager
 from fastapi import FastAPI, Request, HTTPException
 from fastapi.responses import JSONResponse
 from fastapi.middleware.cors import CORSMiddleware
+from starlette.middleware.base import BaseHTTPMiddleware
+from starlette.middleware.base import RequestResponseEndpoint
 from media_tools.api.routers import creators, assets, tasks, settings, douyin, scheduler, metrics
 from media_tools.api.websocket_manager import stale_connection_sweeper
 from media_tools.core import background
 from media_tools.core.exceptions import AppError
 import asyncio
+import sqlite3
 import uvicorn
 import logging
 
@@ -60,6 +63,31 @@ async def lifespan(app: FastAPI):
 
 
 app = FastAPI(title="Media Tools API", version="1.0.0", lifespan=lifespan)
+
+
+class UnhandledApiErrorsMiddleware(BaseHTTPMiddleware):
+    """捕获所有 sync 路由中未处理的 sqlite3.Error / OSError / RuntimeError，
+    返回 500 并记录完整 traceback。路由层不再需要重复写 try/except 模板。"""
+
+    async def dispatch(self, request: Request, call_next: RequestResponseEndpoint):
+        try:
+            return await call_next(request)
+        except (sqlite3.Error, OSError, RuntimeError) as exc:
+            # 不重复处理已声明 HTTPException 的路径（中间件在外层，
+            # HTTPException 会被 FastAPI 捕获，不会走到这里；能到这里
+            # 说明是真正的未处理异常）
+            logger.exception(f"未处理 API 异常: {request.url.path}")
+            return JSONResponse(
+                status_code=500,
+                content={
+                    "code": "INTERNAL_ERROR",
+                    "message": "服务器内部错误",
+                    "details": {},
+                },
+            )
+
+
+app.add_middleware(UnhandledApiErrorsMiddleware)
 
 
 _api_key_cache: str | None = None
