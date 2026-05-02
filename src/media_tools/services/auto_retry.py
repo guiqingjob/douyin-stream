@@ -72,8 +72,11 @@ async def handle_auto_retry(task_id: str) -> None:
             original_params = json.loads(payload_str) if payload_str else {}
         except (json.JSONDecodeError, TypeError):
             original_params = {}
+        # 历史 payload 偶有非 dict 内容（直接的列表/字符串），后续逻辑全部按 dict 操作，先收敛到空 dict
+        if not isinstance(original_params, dict):
+            original_params = {}
 
-        if not _is_auto_retry_supported(task_type, original_params if isinstance(original_params, dict) else None):
+        if not _is_auto_retry_supported(task_type, original_params):
             logger.info(f"任务 {task_id} 类型 {task_type!r} 不支持自动重试，跳过")
             return
 

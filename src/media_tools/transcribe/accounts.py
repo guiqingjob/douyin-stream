@@ -205,7 +205,9 @@ def mark_account_success(account_id: str) -> None:
         },
         indent=2,
     )
-    tmp_path = state_path.with_suffix(".tmp")
-    tmp_path.write_text(content, encoding="utf-8")
+    # 用 PID + 线程 ID 做后缀，避免多线程/多进程并发写入同一个 .tmp 文件导致字节交错
     import os
+    import threading
+    tmp_path = state_path.with_name(f"{state_path.name}.{os.getpid()}.{threading.get_ident()}.tmp")
+    tmp_path.write_text(content, encoding="utf-8")
     os.replace(str(tmp_path), str(state_path))

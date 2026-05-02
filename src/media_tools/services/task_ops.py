@@ -146,6 +146,7 @@ async def update_task_progress(
     stage: str = "",
     pipeline_progress: dict | None = None,
 ):
+    updated = False
     try:
         now = datetime.now().isoformat()
         with get_db_connection() as conn:
@@ -180,38 +181,49 @@ async def update_task_progress(
                        VALUES (?, ?, 'RUNNING', ?, ?, ?, ?)""",
                     (task_id, task_type, progress, payload_str, now, now),
                 )
-                conn.execute(
+                cursor = conn.execute(
                     """UPDATE task_queue
                        SET status='RUNNING', progress=?, payload=?, update_time=?
                        WHERE task_id=? AND status IN ('PENDING', 'RUNNING', 'PAUSED')""",
                     (progress, payload_str, now, task_id),
                 )
+                updated = cursor.rowcount > 0
             else:
-                conn.execute(
+                cursor = conn.execute(
                     """UPDATE task_queue
                        SET status='RUNNING', progress=?, payload=?, update_time=?
                        WHERE task_id=? AND status IN ('PENDING', 'RUNNING', 'PAUSED')""",
                     (progress, payload_str, now, task_id),
                 )
-        await notify_task_update(task_id, progress, msg, "RUNNING", task_type, result_summary, subtasks, stage, pipeline_progress)
+                updated = cursor.rowcount > 0
     except (sqlite3.Error, OSError, RuntimeError) as e:
         logger.error(f"Error updating task: {e}")
+        return
+    # 仅当 DB 真正写入了 RUNNING 状态时才广播进度，避免向已转入终态的任务发送过期 RUNNING 通知
+    if not updated:
+        return
+    await notify_task_update(task_id, progress, msg, "RUNNING", task_type, result_summary, subtasks, stage, pipeline_progress)
 
 
 async def _mark_task_cancelled(task_id: str, task_type: str) -> None:
     msg = "任务已取消"
+    updated = False
     try:
         with get_db_connection() as conn:
             payload_str = _merge_payload_from_db(conn, task_id, msg)
-            conn.execute(
+            cursor = conn.execute(
                 """UPDATE task_queue
                    SET status='CANCELLED', payload=?, update_time=CURRENT_TIMESTAMP
                    WHERE task_id=? AND status IN ('PENDING', 'RUNNING')""",
                 (payload_str, task_id),
             )
-        await notify_task_update(task_id, 0.0, msg, "CANCELLED", task_type)
+            updated = cursor.rowcount > 0
     except (sqlite3.Error, OSError, RuntimeError) as e:
         logger.error(f"Failed to mark task {task_id} as cancelled: {e}")
+        return
+    # 仅在 DB 状态真正变更时广播，避免向已是终态的任务发送过期通知导致前端状态闪烁
+    if updated:
+        await notify_task_update(task_id, 0.0, msg, "CANCELLED", task_type)
 
 
 async def _complete_task(
@@ -225,6 +237,7 @@ async def _complete_task(
 ) -> None:
     pipeline_progress: dict | None = None
     progress_for_notify: float = 0.0
+    updated = False
     try:
         now = datetime.now().isoformat()
         with get_db_connection() as conn:
@@ -247,14 +260,19 @@ async def _complete_task(
             new_progress = 1.0 if status == "COMPLETED" else existing_progress
             progress_for_notify = new_progress
             # 状态机：COMPLETED / CANCELLED 是终态，不允许被其他状态覆盖
-            conn.execute(
+            cursor = conn.execute(
                 """UPDATE task_queue
                    SET status=?, progress=?, payload=?, error_msg=?, update_time=?
                    WHERE task_id=? AND status NOT IN ('COMPLETED', 'CANCELLED')""",
                 (status, new_progress, payload_str, error_msg, now, task_id),
             )
+            updated = cursor.rowcount > 0
     except (sqlite3.Error, OSError, RuntimeError) as e:
         logger.error(f"Failed to complete task {task_id} in DB: {e}")
+        return
+    # DB 更新被状态机拒绝（任务已是 COMPLETED/CANCELLED）时不广播，避免前端从终态闪回伪造状态
+    if not updated:
+        return
     await notify_task_update(
         task_id,
         progress_for_notify,
@@ -270,14 +288,19 @@ async def _complete_task(
 
 
 async def _fail_task(task_id: str, task_type: str, error: str) -> None:
+    updated = False
     try:
         with get_db_connection() as conn:
-            conn.execute(
+            cursor = conn.execute(
                 """UPDATE task_queue SET status='FAILED', error_msg=?, update_time=?
                    WHERE task_id=? AND status NOT IN ('COMPLETED', 'CANCELLED')""",
                 (str(error), datetime.now().isoformat(), task_id),
             )
+            updated = cursor.rowcount > 0
     except (sqlite3.Error, OSError) as e:
         logger.error(f"Failed to fail task {task_id} in DB: {e}")
+        return
+    if not updated:
+        return
     await notify_task_update(task_id, 0.0, str(error), "FAILED", task_type)
     schedule_auto_retry(task_id)

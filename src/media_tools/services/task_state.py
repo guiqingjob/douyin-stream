@@ -33,14 +33,28 @@ def _register_background_task(task_id: str, coro) -> asyncio.Task:
         _active_tasks.pop(task_id, None)
         clear_cancel_event(task_id)
 
-        if not t.cancelled() and t.done():
-            try:
-                exc = t.exception()
-                if exc is not None:
-                    logger.error(f"Background task {task_id} crashed: {exc!r}")
-                    schedule_auto_retry(task_id)
-            except (RuntimeError, TypeError) as e:
-                logger.exception(f"检查 task exception 失败 task_id={task_id}: {e}")
+        if t.cancelled() or not t.done():
+            return
+        try:
+            exc = t.exception()
+        except (RuntimeError, TypeError) as e:
+            logger.exception(f"检查 task exception 失败 task_id={task_id}: {e}")
+            return
+        if exc is None:
+            return
+
+        logger.error(f"Background task {task_id} crashed: {exc!r}")
+        # worker 抛出未捕获异常时其内部不会调用 _fail_task，DB 仍是 RUNNING；
+        # 这里补一刀把状态改成 FAILED，并由 _fail_task 内部触发 schedule_auto_retry 与 WS 广播。
+        error_text = f"{type(exc).__name__}: {exc}" if str(exc) else type(exc).__name__
+        from media_tools.services.task_ops import _fail_task
+
+        try:
+            loop = asyncio.get_event_loop()
+            loop.create_task(_fail_task(task_id, "unknown", error_text))
+        except RuntimeError:
+            # 没有运行的 loop —— done_callback 通常由 loop 触发，理论上不会到这里
+            schedule_auto_retry(task_id)
 
     task.add_done_callback(_on_done)
     return task

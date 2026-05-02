@@ -550,6 +550,7 @@ async def _download_with_stats(
     skip_existing: bool = True,
     interval: str | None = None,
     existing_source: str = "file+db",
+    task_id: str | None = None,
 ):
     """
     使用 F2 API 下载视频并保存统计数据
@@ -559,6 +560,7 @@ async def _download_with_stats(
         max_counts: 最大下载数量
         skip_existing: 跳过已下载视频
         interval: 时间范围，格式 "2026-01-01|2026-04-26"，F2 按此范围翻页拉取
+        task_id: 关联任务 ID，用于向 cancel_registry 推送下载进度
     """
     from f2.apps.douyin.db import AsyncUserDB
     from f2.apps.douyin.handler import DouyinHandler
@@ -686,6 +688,15 @@ async def _download_with_stats(
     total_skipped = 0
     total_stats_saved = 0
     new_aweme_ids = []
+    progress_details: list[dict] = []
+
+    if task_id:
+        from .cancel_registry import set_download_progress
+
+        set_download_progress(
+            task_id,
+            {"downloaded": 0, "skipped": 0, "details": []},
+        )
 
     logger.info(info("[下载] 正在获取视频列表..."))
     logger.info("正在获取视频列表...")
@@ -719,14 +730,26 @@ async def _download_with_stats(
                     total_downloaded += len(new_videos)
                     for video in new_videos:
                         aweme_id = video.get('aweme_id', '') if isinstance(video, dict) else getattr(video, 'aweme_id', '')
+                        title = video.get('desc', '') if isinstance(video, dict) else getattr(video, 'desc', '')
                         if aweme_id:
                             new_aweme_ids.append(aweme_id)
+                        progress_details.append({"title": str(title or aweme_id or "未知"), "status": "downloaded"})
                     if skip_existing:
                         logger.info(info(f"[下载] 本页 {len(new_videos)} 个新视频（跳过 {len(video_list) - len(new_videos)} 个已有）"))
                     else:
                         logger.info(info(f"[下载] 本页 {len(new_videos)} 个视频（全量重拉）"))
                 else:
                     logger.info(info(f"[跳过] 本页 {len(video_list)} 个视频均为本地已有"))
+
+                if task_id:
+                    set_download_progress(
+                        task_id,
+                        {
+                            "downloaded": total_downloaded,
+                            "skipped": total_skipped,
+                            "details": progress_details[-50:],
+                        },
+                    )
 
                 # 如果指定了 max_counts，检查是否已达到上限
                 if max_counts and total_downloaded >= max_counts:
@@ -794,7 +817,7 @@ async def _download_with_stats(
     }
 
 
-def download_by_url_sync(url, max_counts=None, skip_existing: bool = True, interval: str | None = None, existing_source: str = "file+db"):
+def download_by_url_sync(url, max_counts=None, skip_existing: bool = True, interval: str | None = None, existing_source: str = "file+db", task_id: str | None = None):
     """同步包装器：通过 URL 下载单个博主的视频"""
     try:
         # 检查是否已有运行中的事件循环
@@ -820,7 +843,7 @@ def download_by_url_sync(url, max_counts=None, skip_existing: bool = True, inter
             )
         else:
             # 没有运行中的循环，可以安全使用 asyncio.run()
-            return asyncio.run(_download_with_stats(url, max_counts, skip_existing=skip_existing, interval=interval, existing_source=existing_source))
+            return asyncio.run(_download_with_stats(url, max_counts, skip_existing=skip_existing, interval=interval, existing_source=existing_source, task_id=task_id))
     except (RuntimeError, OSError, ValueError) as e:
         logger.info(error(f"下载出错: {e}"))
         return False
@@ -842,7 +865,7 @@ def download_by_url(
         url: 博主主页 URL
         max_counts: 最大下载数量
         disable_auto_transcribe: 是否禁用自动转写
-        task_id: 关联的任务 ID（用于取消检测）
+        task_id: 关联的任务 ID（用于取消检测与进度推送）
         interval: 时间范围，格式 "2026-01-01|2026-04-26"
 
     Returns:
@@ -859,7 +882,7 @@ def download_by_url(
     logger.info(info("开始下载..."))
     logger.info("")
 
-    result = download_by_url_sync(url, max_counts, skip_existing=skip_existing, interval=interval, existing_source=existing_source)
+    result = download_by_url_sync(url, max_counts, skip_existing=skip_existing, interval=interval, existing_source=existing_source, task_id=task_id)
 
     if result:
         logger.info(success("下载完成！"))

@@ -228,7 +228,8 @@ def close_all_cached_connections() -> int:
     if cached is not None:
         try:
             cached.close()
-            _physical_connections -= 1
+            with _physical_connections_lock:
+                _physical_connections -= 1
             with DBConnection._open_count_lock:
                 DBConnection._open_count -= 1
         except sqlite3.Error:
