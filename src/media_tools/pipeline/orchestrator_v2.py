@@ -312,14 +312,9 @@ class OrchestratorV2:
             )
 
         except asyncio.CancelledError:
-            duration = time.time() - start_time
-            return PipelineResultV2(
-                success=False,
-                video_path=video_path,
-                error="任务被取消",
-                error_type=ErrorType.CANCELLED,
-                duration=duration,
-            )
+            # CancelledError 必须再抛，保证上层 cancel_task 能拿到 t.cancelled()=True
+            # 并触发 worker finally 的 _mark_task_cancelled。
+            raise
 
         except BaseException as e:  # classify_error 设计为处理任意异常类型
             if not isinstance(e, Exception):
