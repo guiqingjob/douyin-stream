@@ -1,6 +1,7 @@
 import asyncio
 from contextlib import asynccontextmanager
 from typing import Any
+from media_tools.core.logging_context import task_context
 from media_tools.pipeline.worker import run_pipeline_for_user, run_batch_pipeline, run_download_only
 from media_tools.repositories.task_repository import TaskRepository
 from media_tools.services.task_ops import update_task_progress, _complete_task, _fail_task, _mark_task_cancelled
@@ -12,10 +13,12 @@ async def _heartbeat_scope(task_id: str):
     """启动 heartbeat 协程，退出 scope 时取消并等待结束。
 
     所有 background worker 都按此模板使用 heartbeat，避免每个 worker 各写一份 try/finally。
+    同时设置 task_id 日志上下文，worker 内所有日志自动携带 task_id。
     """
     heartbeat = asyncio.create_task(_task_heartbeat(task_id))
     try:
-        yield
+        with task_context(task_id=task_id):
+            yield
     finally:
         heartbeat.cancel()
         try:

@@ -9,6 +9,7 @@ from datetime import UTC, datetime, timedelta
 from typing import Any
 
 from media_tools.core.config import get_runtime_setting_bool
+from media_tools.core.logging_context import task_context
 from media_tools.douyin.core.cancel_registry import clear_download_progress, get_download_progress
 from media_tools.services.task_ops import (
     _complete_task,
@@ -75,12 +76,13 @@ async def background_creator_download_worker(
 
     heartbeat = asyncio.create_task(_task_heartbeat(task_id))
     try:
-        with get_db_connection() as conn:
-            cursor = conn.execute(
-                "SELECT uid, sec_user_id, nickname, platform FROM creators WHERE uid = ? LIMIT 1",
-                (uid,),
-            )
-            creator_row = cursor.fetchone()
+        with task_context(task_id=task_id, creator_uid=uid):
+            with get_db_connection() as conn:
+                cursor = conn.execute(
+                    "SELECT uid, sec_user_id, nickname, platform FROM creators WHERE uid = ? LIMIT 1",
+                    (uid,),
+                )
+                creator_row = cursor.fetchone()
 
         if not creator_row:
             raise RuntimeError(f"Creator not found: {uid}")

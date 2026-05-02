@@ -15,6 +15,7 @@ from media_tools.repositories.task_repository import TaskRepository
 from media_tools.services.cleanup import cleanup_paths_allowlist, cleanup_task_cache_dir
 from media_tools.services.asset_file_ops import _resolve_asset_video_file, get_source_url_column
 from media_tools.services.task_ops import update_task_progress, _complete_task, _fail_task
+from media_tools.core.logging_context import task_context
 from media_tools.services.task_state import _task_heartbeat
 from media_tools.pipeline.worker import run_local_transcribe
 
@@ -239,76 +240,77 @@ async def background_creator_transcribe_worker(task_id: str, uid: str) -> None:
 
     heartbeat = asyncio.create_task(_task_heartbeat(task_id))
     try:
-        result = await run_local_transcribe(file_paths, _progress_fn, delete_after=False)
-        s_count = int(result.get("success_count", 0) or 0)
-        f_count = int(result.get("failed_count", 0) or 0)
-        total = int(result.get("total", s_count + f_count) or (s_count + f_count))
-        success_paths = [Path(p) for p in (result.get("success_paths") or []) if isinstance(p, str)]
+        with task_context(task_id=task_id, creator_uid=uid):
+            result = await run_local_transcribe(file_paths, _progress_fn, delete_after=False)
+            s_count = int(result.get("success_count", 0) or 0)
+            f_count = int(result.get("failed_count", 0) or 0)
+            total = int(result.get("total", s_count + f_count) or (s_count + f_count))
+            success_paths = [Path(p) for p in (result.get("success_paths") or []) if isinstance(p, str)]
 
-        await update_task_progress(
-            task_id,
-            0.95,
-            "转写完成，开始清理源文件与临时文件...",
-            "local_transcribe",
-            stage="cleanup",
-        )
+            await update_task_progress(
+                task_id,
+                0.95,
+                "转写完成，开始清理源文件与临时文件...",
+                "local_transcribe",
+                stage="cleanup",
+            )
 
-        cleanup_candidates: list[Path] = []
-        for sp in success_paths:
-            cleanup_candidates.extend(_build_cleanup_candidates(sp))
+            cleanup_candidates: list[Path] = []
+            for sp in success_paths:
+                cleanup_candidates.extend(_build_cleanup_candidates(sp))
 
-        outcome = cleanup_paths_allowlist(
-            cleanup_candidates,
-            downloads_root=downloads_root,
-            transcripts_root=transcripts_root,
-        )
-
-        delay = _cleanup_retry_delay_seconds()
-        retry_failed = [Path(p.path) for p in outcome.failed_paths]
-        if retry_failed:
-            if delay > 0:
-                await asyncio.sleep(delay)
-            retry_outcome = cleanup_paths_allowlist(
-                retry_failed,
+            outcome = cleanup_paths_allowlist(
+                cleanup_candidates,
                 downloads_root=downloads_root,
                 transcripts_root=transcripts_root,
             )
-            deleted_count = outcome.deleted_count + retry_outcome.deleted_count
-            failed_paths = retry_outcome.failed_paths
-        else:
-            deleted_count = outcome.deleted_count
-            failed_paths = outcome.failed_paths
 
-        cache_outcome = cleanup_task_cache_dir(cache_dir)
-        deleted_count += cache_outcome.deleted_count
-        failed_paths = [*failed_paths, *cache_outcome.failed_paths]
+            delay = _cleanup_retry_delay_seconds()
+            retry_failed = [Path(p.path) for p in outcome.failed_paths]
+            if retry_failed:
+                if delay > 0:
+                    await asyncio.sleep(delay)
+                retry_outcome = cleanup_paths_allowlist(
+                    retry_failed,
+                    downloads_root=downloads_root,
+                    transcripts_root=transcripts_root,
+                )
+                deleted_count = outcome.deleted_count + retry_outcome.deleted_count
+                failed_paths = retry_outcome.failed_paths
+            else:
+                deleted_count = outcome.deleted_count
+                failed_paths = outcome.failed_paths
 
-        TaskRepository.patch_payload(
-            task_id,
-            {
-                "cleanup_deleted_count": deleted_count,
-                "cleanup_failed_count": len(failed_paths),
-                "cleanup_failed_paths": [{"path": fp.path, "reason": fp.reason} for fp in failed_paths],
-                "cleanup_cache_dir": str(cache_dir),
-            },
-        )
+            cache_outcome = cleanup_task_cache_dir(cache_dir)
+            deleted_count += cache_outcome.deleted_count
+            failed_paths = [*failed_paths, *cache_outcome.failed_paths]
 
-        msg = (
-            "没有找到有效的音视频文件"
-            if total == 0
-            else f"转写完成：成功 {s_count} 个，失败 {f_count} 个；清理：已删除 {deleted_count} 个，失败 {len(failed_paths)} 个"
-        )
-        await update_task_progress(
-            task_id,
-            1.0,
-            msg,
-            "local_transcribe",
-            stage="done",
-            pipeline_progress={"transcribe": {"done": int(total or 0), "total": int(total or 0)}},
-        )
-        result_summary = {"success": int(s_count or 0), "failed": int(f_count or 0), "total": int(total or 0)}
-        subtasks = result.get("subtasks") if isinstance(result, dict) else None
-        await _complete_task(task_id, "local_transcribe", msg, result_summary=result_summary, subtasks=subtasks)
+            TaskRepository.patch_payload(
+                task_id,
+                {
+                    "cleanup_deleted_count": deleted_count,
+                    "cleanup_failed_count": len(failed_paths),
+                    "cleanup_failed_paths": [{"path": fp.path, "reason": fp.reason} for fp in failed_paths],
+                    "cleanup_cache_dir": str(cache_dir),
+                },
+            )
+
+            msg = (
+                "没有找到有效的音视频文件"
+                if total == 0
+                else f"转写完成：成功 {s_count} 个，失败 {f_count} 个；清理：已删除 {deleted_count} 个，失败 {len(failed_paths)} 个"
+            )
+            await update_task_progress(
+                task_id,
+                1.0,
+                msg,
+                "local_transcribe",
+                stage="done",
+                pipeline_progress={"transcribe": {"done": int(total or 0), "total": int(total or 0)}},
+            )
+            result_summary = {"success": int(s_count or 0), "failed": int(f_count or 0), "total": int(total or 0)}
+            subtasks = result.get("subtasks") if isinstance(result, dict) else None
+            await _complete_task(task_id, "local_transcribe", msg, result_summary=result_summary, subtasks=subtasks)
     except asyncio.CancelledError:
         raise
     except (RuntimeError, OSError, ValueError, TypeError) as e:

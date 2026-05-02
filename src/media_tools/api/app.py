@@ -95,6 +95,25 @@ class UnhandledApiErrorsMiddleware(BaseHTTPMiddleware):
 app.add_middleware(UnhandledApiErrorsMiddleware)
 
 
+@app.middleware("http")
+async def request_context_middleware(request: Request, call_next):
+    """为每个请求生成唯一 request_id 并注入日志上下文。"""
+    import uuid
+
+    from media_tools.core.logging_context import set_logging_context
+
+    request_id = str(uuid.uuid4())[:8]
+    set_logging_context(request_id=request_id)
+    try:
+        response = await call_next(request)
+        response.headers["X-Request-ID"] = request_id
+        return response
+    finally:
+        from media_tools.core.logging_context import clear_logging_context
+
+        clear_logging_context()
+
+
 _api_key_cache: str | None = None
 _api_key_cache_time: float = 0.0
 

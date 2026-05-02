@@ -34,6 +34,18 @@ console = Console()
 _ANSI_RE = re.compile(r"\x1b\[[0-9;]*m")
 
 
+def _inject_logging_context(payload: dict[str, Any]) -> None:
+    """将 logging_context 中的字段（request_id / task_id / creator_uid）注入 payload。"""
+    try:
+        from media_tools.core.logging_context import get_logging_context
+
+        ctx = get_logging_context()
+        if ctx:
+            payload.update(ctx)
+    except (ImportError, ModuleNotFoundError):
+        pass
+
+
 class StripAnsiFormatter(logging.Formatter):
     """文件日志 formatter：自动过滤 ANSI 颜色代码，避免日志文件出现 [92m 等转义码。"""
 
@@ -75,6 +87,7 @@ class JsonFormatter(logging.Formatter):
             "logger": record.name,
             "msg": _ANSI_RE.sub("", str(record.getMessage())),
         }
+        _inject_logging_context(payload)
         if record.exc_info:
             payload["exception"] = self.formatException(record.exc_info)
         if record.stack_info:
@@ -109,6 +122,7 @@ class StructuredFormatter(logging.Formatter):
             "logger": record.name,
             "message": _ANSI_RE.sub("", str(record.getMessage())),
         }
+        _inject_logging_context(payload)
         # 异常信息渲染为 traceback 字段
         if record.exc_info and record.exc_info[0] is not None:
             payload["traceback"] = self.formatException(record.exc_info)
