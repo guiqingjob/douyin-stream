@@ -59,6 +59,11 @@ async def lifespan(app: FastAPI):
     cancelled = await background.cancel_all(timeout=5.0)
     if cancelled:
         logger.info(f"shutdown: cancelled {cancelled} background task(s)")
+    # 关闭主线程缓存的 DB 连接
+    from media_tools.db.core import close_all_cached_connections
+    closed = close_all_cached_connections()
+    if closed:
+        logger.info(f"shutdown: closed {closed} cached DB connection(s)")
     scheduler.shutdown_scheduler()
 
 

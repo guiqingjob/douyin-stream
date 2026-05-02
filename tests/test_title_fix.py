@@ -78,11 +78,13 @@ class LookupVideoTitleTests(unittest.TestCase):
             original = _db_core._db_path
             try:
                 _db_core._db_path = str(db_path)
+                _db_core.reset_db_cache()
                 # 模拟 F2 原始格式
                 video_path = Path("/downloads/user/7620767195682364133_video.mp4")
                 title = _lookup_video_title(video_path)
             finally:
                 _db_core._db_path = original
+                _db_core.reset_db_cache()
 
             self.assertIsNotNone(title)
             self.assertEqual(title, "孩子并非是不会思考的未完成版成年人")
@@ -114,10 +116,12 @@ class LookupVideoTitleTests(unittest.TestCase):
             original = _db_core._db_path
             try:
                 _db_core._db_path = str(db_path)
+                _db_core.reset_db_cache()
                 video_path = Path("/downloads/user/7620767195682364133_video.mp4")
                 title = _lookup_video_title(video_path)
             finally:
                 _db_core._db_path = original
+                _db_core.reset_db_cache()
 
             self.assertIsNone(title)
 

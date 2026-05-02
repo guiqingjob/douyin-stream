@@ -99,37 +99,64 @@ def get_db() -> Generator[sqlite3.Connection, None, None]:
         conn.close()
 
 
-class DBConnection:
-    """SQLite 连接封装，自动管理 WAL 模式和关闭"""
+# --- Per-thread connection cache ---
+_thread_local = threading.local()
 
-    _open_count = 0  # 打开的连接数（用于监控）
+# --- Connection pool stats ---
+_physical_connections: int = 0
+_physical_connections_lock = threading.Lock()
+
+
+class DBConnection:
+    """SQLite 连接封装，自动管理 WAL 模式和关闭。
+
+    默认启用线程级连接复用：通过 `_thread_local` 缓存 SQLite 连接，
+    同一线程的多次 `with get_db_connection()` 复用同一个物理连接。
+    设置 `keep_open=True` 时行为不变（用于长事务场景）。
+    """
+
+    _open_count = 0  # 线程级物理连接总数（用于监控）
     _open_count_lock = threading.Lock()
     _max_connections_warning = 20  # 超过此阈值警告
 
-    def __init__(self, keep_open: bool = False):
+    def __init__(self, keep_open: bool = False, _owns_physical: bool = True):
+        global _physical_connections
         self._conn = sqlite3.connect(get_db_path(), timeout=15.0)
         self._keep_open = keep_open
         self._committed = False
+        self._owns_physical = _owns_physical
 
         # 设置 WAL 模式
         _set_wal_mode(self._conn)
         self._conn.row_factory = sqlite3.Row
 
-        # 监控连接数（keep_open 连接在 close() 时递减）
-        with DBConnection._open_count_lock:
-            DBConnection._open_count += 1
+        # 监控连接数（仅真实物理连接计入统计）
+        if _owns_physical:
+            with DBConnection._open_count_lock:
+                DBConnection._open_count += 1
+            with _physical_connections_lock:
+                _physical_connections += 1
             if DBConnection._open_count > DBConnection._max_connections_warning:
                 logger.warning(f"DB connection count high: {DBConnection._open_count}")
+
+    @classmethod
+    def _reuse_thread_local(cls) -> "DBConnection":
+        """创建复用线程缓存连接的轻量包装（不拥有物理连接生命周期）。"""
+        wrapper = object.__new__(cls)
+        wrapper._conn = _thread_local.conn
+        wrapper._keep_open = False
+        wrapper._committed = False
+        wrapper._owns_physical = False
+        return wrapper
 
     def __enter__(self) -> sqlite3.Connection:
         return self._conn
 
     def __exit__(self, exc_type, _exc_val, _exc_tb) -> None:
-        """自动 commit/rollback + close"""
-
+        """自动 commit/rollback；仅对自有物理连接执行 close。"""
         try:
             if self._committed:
-                pass  # already committed, don't rollback even on exception
+                pass
             elif exc_type is None:
                 self._conn.commit()
             else:
@@ -137,10 +164,13 @@ class DBConnection:
         except sqlite3.Error:
             self._conn.rollback()
         finally:
-            if not self._keep_open:
+            if self._owns_physical:
                 self._conn.close()
                 with DBConnection._open_count_lock:
                     DBConnection._open_count -= 1
+                global _physical_connections
+                with _physical_connections_lock:
+                    _physical_connections -= 1
 
     def commit(self) -> None:
         """显式提交（可选）"""
@@ -150,24 +180,62 @@ class DBConnection:
     @classmethod
     def get_stats(cls) -> dict:
         """返回连接统计"""
-        return {"open_connections": cls._open_count, "max_warning": cls._max_connections_warning}
+        return {
+            "open_connections": cls._open_count,
+            "physical_connections": _physical_connections,
+            "max_warning": cls._max_connections_warning,
+        }
 
 
 def get_db_connection(keep_open: bool = False) -> DBConnection:
+    """获取数据库连接的上下文管理器
+
+    当 keep_open=False 时优先复用线程缓存连接；keep_open=True 时
+    总是创建新的物理连接（长事务场景，避免干扰缓存）。
     """
-    获取数据库连接的上下文管理器
+    if keep_open:
+        return DBConnection(keep_open=True, _owns_physical=True)
 
-    用法:
-        with get_db_connection() as conn:
-            conn.execute(...)
+    # 尝试复用线程缓存连接
+    cached = getattr(_thread_local, "conn", None)
+    if cached is not None:
+        try:
+            cached.execute("SELECT 1")
+            return DBConnection._reuse_thread_local()
+        except (sqlite3.Error, Exception):
+            _thread_local.conn = None
 
-    Args:
-        keep_open: True 时不自动关闭连接（用于长事务场景）
+    # 创建新连接并缓存（不拥有物理生命周期，__exit__ 时不关闭，由 shutdown/线程退出回收）
+    db_conn = DBConnection(keep_open=False, _owns_physical=False)
+    _thread_local.conn = db_conn._conn
+    return db_conn
 
-    Returns:
-        DBConnection 上下文管理器
+
+def reset_db_cache() -> None:
+    """清除当前线程的 DB 连接缓存。
+
+    主要用于测试场景（如 init_db 切换测试数据库时）。
+    生产环境一般不需要手动调用，shutdown 时会由 `close_all_cached_connections` 处理。
     """
-    return DBConnection(keep_open=keep_open)
+    close_all_cached_connections()
+
+
+def close_all_cached_connections() -> int:
+    """关闭当前线程缓存的连接。应在 shutdown 或线程退出时调用。
+    返回关闭的连接数（0 或 1，因为 thread-local 只缓存一个连接）。"""
+    global _physical_connections
+    cached = getattr(_thread_local, "conn", None)
+    if cached is not None:
+        try:
+            cached.close()
+            _physical_connections -= 1
+            with DBConnection._open_count_lock:
+                DBConnection._open_count -= 1
+        except sqlite3.Error:
+            pass
+        _thread_local.conn = None
+        return 1
+    return 0
 
 
 _COLUMN_DEF_RE = re.compile(
@@ -208,7 +276,13 @@ def init_db(db_path: str | Path):
     """
     global _db_path
     db_path = Path(db_path)
-    _db_path = str(db_path)
+    new_path = str(db_path)
+
+    # DB 路径变更时清除线程缓存，避免旧连接指向已废弃的数据库
+    if _db_path is not None and _db_path != new_path:
+        reset_db_cache()
+
+    _db_path = new_path
 
     # 兼容性处理：如果旧版 douyin_users.db 存在且新版不存在，自动重命名
     old_db_path = db_path.parent / "douyin_users.db"
