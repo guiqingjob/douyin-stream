@@ -145,7 +145,9 @@ async def api_key_auth(request: Request, call_next):
         raise HTTPException(status_code=401, detail="Missing or invalid Authorization header")
 
     token = auth_header[7:]  # Remove "Bearer " prefix
-    if token != api_key:
+    # 用 compare_digest 做常量时间比较，避免本地/同机时序侧信道泄漏 API key
+    import hmac
+    if not hmac.compare_digest(token, api_key):
         raise HTTPException(status_code=403, detail="Invalid API key")
 
     return await call_next(request)

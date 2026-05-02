@@ -146,8 +146,9 @@ async def delete_task(task_id: str):
                 pass
             active_task.cancel()
             try:
-                await active_task
-            except asyncio.CancelledError:
+                # 与 cancel_task 一致用 5s 超时，避免任务在不可中断 await 上时端点阻塞
+                await asyncio.wait_for(active_task, timeout=5.0)
+            except (asyncio.CancelledError, asyncio.TimeoutError):
                 pass
 
         clear_cancel_event(task_id)

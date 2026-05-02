@@ -30,7 +30,11 @@ def _register_background_task(task_id: str, coro) -> asyncio.Task:
     _active_tasks[task_id] = task
 
     def _on_done(t: asyncio.Task) -> None:
-        _active_tasks.pop(task_id, None)
+        # 仅当当前注册的就是 t 时才移除：rerun/retry 用同一 task_id 注册新协程时，
+        # 旧 task 的 _on_done 在 _active_tasks 已被新任务覆盖后才触发，盲 pop 会
+        # 把新任务从注册表里抹掉，导致 cancel/delete 端点再也找不到它。
+        if _active_tasks.get(task_id) is t:
+            _active_tasks.pop(task_id, None)
         clear_cancel_event(task_id)
 
         if t.cancelled() or not t.done():
