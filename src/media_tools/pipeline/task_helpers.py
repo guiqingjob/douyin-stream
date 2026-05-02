@@ -54,6 +54,13 @@ def filter_supported_media_paths(file_paths: list[str]) -> list[Path]:
     valid_paths: list[Path] = []
     for file_path in file_paths:
         path = Path(file_path)
-        if path.exists() and path.suffix.lower() in MEDIA_EXTENSIONS and path.stat().st_size >= MIN_VIDEO_BYTES:
+        if path.suffix.lower() not in MEDIA_EXTENSIONS:
+            continue
+        try:
+            # 单次 stat 既验证存在又取大小，避开 exists() / stat() 之间的 TOCTOU
+            st = path.stat()
+        except OSError:
+            continue
+        if st.st_size >= MIN_VIDEO_BYTES:
             valid_paths.append(path)
     return valid_paths

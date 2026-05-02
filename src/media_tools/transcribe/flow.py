@@ -72,7 +72,9 @@ async def poll_until_done(context: Any, gen_record_id: str, timeout_seconds: flo
     async def _poll_loop() -> dict[str, Any]:
         while True:
             response = await api_json(context, url, payload)
-            for batch in response.get("data", {}).get("batchRecord", []):
+            # 部分错误响应会返回 {"data": null}，dict.get 默认值在 key 存在但值为 None 时不生效
+            data = response.get("data") or {}
+            for batch in data.get("batchRecord", []):
                 for record in batch.get("recordList", []):
                     if record.get("genRecordId") == gen_record_id:
                         status = record.get("recordStatus")
@@ -127,7 +129,7 @@ async def export_file(context: Any, gen_record_id: str, export_config: ExportCon
             },
             headers,
         )
-        export_task_id = str(export_start_json.get("data", {}).get("exportTaskId", "")).strip()
+        export_task_id = str((export_start_json.get("data") or {}).get("exportTaskId", "")).strip()
         if export_task_id:
             break
         code = str(export_start_json.get("code", ""))
@@ -150,8 +152,9 @@ async def export_file(context: Any, gen_record_id: str, export_config: ExportCon
             },
             headers,
         )
-        if export_poll_json.get("data", {}).get("exportStatus") == 1:
-            export_urls = export_poll_json.get("data", {}).get("exportUrls", [])
+        export_data = export_poll_json.get("data") or {}
+        if export_data.get("exportStatus") == 1:
+            export_urls = export_data.get("exportUrls", [])
             export_url = export_urls[0].get("url", "") if export_urls else ""
             if export_url:
                 return export_url

@@ -126,6 +126,24 @@ class RecoverAwemeTranscribeRequest(BaseModel):
     aweme_id: str = Field(min_length=1, max_length=200)
     title: str = Field(default="", max_length=500)
 
+    @field_validator("aweme_id")
+    @classmethod
+    def _check_aweme_id(cls, v: str) -> str:
+        # 抖音 aweme_id 是纯数字，约束防止后续 f"...video/{aweme_id}" 拼接被注入路径段
+        v = (v or "").strip()
+        if not v.isdigit():
+            raise ValueError("aweme_id 必须是数字")
+        return v
+
+    @field_validator("creator_uid")
+    @classmethod
+    def _check_creator_uid(cls, v: str) -> str:
+        v = (v or "").strip()
+        # creator_uid 可能是 "uid" 或 "platform:uid" 格式，禁止路径分隔符避免注入
+        if "/" in v or "\\" in v or "?" in v or "#" in v:
+            raise ValueError("creator_uid 包含非法字符")
+        return v
+
 
 class CreatorTranscribeCleanupRetryRequest(BaseModel):
     task_id: str = Field(min_length=1, max_length=200)
