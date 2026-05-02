@@ -279,10 +279,13 @@ def persist_qwen_auth_state(
 
     target_path = _normalized_path(auth_state_path)
     ensure_dir(target_path.parent)
-    target_path.write_text(
-        json.dumps(serialized_state, ensure_ascii=False, indent=2),
-        encoding="utf-8",
-    )
+    # 原子写入：先写 .tmp 再 os.replace，防止进程被杀/磁盘满时留下半截 JSON 让后续解析失败
+    import os
+    import threading
+    payload = json.dumps(serialized_state, ensure_ascii=False, indent=2)
+    tmp_path = target_path.with_name(f"{target_path.name}.{os.getpid()}.{threading.get_ident()}.tmp")
+    tmp_path.write_text(payload, encoding="utf-8")
+    os.replace(str(tmp_path), str(target_path))
 
     should_sync_db = is_default_qwen_auth_state_path(target_path) if sync_db is None else sync_db
     if should_sync_db:
