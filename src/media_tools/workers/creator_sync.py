@@ -345,11 +345,18 @@ async def background_creator_download_worker(
                 (uid,)
             )
             conn.commit()
+        status = "FAILED" if transcribe_stats["failed_count"] > 0 or (reconcile_total > 0 and reconcile_missing > 0) else "COMPLETED"
+        error_msg = None
+        if transcribe_stats["failed_count"] > 0:
+            error_msg = f"转写失败 {transcribe_stats['failed_count']} 个视频"
+        elif reconcile_total > 0 and reconcile_missing > 0:
+            error_msg = f"下载对账缺失 {reconcile_missing} 条"
         await _complete_task(
             task_id,
             f"creator_sync_{mode}",
             msg,
-            status="COMPLETED",
+            status=status,
+            error_msg=error_msg,
             result_summary=result_summary,
             subtasks=all_subtasks or None,
         )

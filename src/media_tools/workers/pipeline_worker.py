@@ -71,11 +71,11 @@ async def _background_pipeline_worker(task_id: str, req: Any):
 
             if s_count == 0 and f_count == 0:
                 msg = "未找到新视频或链接无效"
-            elif s_count == 0 and f_count > 0:
+            elif f_count > 0:
                 status = "FAILED"
                 first = subtasks[0] if subtasks and isinstance(subtasks[0], dict) else {}
-                first_error = first.get("error") if first else "全部视频转写失败"
-                msg = f"全部转写失败：共 {f_count} 个"
+                first_error = first.get("error") if first else f"转写失败 {f_count} 个视频"
+                msg = f"转写完成但有失败：成功 {s_count} 个，失败 {f_count} 个"
                 error_msg = first_error
             else:
                 msg = f"成功转写 {s_count} 个视频，失败 {f_count} 个"
@@ -132,8 +132,16 @@ async def _background_batch_worker(task_id: str, req: Any):
                 "total": int(total or 0),
             }
 
-            if success_count == 0 and failed_count > 0:
-                await _fail_task(task_id, "pipeline", "全部视频处理失败")
+            if failed_count > 0:
+                await _complete_task(
+                    task_id,
+                    "pipeline",
+                    f"批量处理完成但有失败：成功 {success_count} 个，失败 {failed_count} 个",
+                    status="FAILED",
+                    error_msg=f"处理失败 {failed_count} 个视频",
+                    result_summary=result_summary,
+                    subtasks=subtasks,
+                )
             else:
                 await _complete_task(
                     task_id,

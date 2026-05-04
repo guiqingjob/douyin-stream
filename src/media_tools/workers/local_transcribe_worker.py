@@ -35,7 +35,17 @@ async def _background_local_transcribe_worker(task_id: str, req: Any):
                 stage="done",
                 pipeline_progress={"transcribe": {"done": int(total or 0), "total": int(total or 0)}},
             )
-            await _complete_task(task_id, "local_transcribe", msg, result_summary=result_summary, subtasks=subtasks)
+            status = "FAILED" if f_count > 0 else "COMPLETED"
+            error_msg = f"转写失败 {f_count} 个文件" if f_count > 0 else None
+            await _complete_task(
+                task_id,
+                "local_transcribe",
+                msg,
+                status=status,
+                error_msg=error_msg,
+                result_summary=result_summary,
+                subtasks=subtasks,
+            )
     except (RuntimeError, OSError) as e:
         logger.error(f"Local transcribe worker failed: {e}")
         await _fail_task(task_id, "local_transcribe", str(e))

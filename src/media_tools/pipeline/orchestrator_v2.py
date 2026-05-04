@@ -193,6 +193,7 @@ class OrchestratorV2:
     async def _transcribe_single_video(
         self,
         video_path: Path,
+        account_id: str | None = None,
     ) -> PipelineResultV2:
         """对单个视频执行转写（内部方法，不含重试）
 
@@ -239,29 +240,30 @@ class OrchestratorV2:
                 if self._account_pool is None and resolved_accounts:
                     self._account_pool = AccountPool(resolved_accounts, [0] * len(resolved_accounts))
 
-            # 依次尝试账号池中的账号
+            # 单个视频固定在同一账号内重试；只有认证失效才切换账号。
             accounts_tried = set()
             max_attempts = len(self._account_pool._accounts) if self._account_pool else 1
+            preferred_account_id = account_id
 
             for _ in range(max_attempts):
                 if self._account_pool is None:
                     break
 
-                account = await self._account_pool.acquire()
+                account = await self._account_pool.acquire(preferred_account_id)
                 if account is None:
                     break
 
-                account_id = str(account.get("account_id", "") or "")
-                if account_id in accounts_tried:
-                    self._account_pool.release(account_id)
-                    continue
-                accounts_tried.add(account_id)
-                self._current_account_id = account_id
+                current_account_id = str(account.get("account_id", "") or "")
+                if current_account_id in accounts_tried:
+                    self._account_pool.release(current_account_id)
+                    break
+                accounts_tried.add(current_account_id)
+                self._current_account_id = current_account_id
 
                 auth_state_path = account.get("auth_state_path")
                 if auth_state_path is None:
-                    self._account_pool.release(account_id)
-                    continue
+                    self._account_pool.release(current_account_id)
+                    break
 
                 try:
                     result = await run_real_flow(
@@ -270,11 +272,11 @@ class OrchestratorV2:
                         download_dir=output_dir,
                         export_config=export_config,
                         should_delete=self.config.delete_after_export,
-                        account_id=account_id,
+                        account_id=current_account_id,
                         title=video_title,
                         export_gate=self._export_gate,
                     )
-                    self._mark_qwen_account_used(account_id)
+                    self._mark_qwen_account_used(current_account_id)
 
                     if self.config.remove_video and not self.config.keep_original:
                         video_path.unlink()
@@ -286,21 +288,22 @@ class OrchestratorV2:
                         video_path=video_path,
                         transcript_path=result.export_path,
                         duration=duration,
+                        account_id=current_account_id,
                     )
                 except BaseException as e:  # classify_error 设计为处理任意异常类型
                     if not isinstance(e, Exception):
                         raise
                     last_error = e
                     last_error_type = classify_error(e)
-                    if last_error_type == ErrorType.AUTH and account_id:
-                        self._mark_qwen_account_status(account_id, "expired")
-                        logger.warning(f"账号 {account_id} 认证过期，尝试下一个账号")
+                    if last_error_type == ErrorType.AUTH and current_account_id:
+                        self._mark_qwen_account_status(current_account_id, "expired")
+                        preferred_account_id = None
+                        logger.warning(f"账号 {current_account_id} 认证过期，尝试下一个账号")
                         continue
-                    # 其他错误，记录并继续尝试下一个账号
-                    logger.warning(f"转写失败 [{last_error_type.value}]，尝试下一个账号: {e}")
-                    continue
+                    logger.warning(f"转写失败 [{last_error_type.value}]，保留在账号 {current_account_id} 的重试链路: {e}")
+                    break
                 finally:
-                    self._account_pool.release(account_id)
+                    self._account_pool.release(current_account_id)
 
             duration = time.time() - start_time
             return PipelineResultV2(
@@ -309,6 +312,7 @@ class OrchestratorV2:
                 error=str(last_error) if last_error else "no available account",
                 error_type=last_error_type,
                 duration=duration,
+                account_id=self._current_account_id,
             )
 
         except asyncio.CancelledError:
@@ -431,6 +435,7 @@ class OrchestratorV2:
         max_attempts = self.retry_config.max_retries + 1  # 首次 + 重试次数
         state.max_attempts = max_attempts
         total_attempts = 0
+        execution_account_id: str | None = None
 
         for attempt in range(1, max_attempts + 1):
             total_attempts = attempt
@@ -448,7 +453,8 @@ class OrchestratorV2:
                 f"处理中 (尝试 {attempt}/{max_attempts})"
             )
 
-            result = await self._transcribe_single_video(video_path)
+            result = await self._transcribe_single_video(video_path, execution_account_id)
+            execution_account_id = result.account_id
             result.attempts = attempt
 
             if result.success:
@@ -618,6 +624,7 @@ class OrchestratorV2:
                 "error_type": pipeline_result.error_type.value,
                 "attempts": pipeline_result.attempts,
                 "duration": round(pipeline_result.duration, 2),
+                "account_id": pipeline_result.account_id,
             }
             report.results.append(result_dict)
 

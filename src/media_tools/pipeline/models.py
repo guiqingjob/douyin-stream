@@ -71,7 +71,7 @@ class AccountPool:
 
         return selected
 
-    async def acquire(self) -> dict[str, Any] | None:
+    async def acquire(self, preferred_account_id: str | None = None) -> dict[str, Any] | None:
         """获取一个有空闲槽位的账号（并发安全）
 
         每个账号可同时处理 max_concurrent 个任务。
@@ -79,7 +79,16 @@ class AccountPool:
         """
         while True:
             async with self._lock:
-                selected = self._pick_account()
+                selected = None
+                if preferred_account_id:
+                    for account in self._accounts:
+                        account_id = str(account.get("account_id", ""))
+                        if account_id == preferred_account_id and self._active_count.get(account_id, 0) < self._max_concurrent:
+                            selected = account
+                            break
+                else:
+                    selected = self._pick_account()
+
                 if selected is not None:
                     account_id = str(selected.get("account_id", ""))
                     self._active_count[account_id] = self._active_count.get(account_id, 0) + 1
@@ -152,6 +161,7 @@ class PipelineResultV2:
     error_type: ErrorType = ErrorType.UNKNOWN
     attempts: int = 1
     duration: float = 0.0
+    account_id: str | None = None
 
     def __str__(self) -> str:
         if self.success:

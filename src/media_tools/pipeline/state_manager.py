@@ -109,7 +109,8 @@ class PipelineStateManager:
         for path in video_paths:
             state = self.get_state(path)
             if state.status == "running":
-                continue
+                state.status = "pending"
+                needs_save = True
             if state.status == "success" and state.transcript_path:
                 if Path(state.transcript_path).exists():
                     continue

@@ -310,7 +310,17 @@ async def background_creator_transcribe_worker(task_id: str, uid: str) -> None:
             )
             result_summary = {"success": int(s_count or 0), "failed": int(f_count or 0), "total": int(total or 0)}
             subtasks = result.get("subtasks") if isinstance(result, dict) else None
-            await _complete_task(task_id, "local_transcribe", msg, result_summary=result_summary, subtasks=subtasks)
+            status = "FAILED" if f_count > 0 else "COMPLETED"
+            error_msg = f"转写失败 {f_count} 个文件" if f_count > 0 else None
+            await _complete_task(
+                task_id,
+                "local_transcribe",
+                msg,
+                status=status,
+                error_msg=error_msg,
+                result_summary=result_summary,
+                subtasks=subtasks,
+            )
     except asyncio.CancelledError:
         raise
     except (RuntimeError, OSError, ValueError, TypeError) as e:

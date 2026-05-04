@@ -55,7 +55,7 @@ async def recover_aweme_transcribe(task_id: str, creator_uid: str, aweme_id: str
             result_summary = tr.get("result_summary") or {"success": s, "failed": f, "skipped": 0, "total": total}
 
             msg = f"补齐并转写完成：成功 {s} 个，失败 {f} 个"
-            if s > 0:
+            if f == 0:
                 await _complete_task(
                     task_id,
                     "recover_aweme_transcribe",
