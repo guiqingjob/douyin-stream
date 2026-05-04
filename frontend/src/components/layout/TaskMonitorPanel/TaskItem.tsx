@@ -11,7 +11,7 @@ import {
   getTaskStatusLabel,
   taskTypeLabel,
 } from '@/lib/task-utils';
-import { cancelTask, rerunTask, setAutoRetry, deleteTask, recoverAwemeAndTranscribe, retryCreatorTranscribeCleanup } from '@/lib/api';
+import { cancelTask, rerunTask, retryFailedSubtasks, setAutoRetry, deleteTask, recoverAwemeAndTranscribe, retryCreatorTranscribeCleanup } from '@/lib/api';
 import { Badge } from '@/components/ui/badge';
 import type { Task } from '@/lib/api';
 import type { PipelineProgress } from '@/types';
@@ -25,6 +25,7 @@ type TaskSubtask = {
   reason?: string;
   aweme_id?: string;
   creator_uid?: string;
+  video_path?: string;
 };
 
 const EMPTY_SUBTASKS: TaskSubtask[] = [];
@@ -156,14 +157,6 @@ function exportStatusLabel(status: unknown) {
   return s;
 }
 
-function exportStatusTone(status: unknown) {
-  const s = status == null ? '' : String(status);
-  if (s === 'done') return 'success';
-  if (s === 'failed') return 'destructive';
-  if (s === 'writing') return 'secondary';
-  return 'default';
-}
-
 const CLEANUP_REASON_LABELS: Record<string, string> = {
   corrupt_file: '文件异常',
   http_403: '403 无权限',
@@ -200,115 +193,6 @@ function TaskCenterStageDots({ stage }: { stage: string }) {
         />
       ))}
     </span>
-  );
-}
-
-function normalizeTaskCenterStage(stage: unknown) {
-  const s = stage == null ? '' : String(stage);
-  if (s === 'upload') return 'transcribe';
-  if (s === 'done') return 'export';
-  if (s === 'failed') return 'export';
-  return s;
-}
-
-function TaskCenterPipelineSteps({
-  pipelineProgress,
-  missingCount,
-}: {
-  pipelineProgress: PipelineProgress;
-  missingCount: number;
-}) {
-  const steps = ['list', 'audit', 'download', 'transcribe', 'export'] as const;
-  const stage = normalizeTaskCenterStage(pipelineProgress.stage);
-  const activeIndex = Math.max(0, steps.indexOf(stage as (typeof steps)[number]));
-
-  const list = pipelineProgress.list;
-  const download = pipelineProgress.download;
-  const transcribe = pipelineProgress.transcribe;
-  const exportPp = pipelineProgress.export;
-
-  const getValue = (key: (typeof steps)[number]) => {
-    if (key === 'list') return formatDoneTotal(list?.done, list?.total);
-    if (key === 'audit') return `缺失 ${missingCount}`;
-    if (key === 'download') return formatDoneTotal(download?.done, download?.total);
-    if (key === 'transcribe') return formatDoneTotal(transcribe?.done, transcribe?.total);
-    const done = exportPp?.done ?? 0;
-    const total = exportPp?.total ?? 1;
-    return formatDoneTotal(done, total);
-  };
-
-  const getTitle = (key: (typeof steps)[number]) => {
-    if (key === 'list') return '列表';
-    if (key === 'audit') return '对账';
-    if (key === 'download') return '下载';
-    if (key === 'transcribe') return '转写';
-    return '导出';
-  };
-
-  return (
-    <div className="grid grid-cols-5 gap-2">
-      {steps.map((key, idx) => {
-        const isActive = idx === activeIndex;
-        const isDone = idx < activeIndex;
-        const isAuditWarn = key === 'audit' && missingCount > 0;
-        return (
-          <div
-            key={key}
-            className={cn(
-              'rounded-xl border px-2.5 py-2',
-              isActive ? 'border-primary/30 bg-primary/10' : 'border-border/60 bg-secondary/20',
-              isDone && 'bg-success/10 border-success/30',
-              isAuditWarn && 'bg-warning/10 border-warning/30',
-            )}
-          >
-            <div className="flex items-center justify-between gap-2">
-              <div className="text-[11px] font-semibold text-foreground/75">{getTitle(key)}</div>
-              {isDone ? (
-                <CheckCircle2 className="size-3.5 text-success" aria-hidden="true" />
-              ) : isActive ? (
-                <Loader2 className="size-3.5 text-primary animate-spin" aria-hidden="true" />
-              ) : (
-                <span className="size-3.5" aria-hidden="true" />
-              )}
-            </div>
-            <div className="mt-0.5 text-[12px] font-medium tabular-nums text-foreground/80">{getValue(key)}</div>
-          </div>
-        );
-      })}
-    </div>
-  );
-}
-
-function TaskCenterExportCard({
-  file,
-  status,
-}: {
-  file: string | null;
-  status: unknown;
-}) {
-  const label = exportStatusLabel(status);
-  const tone = exportStatusTone(status);
-
-  return (
-    <div
-      data-testid="task-center-export-card"
-      className="rounded-[var(--radius-card)] border border-border/60 bg-secondary/20 px-3 py-3"
-    >
-      <div className="flex items-start justify-between gap-3">
-        <div className="flex min-w-0 items-start gap-2">
-          <div className="mt-0.5 flex size-8 shrink-0 items-center justify-center rounded-xl bg-background/60">
-            <FileText className="size-4 text-muted-foreground" aria-hidden="true" />
-          </div>
-          <div className="min-w-0">
-            <div className="text-[12px] font-semibold text-foreground/80">导出</div>
-            <div className="mt-0.5 truncate text-[12px] text-muted-foreground">{file || '—'}</div>
-          </div>
-        </div>
-        <Badge tone={tone} className="shrink-0">
-          {label}
-        </Badge>
-      </div>
-    </div>
   );
 }
 
@@ -442,6 +326,18 @@ export const TaskItem = memo(function TaskItem({ task, onRetry, isExpanded, onTo
   const isPaused = state === 'paused';
   const isFailed = state === 'failed' || state === 'stale';
   const parsed = useMemo(() => parsePayload(task.payload), [task.payload]);
+  const failedRetryableCount = useMemo(() => {
+    if (!isFailed) return 0;
+    const raw = parsed?.subtasks;
+    if (!Array.isArray(raw)) return 0;
+    let count = 0;
+    for (const item of raw as TaskSubtask[]) {
+      if (item && item.status === 'failed' && typeof item.video_path === 'string' && item.video_path.trim()) {
+        count += 1;
+      }
+    }
+    return count;
+  }, [isFailed, parsed]);
   const showTaskCenterProgress =
     task.task_type === 'pipeline' ||
     task.task_type === 'download' ||
@@ -574,7 +470,7 @@ export const TaskItem = memo(function TaskItem({ task, onRetry, isExpanded, onTo
                 </div>
                 <div className="mt-1 text-xs font-mono text-muted-foreground/50">{task.task_id}</div>
               </div>
-              <TaskActions task={task} isRunning={isRunning} isPaused={isPaused} isFailed={isFailed} onRetry={onRetry} />
+              <TaskActions task={task} isRunning={isRunning} isPaused={isPaused} isFailed={isFailed} onRetry={onRetry} failedRetryableCount={failedRetryableCount} />
             </div>
 
             {(isRunning || isPaused) && (
@@ -634,7 +530,7 @@ export const TaskItem = memo(function TaskItem({ task, onRetry, isExpanded, onTo
           </div>
           <div className="mt-1 text-xs font-mono text-muted-foreground/50">{task.task_id}</div>
         </div>
-        <TaskActions task={task} isRunning={isRunning} isPaused={isPaused} isFailed={isFailed} onRetry={onRetry} />
+        <TaskActions task={task} isRunning={isRunning} isPaused={isPaused} isFailed={isFailed} onRetry={onRetry} failedRetryableCount={failedRetryableCount} />
       </div>
 
       {(isRunning || isPaused) && (
@@ -681,6 +577,7 @@ function TaskActions({
   isPaused,
   isFailed,
   onRetry,
+  failedRetryableCount = 0,
   variant,
 }: {
   task: Task;
@@ -688,10 +585,12 @@ function TaskActions({
   isPaused: boolean;
   isFailed: boolean;
   onRetry: (task: Task) => void;
+  failedRetryableCount?: number;
   variant?: 'macos';
 }) {
   const autoRetryEnabled = !!task.auto_retry;
   const canStop = isRunning || isPaused;
+  const [retryingFailed, setRetryingFailed] = useState(false);
 
   return (
     <div className={cn('mt-0.5 flex items-center gap-2', variant === 'macos' && 'gap-2')}>
@@ -707,6 +606,36 @@ function TaskActions({
         >
           <RotateCw className="size-3.5" />
           重试
+        </button>
+      )}
+
+      {isFailed && failedRetryableCount > 0 && (
+        <button
+          disabled={retryingFailed}
+          onClick={async () => {
+            if (retryingFailed) return;
+            try {
+              setRetryingFailed(true);
+              const data = await retryFailedSubtasks(task.task_id);
+              const { fetchInitialTasks } = useStore.getState();
+              await fetchInitialTasks();
+              toast.success(`已派发新任务，仅重试 ${data.file_count} 个失败视频`);
+            } catch {
+              // interceptor already toasts
+            } finally {
+              setRetryingFailed(false);
+            }
+          }}
+          className={cn(
+            'flex h-8 items-center gap-1 rounded-md px-3 text-xs font-medium text-primary transition-colors duration-200 hover:bg-primary/10',
+            variant === 'macos' &&
+              'h-auto rounded-[8px] border-[0.5px] border-[#3C3C43]/[0.18] bg-white/40 px-3 py-1.5 text-[13px] font-semibold text-[#007AFF] hover:bg-white/60',
+            retryingFailed ? 'cursor-not-allowed opacity-50' : '',
+          )}
+          title={`只针对失败视频派发新任务（共 ${failedRetryableCount} 个）`}
+        >
+          {retryingFailed ? <Loader2 className="size-3.5 animate-spin" /> : <RotateCw className="size-3.5" />}
+          只重试失败 ({failedRetryableCount})
         </button>
       )}
 

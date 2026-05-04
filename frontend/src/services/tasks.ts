@@ -31,6 +31,14 @@ export const rerunTask = async (taskId: string, signal?: AbortSignal): Promise<{
   return response.data;
 };
 
+export const retryFailedSubtasks = async (
+  taskId: string,
+  signal?: AbortSignal,
+): Promise<{ task_id: string; status: string; file_count: number }> => {
+  const response = await apiClient.post(`/tasks/${taskId}/retry-failed`, null, { signal });
+  return response.data;
+};
+
 export const setAutoRetry = async (taskId: string, enabled: boolean = true, signal?: AbortSignal): Promise<{ status: string; message: string }> => {
   const response = await apiClient.post(`/tasks/${taskId}/auto-retry?enabled=${enabled}`, null, { signal });
   return response.data;

@@ -27,7 +27,7 @@ async def transcribe_files(task_id: str, _progress_fn, new_files: list, display_
     except (OSError, RuntimeError) as exc:
         logger.error(f"批量转写失败: {exc}")
         for vp in video_paths:
-            subtasks.append({"title": vp.stem[:60], "status": "failed", "error": str(exc)})
+            subtasks.append({"title": vp.stem[:60], "status": "failed", "error": str(exc), "video_path": str(vp)})
         return {
             "success_count": 0,
             "failed_count": total,
@@ -47,7 +47,7 @@ async def transcribe_files(task_id: str, _progress_fn, new_files: list, display_
         else:
             error_msg = r.get("error", "转写失败")
             error_type = r.get("error_type", "unknown")
-            subtasks.append({"title": title, "status": "failed", "error": f"[{error_type}] {error_msg}"})
+            subtasks.append({"title": title, "status": "failed", "error": f"[{error_type}] {error_msg}", "video_path": r.get("video_path")})
 
     # 删除已成功转写的源视频
     if auto_delete:

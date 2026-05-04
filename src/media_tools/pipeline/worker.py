@@ -144,6 +144,7 @@ async def run_local_transcribe(file_paths: list[str], update_progress_fn=None, d
                             "error": error_text,
                             "error_type": err_type or None,
                             "attempts": attempts,
+                            "video_path": str(video_path) if video_path else None,
                         }
                     )
             except Exception as exc:

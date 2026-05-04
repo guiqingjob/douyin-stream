@@ -298,6 +298,57 @@ async def retry_task(task_id: str):
         raise HTTPException(status_code=500, detail=str(e))
 
 
+@router.post("/{task_id}/retry-failed")
+async def retry_failed_subtasks(task_id: str):
+    try:
+        task = TaskRepository.find_by_id(task_id)
+        if not task:
+            raise HTTPException(status_code=404, detail="任务不存在")
+
+        try:
+            payload = json.loads(task.get("payload") or "{}")
+        except (json.JSONDecodeError, TypeError):
+            payload = {}
+        if not isinstance(payload, dict):
+            payload = {}
+
+        failed_paths: list[str] = []
+        for item in payload.get("subtasks") or []:
+            if not isinstance(item, dict) or item.get("status") != "failed":
+                continue
+            path = item.get("video_path") or item.get("file_path")
+            if isinstance(path, str) and path.strip() and Path(path).exists():
+                failed_paths.append(path.strip())
+
+        failed_paths = list(dict.fromkeys(failed_paths))
+        if not failed_paths:
+            raise HTTPException(status_code=409, detail="没有可重试的失败视频路径")
+
+        delete_after = bool(payload.get("delete_after", get_runtime_setting_bool("auto_delete", True)))
+        directory_root = payload.get("directory_root") if isinstance(payload.get("directory_root"), str) else None
+        req = LocalTranscribeRequest(file_paths=failed_paths, delete_after=delete_after, directory_root=directory_root)
+        new_task_id = str(uuid.uuid4())
+        _register_local_assets(req.file_paths, delete_after, req.directory_root)
+        await _create_task(
+            new_task_id,
+            "local_transcribe",
+            {
+                "file_paths": req.file_paths,
+                "delete_after": delete_after,
+                "directory_root": req.directory_root,
+                "retry_failed_from_task_id": task_id,
+            },
+        )
+        _register_background_task(new_task_id, _background_local_transcribe_worker(new_task_id, req))
+        return {"task_id": new_task_id, "status": "started", "file_count": len(failed_paths)}
+
+    except HTTPException:
+        raise
+    except (sqlite3.Error, OSError, RuntimeError, asyncio.CancelledError) as e:
+        logger.exception(f"retry_failed_subtasks failed for {task_id}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
 @router.post("/pipeline/batch")
 async def trigger_batch_pipeline(req: BatchPipelineRequest):
     task_id = str(uuid.uuid4())

@@ -1,12 +1,13 @@
 import { describe, it, expect, vi } from 'vitest'
-import { render, screen, within, fireEvent, waitFor, act } from '@testing-library/react'
+import { render, screen, fireEvent, waitFor, act } from '@testing-library/react'
 import { TaskItem } from './TaskItem'
-import { rerunTask } from '@/lib/api'
+import { rerunTask, retryFailedSubtasks } from '@/lib/api'
 import { toast } from 'sonner'
 
 vi.mock('@/lib/api', () => ({
   cancelTask: vi.fn(),
   rerunTask: vi.fn(),
+  retryFailedSubtasks: vi.fn(),
   setAutoRetry: vi.fn(),
   deleteTask: vi.fn(),
   recoverAwemeAndTranscribe: vi.fn(),
@@ -249,6 +250,35 @@ describe('TaskItem', () => {
     expect(screen.getByText('网络超时')).toBeInTheDocument()
     expect(screen.getByText('建议：重试或检查网络')).toBeInTheDocument()
     expect(screen.getByRole('button', { name: '重试任务' })).toBeInTheDocument()
+  })
+
+  it('triggers retry-failed when clicking failed-only action', async () => {
+    const retryFailed = vi.mocked(retryFailedSubtasks)
+    retryFailed.mockResolvedValueOnce({ task_id: 'new-task-1', status: 'started', file_count: 1 })
+
+    render(
+      <TaskItem
+        task={{
+          task_id: 'failed-subtasks-paths',
+          task_type: 'local_transcribe',
+          status: 'FAILED',
+          progress: 1,
+          payload: JSON.stringify({
+            msg: 'failed',
+            subtasks: [{ title: 'a', status: 'failed', error: 'timeout', video_path: '/tmp/a.mp4' }],
+          }),
+          error_msg: '',
+          update_time: new Date().toISOString(),
+        }}
+        onRetry={vi.fn()}
+        isExpanded={false}
+        onToggleExpand={vi.fn()}
+      />
+    )
+
+    fireEvent.click(screen.getByRole('button', { name: '只重试失败 (1)' }))
+    await waitFor(() => expect(retryFailed).toHaveBeenCalledWith('failed-subtasks-paths'))
+    expect(vi.mocked(toast.success)).toHaveBeenCalled()
   })
 
   it('triggers rerun when clicking retry action from failed subtask', async () => {
