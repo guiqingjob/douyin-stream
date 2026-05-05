@@ -286,10 +286,11 @@ WebSocket 广播进度更新（含 result_summary）
 ### P1 — 业务可靠性收尾（活跃中）
 
 - [ ] **PARTIAL_FAILED 任务状态**：当前部分失败被并入 FAILED，前端无法区分"全死"/"小部分死"
-- [ ] **`media_assets` DDL 加字段**：`last_error` / `error_type` / `retry_count`（Phase 4 失败聚合的前置）
 - [ ] **失败原因聚合视图**：`/api/metrics/failure-summary?days=7` + Settings 页 Top 错误类型表格
 - [ ] **健康检查脚本**：`scripts/health_check.py` 检查 4 类一致性问题（详见 refactor 文档第四阶段）
 - [ ] **Phase 3 生产数据回放**：故意 kill 中段验证续传 fast-path
+
+> `media_assets` 失败追踪字段（`transcript_last_error` / `transcript_error_type` / `transcript_retry_count` / `transcript_failed_at` / `last_task_id`）**已在 Phase 2 通过 `_ensure_column` 加入并接通写入路径**（见 `db/core.py:507-513`），不需要再 ALTER TABLE。Phase 4 聚合可直接基于这些字段实施。
 
 ### P2 — UI / 体验
 
