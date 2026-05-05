@@ -284,6 +284,8 @@ async def _complete_task(
         pipeline_progress=pipeline_progress,
     )
     if status == "FAILED":
+        # PARTIAL_FAILED 不自动重试整任务（避免重跑已成功子任务）；
+        # 用户可通过 UI"只重试失败子任务"入口手工重新调度。
         schedule_auto_retry(task_id)
 
 

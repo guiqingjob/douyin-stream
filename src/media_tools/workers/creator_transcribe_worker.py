@@ -310,7 +310,12 @@ async def background_creator_transcribe_worker(task_id: str, uid: str) -> None:
             )
             result_summary = {"success": int(s_count or 0), "failed": int(f_count or 0), "total": int(total or 0)}
             subtasks = result.get("subtasks") if isinstance(result, dict) else None
-            status = "FAILED" if f_count > 0 else "COMPLETED"
+            if f_count == 0:
+                status = "COMPLETED"
+            elif s_count > 0:
+                status = "PARTIAL_FAILED"
+            else:
+                status = "FAILED"
             error_msg = f"转写失败 {f_count} 个文件" if f_count > 0 else None
             await _complete_task(
                 task_id,

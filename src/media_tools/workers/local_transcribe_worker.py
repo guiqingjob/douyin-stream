@@ -35,7 +35,12 @@ async def _background_local_transcribe_worker(task_id: str, req: Any):
                 stage="done",
                 pipeline_progress={"transcribe": {"done": int(total or 0), "total": int(total or 0)}},
             )
-            status = "FAILED" if f_count > 0 else "COMPLETED"
+            if f_count == 0:
+                status = "COMPLETED"
+            elif s_count > 0:
+                status = "PARTIAL_FAILED"
+            else:
+                status = "FAILED"
             error_msg = f"转写失败 {f_count} 个文件" if f_count > 0 else None
             await _complete_task(
                 task_id,

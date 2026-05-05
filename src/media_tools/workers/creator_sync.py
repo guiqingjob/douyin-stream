@@ -345,7 +345,17 @@ async def background_creator_download_worker(
                 (uid,)
             )
             conn.commit()
-        status = "FAILED" if transcribe_stats["failed_count"] > 0 or (reconcile_total > 0 and reconcile_missing > 0) else "COMPLETED"
+        # 三态决策：全成功 -> COMPLETED，全失败 -> FAILED，混合 -> PARTIAL_FAILED。
+        # 用 result_summary 已合并的 success/failed 计数（含 reconcile_missing），
+        # 避免在判定逻辑里再算一次 reconcile + transcribe 之和。
+        rs_success = int(result_summary.get("success") or 0)
+        rs_failed = int(result_summary.get("failed") or 0)
+        if rs_failed == 0:
+            status = "COMPLETED"
+        elif rs_success > 0:
+            status = "PARTIAL_FAILED"
+        else:
+            status = "FAILED"
         error_msg = None
         if transcribe_stats["failed_count"] > 0:
             error_msg = f"转写失败 {transcribe_stats['failed_count']} 个视频"

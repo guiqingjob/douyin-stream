@@ -13,6 +13,7 @@ class TaskStatus(Enum):
     PAUSED = auto()
     COMPLETED = auto()
     FAILED = auto()
+    PARTIAL_FAILED = auto()
     CANCELLED = auto()
 
 
@@ -27,12 +28,17 @@ class TaskStage(Enum):
 
 
 # 合法状态转移图
+#
+# PARTIAL_FAILED 是 RUNNING 的一种正常终态：批量任务里部分子任务失败、部分成功。
+# 它**不**自动触发整任务重试（避免重跑成功子任务），但允许通过 UI"只重试失败"
+# 入口走 PARTIAL_FAILED -> RUNNING 重新调度。
 VALID_TRANSITIONS: dict[TaskStatus, list[TaskStatus]] = {
     TaskStatus.PENDING: [TaskStatus.RUNNING, TaskStatus.FAILED, TaskStatus.CANCELLED],
-    TaskStatus.RUNNING: [TaskStatus.PAUSED, TaskStatus.COMPLETED, TaskStatus.FAILED, TaskStatus.CANCELLED],
+    TaskStatus.RUNNING: [TaskStatus.PAUSED, TaskStatus.COMPLETED, TaskStatus.FAILED, TaskStatus.PARTIAL_FAILED, TaskStatus.CANCELLED],
     TaskStatus.PAUSED: [TaskStatus.RUNNING, TaskStatus.CANCELLED],
     TaskStatus.COMPLETED: [],
     TaskStatus.FAILED: [TaskStatus.RUNNING],  # 重试
+    TaskStatus.PARTIAL_FAILED: [TaskStatus.RUNNING],  # 仅重试失败子任务
     TaskStatus.CANCELLED: [TaskStatus.RUNNING],  # 重试
 }
 

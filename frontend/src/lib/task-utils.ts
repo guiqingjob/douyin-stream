@@ -2,10 +2,11 @@ import type { Task } from '@/lib/api';
 
 const ACTIVE_STATUSES = new Set(['RUNNING', 'PENDING', 'PAUSED']);
 const SUCCESS_STATUSES = new Set(['COMPLETED', 'SUCCESS']);
+const PARTIAL_STATUSES = new Set(['PARTIAL_FAILED']);
 const FAILURE_STATUSES = new Set(['FAILED', 'ERROR', 'CANCELLED']);
 const STALE_MINUTES = 20;
 
-export type DisplayTaskState = 'running' | 'success' | 'failed' | 'stale' | 'unknown' | 'paused';
+export type DisplayTaskState = 'running' | 'success' | 'failed' | 'partial' | 'stale' | 'unknown' | 'paused';
 
 export function taskTypeLabel(type: string) {
   return (
@@ -70,6 +71,7 @@ export function getTaskDisplayState(task: Task): DisplayTaskState {
     return 'running';
   }
   if (SUCCESS_STATUSES.has(task.status)) return 'success';
+  if (PARTIAL_STATUSES.has(task.status)) return 'partial';
   if (FAILURE_STATUSES.has(task.status)) return 'failed';
   return 'unknown';
 }
@@ -81,6 +83,7 @@ export function getTaskStatusLabel(task: Task) {
       running: '进行中',
       paused: '已暂停',
       success: '已完成',
+      partial: '部分失败',
       failed: '失败',
       stale: '已过期',
       unknown: task.status,

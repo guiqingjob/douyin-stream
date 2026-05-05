@@ -99,7 +99,7 @@ export const createWsSlice: StateCreator<StoreState, [], [], WsSlice> = (set, ge
           }
           update.payload = JSON.stringify(payload);
         }
-        if (data.status === 'FAILED' && msg) {
+        if ((data.status === 'FAILED' || data.status === 'PARTIAL_FAILED') && msg) {
           update.error_msg = msg;
         }
         get().updateTask(update);

@@ -5,6 +5,14 @@ import type { StoreState } from '../useStore';
 
 const MAX_TASKS = 200;
 
+// 终态集合（任务不再推进进度）；超容时优先淘汰这里的旧任务。
+// PARTIAL_FAILED 是 RUNNING 的合法终态：批量任务里部分子任务失败、部分成功。
+const TERMINAL_STATUSES = ['COMPLETED', 'FAILED', 'CANCELLED', 'PARTIAL_FAILED'] as const;
+
+// "已结束"集合：触发 lastCompletedTaskTime 和 creator/asset 列表刷新。
+// PARTIAL_FAILED 也算 —— 部分下载/转写成功的子任务已经入库，UI 该刷新。
+const DONE_STATUSES = ['COMPLETED', 'PARTIAL_FAILED'] as const;
+
 export interface TaskSlice {
   activeTaskId: string | null;
   setActiveTaskId: (id: string | null) => void;
@@ -38,7 +46,10 @@ export const createTaskSlice: StateCreator<StoreState, [], [], TaskSlice> = (set
           Object.entries(taskUpdate).filter(([, v]) => v !== undefined),
         );
         updatedTasks[existingTaskIndex] = { ...updatedTasks[existingTaskIndex], ...filteredUpdate };
-        if (oldStatus !== 'COMPLETED' && taskUpdate.status === 'COMPLETED') {
+        if (
+          !DONE_STATUSES.includes(oldStatus as (typeof DONE_STATUSES)[number]) &&
+          DONE_STATUSES.includes(taskUpdate.status as (typeof DONE_STATUSES)[number])
+        ) {
           isCompleted = true;
           completedType = updatedTasks[existingTaskIndex].task_type || null;
         }
@@ -53,7 +64,7 @@ export const createTaskSlice: StateCreator<StoreState, [], [], TaskSlice> = (set
           error_msg: taskUpdate.error_msg,
         } as Task;
         updatedTasks = [newTask, ...state.tasks];
-        if (newTask.status === 'COMPLETED') {
+        if (DONE_STATUSES.includes(newTask.status as (typeof DONE_STATUSES)[number])) {
           isCompleted = true;
           completedType = newTask.task_type;
         }
@@ -72,8 +83,12 @@ export const createTaskSlice: StateCreator<StoreState, [], [], TaskSlice> = (set
 
       // 超出上限时淘汰已完成/失败/取消的旧任务
       if (updatedTasks.length > MAX_TASKS) {
-        const terminal = updatedTasks.filter((t) => ['COMPLETED', 'FAILED', 'CANCELLED'].includes(t.status));
-        const active = updatedTasks.filter((t) => !['COMPLETED', 'FAILED', 'CANCELLED'].includes(t.status));
+        const terminal = updatedTasks.filter((t) =>
+          TERMINAL_STATUSES.includes(t.status as (typeof TERMINAL_STATUSES)[number]),
+        );
+        const active = updatedTasks.filter(
+          (t) => !TERMINAL_STATUSES.includes(t.status as (typeof TERMINAL_STATUSES)[number]),
+        );
         const toEvict = Math.max(0, updatedTasks.length - MAX_TASKS);
         if (toEvict > 0 && terminal.length > 0) {
           terminal.sort((a, b) => (b.update_time || '').localeCompare(a.update_time || ''));
