@@ -23,6 +23,11 @@ LOCAL_CREATOR_UID = "local:upload"
 @router.get("/")
 def list_assets(
     creator_uid: Optional[str] = Query(None),
+    transcript_status: Optional[str] = Query(
+        default=None,
+        description="按转写状态过滤：completed / pending / none / failed；支持逗号分隔多个",
+        max_length=200,
+    ),
     limit: Optional[int] = Query(default=None, ge=1, le=500),
     offset: Optional[int] = Query(default=None, ge=0),
     silent: bool = Query(default=False, description="返回空列表而非抛错（兼容旧版）"),
@@ -38,20 +43,44 @@ def list_assets(
     limit = resolve_query_value(limit, 100)
     offset = resolve_query_value(offset, 0)
 
+    # 解析 transcript_status 过滤：白名单校验，拒绝 SQL 注入
+    allowed_statuses = {"completed", "pending", "none", "failed"}
+    status_filter: list[str] = []
+    if transcript_status:
+        for token in transcript_status.split(","):
+            t = token.strip().lower()
+            if t and t in allowed_statuses:
+                status_filter.append(t)
+        status_filter = list(dict.fromkeys(status_filter))
+
     try:
         with get_db_connection() as conn:
             conn.row_factory = sqlite3.Row
-            base_sql = "SELECT asset_id, creator_uid, title, video_status, transcript_status, transcript_path, transcript_preview, folder_path, is_read, is_starred, create_time, update_time FROM media_assets"
+            base_sql = (
+                "SELECT asset_id, creator_uid, title, video_status, transcript_status, "
+                "transcript_path, transcript_preview, folder_path, is_read, is_starred, "
+                "transcript_error_type, transcript_last_error, transcript_retry_count, "
+                "transcript_failed_at, source_platform, last_task_id, "
+                "create_time, update_time FROM media_assets"
+            )
+
+            where_clauses: list[str] = []
+            params: list = []
             if creator_uid:
-                cursor = conn.execute(
-                    base_sql + " WHERE creator_uid = ? ORDER BY update_time DESC LIMIT ? OFFSET ?",
-                    (creator_uid, limit, offset)
-                )
-            else:
-                cursor = conn.execute(
-                    base_sql + " ORDER BY update_time DESC LIMIT ? OFFSET ?",
-                    (limit, offset)
-                )
+                where_clauses.append("creator_uid = ?")
+                params.append(creator_uid)
+            if status_filter:
+                placeholders = ",".join(["?"] * len(status_filter))
+                where_clauses.append(f"transcript_status IN ({placeholders})")
+                params.extend(status_filter)
+
+            sql = base_sql
+            if where_clauses:
+                sql += " WHERE " + " AND ".join(where_clauses)
+            sql += " ORDER BY update_time DESC LIMIT ? OFFSET ?"
+            params.extend([limit, offset])
+
+            cursor = conn.execute(sql, params)
             return [dict(row) for row in cursor.fetchall()]
     except (sqlite3.Error, OSError, RuntimeError) as e:
         logger.exception(f"list_assets 错误: creator_uid={creator_uid}, limit={limit}, offset={offset}")
