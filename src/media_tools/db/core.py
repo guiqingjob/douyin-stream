@@ -463,6 +463,13 @@ def init_db(db_path: str | Path):
         _ensure_column(conn, "media_assets", "update_time", "DATETIME")
         _ensure_column(conn, "media_assets", "transcript_preview", "TEXT")
         _ensure_column(conn, "media_assets", "transcript_text", "TEXT")
+        # 第二阶段：视频级状态治理 —— 失败可见、可重试、可定位
+        _ensure_column(conn, "media_assets", "transcript_last_error", "TEXT")
+        _ensure_column(conn, "media_assets", "transcript_error_type", "TEXT")
+        _ensure_column(conn, "media_assets", "transcript_retry_count", "INTEGER DEFAULT 0")
+        _ensure_column(conn, "media_assets", "transcript_failed_at", "DATETIME")
+        _ensure_column(conn, "media_assets", "last_task_id", "TEXT")
+        _ensure_column(conn, "media_assets", "source_platform", "TEXT")
 
         # FTS5 全文索引（用于素材搜索加速）
         _ensure_fts_table(conn)
