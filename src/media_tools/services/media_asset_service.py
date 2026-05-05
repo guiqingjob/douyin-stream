@@ -43,6 +43,34 @@ class MediaAssetService:
     def resolve_asset_id(video_path: Path) -> str | None:
         return _resolve_asset_id_from_video_path(video_path)
 
+    @staticmethod
+    def find_asset_id_for_video_path(video_path: Path) -> str | None:
+        """三段式 fallback 找出视频对应的 asset_id。
+
+        1) 文件名带 15+ 位数字 -> 抖音 aweme
+        2) DB 里按 video_path / title 模糊匹配
+        3) 找不到返回 None（调用方应允许"无 asset_id 也能跑"）
+        """
+        guessed = _resolve_asset_id_from_video_path(video_path)
+        if guessed:
+            return guessed
+        try:
+            with get_db_connection() as conn:
+                conn.row_factory = sqlite3.Row
+                row = conn.execute(
+                    """
+                    SELECT asset_id FROM media_assets
+                    WHERE video_path LIKE ? OR title LIKE ?
+                    ORDER BY update_time DESC
+                    LIMIT 1
+                    """,
+                    (f"%{video_path.name}%", f"%{video_path.stem}%"),
+                ).fetchone()
+            return row["asset_id"] if row else None
+        except sqlite3.Error as e:
+            logger.warning(f"find_asset_id_for_video_path({video_path}) 失败: {e}")
+            return None
+
     # ---------- 写入：下载入库 ----------
 
     @staticmethod

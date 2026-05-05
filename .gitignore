@@ -219,6 +219,7 @@ tests/*
 !tests/test_error_types.py
 !tests/test_qwen_status.py
 !tests/test_db_media_assets_migration.py
+!tests/test_flow_run_id_checkpoints.py
 !tests/api/test_settings_global_merge.py
 !tests/api/test_tasks_ws_disconnect_cleanup.py
 !tests/api/test_fts_populated_on_startup.py

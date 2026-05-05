@@ -196,12 +196,16 @@ async def run_real_flow(
     export_gate: asyncio.Semaphore | None = None,
     title: str | None = None,
     shared_api: Any | None = None,
+    run_id: str | None = None,
 ) -> FlowResult:
     """执行单个视频的转写流程。
 
     Args:
         shared_api: 可选的 Playwright APIContext，由调用方共享。
             提供时跳过 Playwright 启动/关闭，避免每个视频都创建 Chromium 进程。
+        run_id: 可选的 transcribe_runs.run_id；提供时会在 4 个关键节点把 stage
+            推进到 uploaded / transcribing / exporting / saved，让上传后失败可以
+            被 orchestrator 通过 find_resumable 续做。失败由调用方 mark_failed。
     """
     input_path = Path(file_path).resolve()
     output_dir = Path(download_dir).resolve()
@@ -213,6 +217,16 @@ async def run_real_flow(
         cookie_string=cookie_string,
     )
     log = _make_flow_logger(input_path.name)
+
+    # 仅在 run_id 存在时才 import + 写 transcribe_runs，避免给单元测试增加依赖
+    def _checkpoint(stage: str, extra: dict[str, Any] | None = None) -> None:
+        if not run_id:
+            return
+        try:
+            from media_tools.repositories.transcribe_run_repository import TranscribeRunRepository
+            TranscribeRunRepository.update_stage(run_id, stage, extra)
+        except Exception as exc:  # noqa: BLE001  打卡失败不应中断主流程
+            logger.warning(f"transcribe_runs 打卡失败 (run_id={run_id}, stage={stage}): {exc}")
 
     async def _do_flow(api: Any) -> FlowResult:
         log(f"Using file: {input_path}")
@@ -252,6 +266,12 @@ async def run_real_flow(
         )
         log("upload heartbeat sent")
 
+        # 打卡点 1：上传完成。Qwen 端文件已落，下次失败重试可以从这里续做
+        _checkpoint("uploaded", {
+            "record_id": token["recordId"],
+            "gen_record_id": token["genRecordId"],
+        })
+
         start_json = await api_json(
             api,
             "https://api.qianwen.com/assistant/api/record/start?c=tongyi-web",
@@ -268,6 +288,9 @@ async def run_real_flow(
         )
         log(f"started batchId={start_json['data']['batchId']}")
 
+        # 打卡点 2：record/start 已提交，进入轮询阶段
+        _checkpoint("transcribing", {"batch_id": start_json["data"]["batchId"]})
+
         completed_record = await poll_until_done(api, token["genRecordId"])
         log(f"record completed with status={completed_record['recordStatus']}")
 
@@ -277,11 +300,17 @@ async def run_real_flow(
             {"recordIds": [token["recordId"]]},
         )
 
+        # 打卡点 3：进入导出阶段
+        _checkpoint("exporting")
+
         if export_gate is None:
             export_url = await export_file(api, token["genRecordId"], export_config)
         else:
             async with export_gate:
                 export_url = await export_file(api, token["genRecordId"], export_config)
+
+        # 打卡点 4：拿到 export_url，准备下载到本地
+        _checkpoint("downloading", {"export_url": export_url})
 
         run_stamp = now_stamp()
 

@@ -245,6 +245,11 @@ class OrchestratorV2:
             max_attempts = len(self._account_pool._accounts) if self._account_pool else 1
             preferred_account_id = account_id
 
+            # 第三阶段：解析 asset_id，三段式 fallback；找不到也允许继续跑（只是没续传能力）
+            from media_tools.services.media_asset_service import MediaAssetService
+            from media_tools.repositories.transcribe_run_repository import TranscribeRunRepository
+            asset_id_for_run = MediaAssetService.find_asset_id_for_video_path(video_path)
+
             for _ in range(max_attempts):
                 if self._account_pool is None:
                     break
@@ -265,6 +270,19 @@ class OrchestratorV2:
                     self._account_pool.release(current_account_id)
                     break
 
+                # 第三阶段：为这次尝试创建 run。失败时即便 mark_failed 也不影响主流程。
+                run_id: str | None = None
+                if asset_id_for_run:
+                    try:
+                        run_id = TranscribeRunRepository.create(
+                            asset_id=asset_id_for_run,
+                            video_path=str(video_path),
+                            account_id=current_account_id,
+                        )
+                    except Exception as exc:  # noqa: BLE001
+                        logger.warning(f"transcribe_runs.create 失败 (asset={asset_id_for_run}): {exc}")
+                        run_id = None
+
                 try:
                     result = await run_real_flow(
                         file_path=video_path,
@@ -275,8 +293,17 @@ class OrchestratorV2:
                         account_id=current_account_id,
                         title=video_title,
                         export_gate=self._export_gate,
+                        run_id=run_id,
                     )
                     self._mark_qwen_account_used(current_account_id)
+
+                    # 第三阶段：流程跑通后把 run 标为 saved；后续重试可以靠 find_saved_for_asset
+                    # 跨账号识别"这个 asset 已经成功过"
+                    if run_id:
+                        try:
+                            TranscribeRunRepository.mark_saved(run_id, str(result.export_path))
+                        except Exception as exc:  # noqa: BLE001
+                            logger.warning(f"transcribe_runs.mark_saved 失败 (run_id={run_id}): {exc}")
 
                     if self.config.remove_video and not self.config.keep_original:
                         video_path.unlink()
@@ -295,6 +322,22 @@ class OrchestratorV2:
                         raise
                     last_error = e
                     last_error_type = classify_error(e)
+
+                    # 第三阶段：把失败 stage 写入 transcribe_runs。当前 stage 由 flow 最近
+                    # 一次打卡决定，所以这里直接读回，比硬猜更准。
+                    if run_id:
+                        try:
+                            current_run = TranscribeRunRepository.get(run_id) or {}
+                            current_stage = str(current_run.get("stage") or "queued")
+                            TranscribeRunRepository.mark_failed(
+                                run_id,
+                                error_stage=current_stage,
+                                error_type=last_error_type.value,
+                                last_error=str(e),
+                            )
+                        except Exception as exc:  # noqa: BLE001
+                            logger.warning(f"transcribe_runs.mark_failed 失败 (run_id={run_id}): {exc}")
+
                     if last_error_type == ErrorType.AUTH and current_account_id:
                         self._mark_qwen_account_status(current_account_id, "expired")
                         preferred_account_id = None
