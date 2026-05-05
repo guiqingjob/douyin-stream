@@ -154,13 +154,39 @@
 
 目标是让外部平台副作用可追踪、可恢复。
 
-建议工作：
+**已完成（2026-05-05）**：
 
-- 新增或扩展转写运行记录表，记录每个文件在每个账号上的上传和转写阶段。
-- 上传成功后保存 `record_id` / `gen_record_id`。
-- 轮询失败后允许从已上传记录继续。
-- 导出失败后只重试导出。
-- 账号池调度基于文件状态和错误类型决策，而不是无条件换账号。
+- ✅ 新建 `transcribe_runs` 表，每行 = 某 asset 在某账号上的一次完整转写尝试，
+  字段含 run_id / asset_id / account_id / task_id / stage / record_id /
+  gen_record_id / batch_id / export_url / transcript_path / last_error /
+  error_stage / error_type
+- ✅ stage 推进序：`queued -> uploaded -> transcribing -> exporting -> downloading -> saved`
+- ✅ `run_real_flow` 在 4 个关键节点写入 stage：上传完成、record/start、export
+  开始、拿到 export_url
+- ✅ orchestrator 每次尝试创建 run，成功 mark_saved，失败 mark_failed（错误阶段
+  从 transcribe_runs 当前 stage 推断，不需手动猜）
+- ✅ `find_resumable(asset_id, account_id)` 命中条件：gen_record_id 已持久化，
+  且 stage 在 RESUMABLE_STAGES，**或** stage='failed' 但 error_stage 在 RESUMABLE_STAGES
+  （上传成功后才挂的 run 也能被复用）
+- ✅ 续传分支 1（Step 13a）：已有 export_url -> 直接 download，**0 调用 Qwen API**
+- ✅ 续传分支 2（Step 13b）：已有 gen_record_id -> 跳过 token/upload/heartbeat/start，
+  从 poll_until_done 继续，**节省一次 OSS 上传**
+- ✅ 安全保险：续传分支任何异常 -> stage 重置 queued -> 完整 flow 接管
+- ✅ asset_id 三段式 fallback：aweme 正则 -> DB 查 video_path -> 跳过 run 创建
+  （孤儿文件仍能跑，只是没续传能力）
+- ✅ 13 个单元 / 集成测试覆盖：建表、stage 推进、续传命中、各级 fallback、E2E
+  「失败 → 重试复用 gen_record_id」
+
+**实现的关键机制**：
+
+- 账号池调度仍按文件状态和错误类型决策；跨账号续传**不**支持，因为 Qwen 的
+  genRecordId 与账号绑定。
+- 续传 fast-path 在调用 Qwen API 之前尝试，命中时连一次外部请求都不发。
+
+**待补**（可选优化，非阻塞）：
+
+- 失败原因聚合报表 / 健康检查（属第四阶段）
+- 续传节省额度估算指标（运维可观测性）
 
 ### 第四阶段：可观测性和运维能力
 

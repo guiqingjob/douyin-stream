@@ -184,6 +184,49 @@ def test_find_saved_for_asset_returns_latest_saved_run(db: sqlite3.Connection) -
     assert found["account_id"] == "acc-1"
 
 
+def test_find_resumable_includes_failed_runs_with_uploaded_gen_record_id(
+    db: sqlite3.Connection,
+) -> None:
+    """关键续传场景：上传成功后失败 -> stage='failed'，但 gen_record_id 仍可复用。
+
+    这个分支让 orchestrator 在重试时不浪费 Qwen 已经处理过的上传。
+    """
+    run_id = TranscribeRunRepository.create(
+        asset_id="asset-FAIL-RESUME", video_path="/tmp/x.mp4", account_id="acc-1",
+    )
+    # 模拟：先推进到 transcribing 拿到 gen_record_id，再标记失败
+    TranscribeRunRepository.update_stage(
+        run_id, "transcribing",
+        {"gen_record_id": "gen-RESUME", "record_id": "rec-RESUME"},
+    )
+    TranscribeRunRepository.mark_failed(
+        run_id, error_stage="transcribing", error_type="network", last_error="poll timeout",
+    )
+
+    found = TranscribeRunRepository.find_resumable("asset-FAIL-RESUME", "acc-1")
+    assert found is not None
+    assert found["run_id"] == run_id
+    assert found["gen_record_id"] == "gen-RESUME"
+    assert found["stage"] == "failed"  # 仍是 failed 状态，但能被 find_resumable 识别
+
+
+def test_find_resumable_excludes_failed_runs_without_resumable_error_stage(
+    db: sqlite3.Connection,
+) -> None:
+    """error_stage 在 'queued'（上传前就挂了）的失败 run 不应被复用——上传根本没成功。"""
+    run_id = TranscribeRunRepository.create(
+        asset_id="asset-PRE", video_path="/tmp/x.mp4", account_id="acc-1",
+    )
+    # 模拟：尚未上传就挂了（gen_record_id 是 None），人为塞个 fake gen_record_id 触发其他过滤
+    TranscribeRunRepository.update_stage(run_id, "queued", {"gen_record_id": "gen-fake"})
+    TranscribeRunRepository.mark_failed(
+        run_id, error_stage="queued", error_type="auth", last_error="cookie",
+    )
+
+    found = TranscribeRunRepository.find_resumable("asset-PRE", "acc-1")
+    assert found is None  # error_stage='queued' 不在 RESUMABLE_STAGES
+
+
 def test_resumable_constants_match_doc() -> None:
     """文档承诺的阶段集合不能被随手改掉。"""
     assert RESUMABLE_STAGES == ("uploaded", "transcribing", "exporting", "downloading")

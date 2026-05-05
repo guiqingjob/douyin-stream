@@ -52,9 +52,13 @@ class TranscribeRunRepository:
     def find_resumable(asset_id: str, account_id: str) -> dict[str, Any] | None:
         """查找该 asset 在该 account 上可以续做的 run。
 
-        返回 stage 属于 RESUMABLE_STAGES 且 record_id/gen_record_id 已持久化的最近一条。
+        命中条件：gen_record_id 已持久化，且：
+          - stage 属于 RESUMABLE_STAGES（上传后的中间态），或
+          - stage='failed' 但 error_stage 落在 RESUMABLE_STAGES 中
+            （上传后挂的失败 run，gen_record_id 还在 Qwen 端有效，可以复用）
+        终态 'saved' 不返回（已成功，无需续做）。
         """
-        placeholders = ",".join(["?"] * len(RESUMABLE_STAGES))
+        resumable_placeholders = ",".join(["?"] * len(RESUMABLE_STAGES))
         with get_db_connection() as conn:
             conn.row_factory = sqlite3.Row
             row = conn.execute(
@@ -62,12 +66,15 @@ class TranscribeRunRepository:
                 SELECT run_id, stage, record_id, gen_record_id, batch_id, export_task_id, export_url
                 FROM transcribe_runs
                 WHERE asset_id = ? AND account_id = ?
-                  AND stage IN ({placeholders})
                   AND gen_record_id IS NOT NULL AND gen_record_id != ''
+                  AND (
+                    stage IN ({resumable_placeholders})
+                    OR (stage = 'failed' AND error_stage IN ({resumable_placeholders}))
+                  )
                 ORDER BY updated_at DESC
                 LIMIT 1
                 """,
-                (asset_id, account_id, *RESUMABLE_STAGES),
+                (asset_id, account_id, *RESUMABLE_STAGES, *RESUMABLE_STAGES),
             ).fetchone()
         if row is None:
             return None

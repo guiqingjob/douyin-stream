@@ -221,3 +221,82 @@ async def test_no_asset_id_skips_run_creation_and_still_runs_flow(
     # 没 asset_id -> 不传 run_id -> 不写表
     assert fake_flow.call_args.kwargs.get("run_id") is None
     assert db.execute("SELECT COUNT(*) FROM transcribe_runs").fetchone()[0] == 0
+
+
+@pytest.mark.asyncio
+async def test_failure_then_resume_end_to_end(
+    db: sqlite3.Connection, tmp_path: Path
+) -> None:
+    """端到端：第一次跑到 transcribing 阶段失败 -> 第二次复用 gen_record_id 续传成功。
+
+    验证 Step 11/12/13b 整条链路在 orchestrator 层正确闭合：
+    - 第一次：create run -> flow 推进到 transcribing 抛错 -> mark_failed
+    - 第二次：find_resumable 命中 -> 复用 run_id + gen_record_id -> mark_saved
+    - transcribe_runs 仅 1 行（不是 2 行）
+    """
+    video = tmp_path / "demo.mp4"
+    video.write_bytes(b"x")
+    _seed_asset(db, asset_id="asset-E2E", video_path=video)
+
+    transcript = tmp_path / "out" / "demo.md"
+    transcript.parent.mkdir(parents=True)
+
+    orch = _build_orchestrator(tmp_path)
+
+    flow_call_count = {"n": 0}
+
+    async def flaky_flow(*args, **kwargs):
+        flow_call_count["n"] += 1
+        run_id = kwargs.get("run_id")
+        resume_state = kwargs.get("resume_state")
+
+        if flow_call_count["n"] == 1:
+            # 第一次：模拟 flow 推到 transcribing 后失败
+            assert resume_state is None, "第一次不应有 resume_state"
+            TranscribeRunRepository.update_stage(
+                run_id, "uploaded",
+                {"gen_record_id": "gen-E2E", "record_id": "rec-E2E"},
+            )
+            TranscribeRunRepository.update_stage(
+                run_id, "transcribing", {"batch_id": "batch-E2E"},
+            )
+            raise RuntimeError("network blip during poll")
+
+        # 第二次：应当被传入 resume_state（来自 find_resumable）
+        assert resume_state is not None, "第二次应触发续传"
+        assert resume_state.gen_record_id == "gen-E2E"
+        assert resume_state.record_id == "rec-E2E"
+        # 模拟续传分支跑通：直接推到 downloading
+        TranscribeRunRepository.update_stage(
+            run_id, "downloading",
+            {"export_url": "https://example/exp.docx"},
+        )
+        transcript.write_text("ok")
+        return FlowResult(
+            record_id="rec-E2E", gen_record_id="gen-E2E",
+            export_path=transcript, remote_deleted=False,
+        )
+
+    with patch(
+        "media_tools.services.media_asset_service.MediaAssetService.find_asset_id_for_video_path",
+        return_value="asset-E2E",
+    ), patch("media_tools.pipeline.orchestrator_v2.run_real_flow", side_effect=flaky_flow):
+        # 第一次：失败
+        first = await orch._transcribe_single_video(video)
+        assert not first.success
+
+        # 第二次：复用历史 run + gen_record_id 跑通
+        # AccountPool 记录了"该账号已尝试过"，需要清重试集让第二次能 acquire 同账号
+        orch._account_pool = AccountPool(
+            [{"account_id": "acc-1", "auth_state_path": tmp_path / "auth.json"}],
+            [10],
+        )
+        second = await orch._transcribe_single_video(video)
+        assert second.success
+
+    # 关键断言：始终只有 1 行 run（复用而非新建）
+    rows = db.execute("SELECT run_id, stage FROM transcribe_runs").fetchall()
+    assert len(rows) == 1, f"expected 1 row, got {len(rows)}: {[dict(r) for r in rows]}"
+    assert rows[0]["stage"] == "saved"
+    # flow 被调了 2 次（第一次失败 + 第二次续传）
+    assert flow_call_count["n"] == 2
