@@ -272,16 +272,35 @@ class OrchestratorV2:
 
                 # 第三阶段：为这次尝试创建 run。失败时即便 mark_failed 也不影响主流程。
                 run_id: str | None = None
+                resumable_run: dict[str, Any] | None = None
                 if asset_id_for_run:
+                    # 先看这个 (asset, account) 组合是否有可续传的 run（上传过但失败）
                     try:
-                        run_id = TranscribeRunRepository.create(
-                            asset_id=asset_id_for_run,
-                            video_path=str(video_path),
-                            account_id=current_account_id,
+                        resumable_run = TranscribeRunRepository.find_resumable(
+                            asset_id_for_run, current_account_id
                         )
                     except Exception as exc:  # noqa: BLE001
-                        logger.warning(f"transcribe_runs.create 失败 (asset={asset_id_for_run}): {exc}")
-                        run_id = None
+                        logger.warning(f"transcribe_runs.find_resumable 失败 (asset={asset_id_for_run}): {exc}")
+                        resumable_run = None
+
+                    if resumable_run:
+                        run_id = resumable_run["run_id"]
+                        logger.info(
+                            f"发现可续传 run: asset={asset_id_for_run} account={current_account_id} "
+                            f"stage={resumable_run.get('stage')} gen_record_id={resumable_run.get('gen_record_id')} "
+                            f"export_url={'有' if resumable_run.get('export_url') else '无'} "
+                            f"(Step 12: 仅记录，未复用)"
+                        )
+                    else:
+                        try:
+                            run_id = TranscribeRunRepository.create(
+                                asset_id=asset_id_for_run,
+                                video_path=str(video_path),
+                                account_id=current_account_id,
+                            )
+                        except Exception as exc:  # noqa: BLE001
+                            logger.warning(f"transcribe_runs.create 失败 (asset={asset_id_for_run}): {exc}")
+                            run_id = None
 
                 try:
                     result = await run_real_flow(
