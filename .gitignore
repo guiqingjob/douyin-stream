@@ -199,6 +199,8 @@ tests/*
 !tests/bilibili/**
 !tests/api/
 !tests/api/**
+!tests/services/
+!tests/services/test_media_asset_service.py
 !tests/test_local_media_extensions.py
 !tests/test_task_payload_retry.py
 !tests/test_local_assets_visibility.py
@@ -215,6 +217,7 @@ tests/*
 !tests/test_creator_download_missing_items_payload.py
 !tests/test_error_types.py
 !tests/test_qwen_status.py
+!tests/test_db_media_assets_migration.py
 !tests/api/test_settings_global_merge.py
 !tests/api/test_tasks_ws_disconnect_cleanup.py
 !tests/api/test_fts_populated_on_startup.py
