@@ -1,6 +1,41 @@
 # Media Tools — 项目现状文档
 
-> 最后更新：2026-04-20
+> 最后更新：2026-05-05
+
+---
+
+## 最近更新（2026-05-05）
+
+### Phase 3 — 可恢复转写流水线（重构第三阶段）
+
+> 详细设计见 [pipeline_reliability_refactor.md](pipeline_reliability_refactor.md) 第 156–189 行。
+
+**已落地：**
+
+| 项目 | 内容 |
+|------|------|
+| `transcribe_runs` 表 | 每行 = 某 asset 在某账号上的一次完整转写尝试 |
+| stage 推进序 | `queued → uploaded → transcribing → exporting → downloading → saved` |
+| `find_resumable()` | gen_record_id 已持久化 + stage ∈ RESUMABLE，**或** stage='failed' 但 error_stage ∈ RESUMABLE |
+| 续传 fast-path A | 已有 `export_url` → 直接 download，**0 调用 Qwen API** |
+| 续传 fast-path B | 已有 `gen_record_id` → 跳过 token/upload/heartbeat/start，从 poll 继续 |
+| 保险丝 | 续传任何异常 → stage 重置 `queued` → 完整 flow 接管 |
+| 测试覆盖 | 13 个单元/集成测试（建表、stage 推进、续传命中、各级 fallback、E2E 失败 → 重试复用） |
+
+**关键不变量**：跨账号续传**不**支持（Qwen `genRecordId` 与账号绑定）。
+
+**未做**：生产数据回放验证（计划 X3.3）。
+
+### Qwen 转写引擎完成迁移：Playwright → HTTP API
+
+- 转写流程从 Playwright + Chromium 改为纯 HTTP 调用 `RequestsApiContext`
+- 全仓清理 Playwright/Chromium 残留描述（README / CONTRIBUTING / FAQ / INSTALLATION / 用户手册 / 源代码注释）
+- `tests/test_no_playwright_dependency.py` 强制守护，pyproject/requirements/src import 任一处出现 `playwright` 都 fail
+
+### 文档与配置
+
+- 新增 [CLAUDE.md](../CLAUDE.md) — 给 Claude Code 与未来贡献者的项目向导
+- `_auto_*.json` per-creator 状态文件归档至 `.archive/pipeline_state_2026-04-26/`（无业务影响，全 ghost 状态）
 
 ---
 
@@ -87,7 +122,7 @@ WebSocket 广播进度更新（含 result_summary）
 | 后端 | FastAPI + Uvicorn，SQLite3（无 ORM），APScheduler 定时任务 |
 | 前端 | React 19 + Vite 8 + Tailwind 4 + shadcn/ui + Zustand 5 |
 | 视频抓取 | F2 库（抖音）+ yt-dlp（B站） |
-| 转写引擎 | Playwright 驱动通义千问 Web 端 |
+| 转写引擎 | Qwen HTTP API（已从 Playwright 迁移，2026-05-05） |
 | 实时通信 | WebSocket 推送任务进度 |
 | Python | >= 3.11 |
 | 启动方式 | `./run.sh`（后端 8000 + 前端 5173） |
@@ -194,6 +229,7 @@ WebSocket 广播进度更新（含 result_summary）
 |------|------|
 | `creators` | 创作者信息（UID、昵称、平台、同步状态） |
 | `media_assets` | 素材（视频/转写状态、本地路径、已读/收藏） |
+| `transcribe_runs` | 每个 asset 在某账号上的一次转写尝试，支持续传（2026-05） |
 | `task_queue` | 任务队列（类型、进度、状态、payload） |
 | `auth_credentials` | 平台认证数据 |
 | `Accounts_Pool` | 账号池（抖音/B站/Qwen Cookie） |
@@ -204,6 +240,14 @@ WebSocket 广播进度更新（含 result_summary）
 ---
 
 ## 五、已完成的改进
+
+### 2026-05-05
+
+- [x] Phase 3 可恢复转写流水线（transcribe_runs 表 + find_resumable + 两条续传 fast-path）
+- [x] Qwen 转写引擎完全迁移到 HTTP（去 Playwright/Chromium 依赖）
+- [x] 全仓清理 Playwright 残留描述（5 个文档 + 4 个源/测试文件）
+- [x] 新增 CLAUDE.md 项目向导
+- [x] 归档 4 个 Phase 2 之前的 _auto_*.json 孤儿状态文件
 
 ### 2026-04-20
 
@@ -236,17 +280,26 @@ WebSocket 广播进度更新（含 result_summary）
 
 ## 六、待改进项
 
-### P2 — 中期优化
+> 优先级原则：**业务可靠性 > 工程规范**（详见 [CLAUDE.md](../CLAUDE.md)）。
+> 这是单机本地工作台，不引入 CI/CD、Docker、覆盖率门槛、APM 等"生产服务"工程标准。
 
-- [ ] **前端测试**：补充 Vitest + React Testing Library
+### P1 — 业务可靠性收尾（活跃中）
+
+- [ ] **PARTIAL_FAILED 任务状态**：当前部分失败被并入 FAILED，前端无法区分"全死"/"小部分死"
+- [ ] **`media_assets` DDL 加字段**：`last_error` / `error_type` / `retry_count`（Phase 4 失败聚合的前置）
+- [ ] **失败原因聚合视图**：`/api/metrics/failure-summary?days=7` + Settings 页 Top 错误类型表格
+- [ ] **健康检查脚本**：`scripts/health_check.py` 检查 4 类一致性问题（详见 refactor 文档第四阶段）
+- [ ] **Phase 3 生产数据回放**：故意 kill 中段验证续传 fast-path
+
+### P2 — UI / 体验
+
+- [ ] **前端测试**：补充 Vitest + React Testing Library（按需，不强求覆盖率）
 - [ ] **Store 类型安全**：消除 `(taskUpdate as any).msg`
 - [ ] **Settings 并发数校验**：程序化 clamp 到 1-10
+- [ ] **logs/ 目录滚动**：services/log_rotation.py 自动归档 30 天前文件
 
-### P3 — 长期愿景
+### P3 — 长期愿景（不做明确投入，按需触发）
 
-- [ ] **Docker 化**：编写 Dockerfile + docker-compose.yml
-- [ ] **CI/CD 恢复**：添加 lint + test + build 流水线
-- [ ] **数据库迁移**：考虑 SQLAlchemy 或 migration 机制
+- [ ] **数据库迁移机制**：当 schema 变动频繁时考虑（SQLAlchemy 或简易迁移脚本）
 - [ ] **多平台支持**：为小红书等平台预留扩展点
 - [ ] **移动端适配**：响应式处理
-- [ ] **Playwright 替代方案**：探索 Qwen API 官方接口
