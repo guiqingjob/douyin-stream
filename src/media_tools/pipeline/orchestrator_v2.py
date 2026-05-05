@@ -366,7 +366,11 @@ class OrchestratorV2:
                     asset_id = aweme_matches[0]
                     conn.execute("""
                         UPDATE media_assets
-                        SET transcript_path = ?, transcript_status = 'completed', transcript_preview = ?, transcript_text = ?, update_time = CURRENT_TIMESTAMP
+                        SET transcript_path = ?, transcript_status = 'completed',
+                            transcript_preview = ?, transcript_text = ?,
+                            transcript_last_error = NULL, transcript_error_type = NULL,
+                            transcript_failed_at = NULL,
+                            update_time = CURRENT_TIMESTAMP
                         WHERE asset_id = ?
                     """, (
                         transcript_name,
@@ -377,7 +381,11 @@ class OrchestratorV2:
                 else:
                     conn.execute("""
                         UPDATE media_assets
-                        SET transcript_path = ?, transcript_status = 'completed', transcript_preview = ?, transcript_text = ?, update_time = CURRENT_TIMESTAMP
+                        SET transcript_path = ?, transcript_status = 'completed',
+                            transcript_preview = ?, transcript_text = ?,
+                            transcript_last_error = NULL, transcript_error_type = NULL,
+                            transcript_failed_at = NULL,
+                            update_time = CURRENT_TIMESTAMP
                         WHERE video_path LIKE ? OR title LIKE ?
                     """, (
                         transcript_name,
@@ -396,6 +404,57 @@ class OrchestratorV2:
                         logger.warning(f"FTS索引更新失败: {fts_err}")
         except sqlite3.Error as e:
             logger.warning(f"更新 media_assets 转写状态失败: {e}")
+
+    def _mark_media_asset_transcript_failed(
+        self,
+        video_path: Path,
+        error_type: str,
+        error_message: str,
+    ) -> None:
+        """同步把转写失败信息写回 media_assets 表。
+
+        让创作者页 / 失败列表 / 失败重试都能基于 DB 真相源工作，而不是只能看 task payload。
+        """
+        try:
+            from media_tools.db.core import get_db_connection
+            import sqlite3
+            import re
+
+            err_text = (error_message or "")[:500]
+            aweme_matches = re.findall(r'\d{15,}', video_path.name)
+
+            with get_db_connection() as conn:
+                if aweme_matches:
+                    asset_id = aweme_matches[0]
+                    conn.execute(
+                        """
+                        UPDATE media_assets
+                        SET transcript_status = 'failed',
+                            transcript_last_error = ?,
+                            transcript_error_type = ?,
+                            transcript_retry_count = COALESCE(transcript_retry_count, 0) + 1,
+                            transcript_failed_at = CURRENT_TIMESTAMP,
+                            update_time = CURRENT_TIMESTAMP
+                        WHERE asset_id = ?
+                        """,
+                        (err_text, error_type, asset_id),
+                    )
+                else:
+                    conn.execute(
+                        """
+                        UPDATE media_assets
+                        SET transcript_status = 'failed',
+                            transcript_last_error = ?,
+                            transcript_error_type = ?,
+                            transcript_retry_count = COALESCE(transcript_retry_count, 0) + 1,
+                            transcript_failed_at = CURRENT_TIMESTAMP,
+                            update_time = CURRENT_TIMESTAMP
+                        WHERE video_path LIKE ? OR title LIKE ?
+                        """,
+                        (err_text, error_type, f"%{video_path.name}%", f"%{video_path.stem}%"),
+                    )
+        except sqlite3.Error as e:
+            logger.warning(f"写回 media_assets 失败状态失败: {e}")
 
     async def transcribe_with_retry(
         self,
@@ -508,6 +567,12 @@ class OrchestratorV2:
                     error_type=result.error_type.value,
                     error_message=result.error or "",
                 )
+                # 同步把失败信息写回 media_assets，让 UI/查询能基于 DB 真相源
+                self._mark_media_asset_transcript_failed(
+                    video_path,
+                    result.error_type.value,
+                    result.error or "",
+                )
                 self._fire_progress(
                     0, 1, video_path,
                     f"失败 [{result.error_type.value}] (已达最大尝试次数)"
@@ -602,6 +667,12 @@ class OrchestratorV2:
                     video_path=video_path,  # 正确的错误归因
                     error=str(result),
                     error_type=error_type,
+                )
+                # transcribe_with_retry 抛出异常时（理论上不会，但兜底）也要写回 DB
+                self._mark_media_asset_transcript_failed(
+                    video_path,
+                    error_type.value,
+                    str(result),
                 )
                 logger.error(f"视频转写异常: video_path={video_path}, error={result}")
             else:
