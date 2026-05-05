@@ -81,7 +81,9 @@ export {
   triggerCreatorDownload,
   triggerFullSyncFollowing,
   recoverAwemeAndTranscribe,
+  getFailureSummary,
 } from '@/services/tasks';
+export type { FailureSummary, FailureBucket } from '@/services/tasks';
 
 export {
   getSettings,

@@ -18,7 +18,7 @@ logger = logging.getLogger(__name__)
 
 router = APIRouter(prefix="/api/v1/metrics", tags=["metrics"])
 
-_KNOWN_TASK_STATUSES = ("PENDING", "RUNNING", "PAUSED", "COMPLETED", "FAILED", "CANCELLED")
+_KNOWN_TASK_STATUSES = ("PENDING", "RUNNING", "PAUSED", "COMPLETED", "FAILED", "PARTIAL_FAILED", "CANCELLED")
 _PROCESS_START_TIME = time.monotonic()
 
 
@@ -49,4 +49,24 @@ def get_metrics():
             "total": background.total_count(),
         },
         "db_connections": DBConnection.get_stats(),
+    }
+
+
+@router.get("/failure-summary")
+def get_failure_summary(days: int = 7):
+    """转写失败原因聚合：按 (error_type, error_stage) 分桶，给运维看"为什么失败"。
+
+    数据源是 transcribe_runs 表（每次转写尝试一行）。每次返回最近 N 天的统计。
+    """
+    from media_tools.repositories.transcribe_run_repository import TranscribeRunRepository
+    days = max(1, min(days, 90))  # 限到 90 天，避免一次扫太多历史
+    try:
+        buckets = TranscribeRunRepository.aggregate_failures(days=days)
+    except sqlite3.Error as e:
+        logger.warning(f"failure_summary query failed: {e}")
+        buckets = []
+    return {
+        "window_days": days,
+        "total_failed": sum(b["count"] for b in buckets),
+        "buckets": buckets,
     }

@@ -156,3 +156,62 @@ class TranscribeRunRepository:
                 (asset_id,),
             ).fetchone()
         return dict(row) if row else None
+
+    @staticmethod
+    def aggregate_failures(days: int = 7) -> list[dict[str, Any]]:
+        """统计最近 N 天内 stage='failed' 的 run，按 (error_type, error_stage) 分桶。
+
+        返回示例:
+            [
+              {"error_type": "quota", "error_stage": "transcribing", "count": 12,
+               "last_seen": "2026-05-04T10:23:11", "sample_error": "..."},
+              {"error_type": "network", "error_stage": "uploading", "count": 5, ...},
+            ]
+
+        排序：count 倒序，再按 last_seen 倒序。
+        sample_error 取桶内最新一条的 last_error（截断到 200 字），便于在前端
+        失败聚合表格里直接看到"长这样"的错误样本。
+        """
+        from datetime import timedelta
+        cutoff = (datetime.now() - timedelta(days=max(1, days))).isoformat()
+        with get_db_connection() as conn:
+            conn.row_factory = sqlite3.Row
+            rows = conn.execute(
+                """
+                SELECT
+                    COALESCE(error_type, 'unknown') AS error_type,
+                    COALESCE(error_stage, 'unknown') AS error_stage,
+                    COUNT(*) AS count,
+                    MAX(updated_at) AS last_seen
+                FROM transcribe_runs
+                WHERE stage = 'failed'
+                  AND updated_at >= ?
+                GROUP BY error_type, error_stage
+                ORDER BY count DESC, last_seen DESC
+                """,
+                (cutoff,),
+            ).fetchall()
+            buckets: list[dict[str, Any]] = []
+            for r in rows:
+                # 取该桶里最新的一条错误样本
+                sample = conn.execute(
+                    """
+                    SELECT last_error FROM transcribe_runs
+                    WHERE stage = 'failed'
+                      AND COALESCE(error_type, 'unknown') = ?
+                      AND COALESCE(error_stage, 'unknown') = ?
+                      AND updated_at >= ?
+                    ORDER BY updated_at DESC
+                    LIMIT 1
+                    """,
+                    (r["error_type"], r["error_stage"], cutoff),
+                ).fetchone()
+                sample_error = (sample["last_error"] if sample else None) or ""
+                buckets.append({
+                    "error_type": r["error_type"],
+                    "error_stage": r["error_stage"],
+                    "count": int(r["count"]),
+                    "last_seen": r["last_seen"],
+                    "sample_error": sample_error[:200],
+                })
+        return buckets

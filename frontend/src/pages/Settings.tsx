@@ -10,6 +10,7 @@ import { Button } from '@/components/ui/button';
 import { PageShell } from '@/components/layout/PageShell';
 import { AccountPoolSection } from './Settings/sections/AccountPoolSection';
 import { GlobalSettingsSection } from './Settings/sections/GlobalSettingsSection';
+import { FailureSummarySection } from './Settings/sections/FailureSummarySection';
 import { SystemStatusBar } from './Settings/sections/SystemStatusBar';
 import { DeleteConfirmDialogs } from './Settings/sections/DeleteConfirmDialogs';
 import { useSettingsActions } from './Settings/useSettingsActions';
@@ -277,6 +278,7 @@ export default function Settings() {
           onSaveConcurrency={handleSaveConcurrency}
           refreshSettings={refreshSettings}
         />
+        <FailureSummarySection />
         <DeleteConfirmDialogs
           deletingDouyinId={deletingDouyinId}
           setDeletingDouyinId={setDeletingDouyinId}

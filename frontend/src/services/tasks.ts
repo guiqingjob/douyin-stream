@@ -67,6 +67,25 @@ export const setAutoRetry = async (taskId: string, enabled: boolean = true, sign
   return response.data;
 };
 
+export interface FailureBucket {
+  error_type: string;
+  error_stage: string;
+  count: number;
+  last_seen: string | null;
+  sample_error: string;
+}
+
+export interface FailureSummary {
+  window_days: number;
+  total_failed: number;
+  buckets: FailureBucket[];
+}
+
+export const getFailureSummary = async (days: number = 7, signal?: AbortSignal): Promise<FailureSummary> => {
+  const response = await apiClient.get(`/metrics/failure-summary?days=${days}`, { signal });
+  return response.data;
+};
+
 export const clearTaskHistory = async (signal?: AbortSignal): Promise<{ status: string; message: string }> => {
   const response = await apiClient.delete('/tasks/history', { signal });
   return response.data;
