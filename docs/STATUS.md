@@ -6,6 +6,14 @@
 
 ## 最近更新（2026-05-05）
 
+### Phase 4 — 可观测性（refactor 第四阶段）
+
+- ✅ **失败原因聚合视图**：`/api/v1/metrics/failure-summary?days=N` + Settings 页 `FailureSummarySection`，按 error_type/error_stage 分桶；Top 错误一目了然
+- ✅ **健康检查脚本**：`scripts/health_check.py` 检 4 类一致性问题；JSON 输出 + 退出码可接 cron
+- ✅ **PARTIAL_FAILED 任务状态**：区分全失败/部分失败；前端 badge 中文化；UI"重试失败子任务"按钮在 PARTIAL 任务上正确显示
+- ✅ **logs/ 归档机制**：`services.log_rotation.archive_old_logs()` mv 到 archive 子目录，不删
+- ⏳ Phase 3 生产数据回放验证（需要人值守）
+
 ### Phase 3 — 可恢复转写流水线（重构第三阶段）
 
 > 详细设计见 [pipeline_reliability_refactor.md](pipeline_reliability_refactor.md) 第 156–189 行。
@@ -243,9 +251,11 @@ WebSocket 广播进度更新（含 result_summary）
 
 ### 2026-05-05
 
+- [x] Phase 4 可观测性：失败聚合 API + Settings 表格 / 健康检查脚本 / PARTIAL_FAILED 状态机
 - [x] Phase 3 可恢复转写流水线（transcribe_runs 表 + find_resumable + 两条续传 fast-path）
 - [x] Qwen 转写引擎完全迁移到 HTTP（去 Playwright/Chromium 依赖）
 - [x] 全仓清理 Playwright 残留描述（5 个文档 + 4 个源/测试文件）
+- [x] logs/ 改为归档不删（services/log_rotation.py + lifespan 接入）
 - [x] 新增 CLAUDE.md 项目向导
 - [x] 归档 4 个 Phase 2 之前的 _auto_*.json 孤儿状态文件
 
@@ -285,19 +295,19 @@ WebSocket 广播进度更新（含 result_summary）
 
 ### P1 — 业务可靠性收尾（活跃中）
 
-- [ ] **PARTIAL_FAILED 任务状态**：当前部分失败被并入 FAILED，前端无法区分"全死"/"小部分死"
-- [ ] **失败原因聚合视图**：`/api/metrics/failure-summary?days=7` + Settings 页 Top 错误类型表格
-- [ ] **健康检查脚本**：`scripts/health_check.py` 检查 4 类一致性问题（详见 refactor 文档第四阶段）
-- [ ] **Phase 3 生产数据回放**：故意 kill 中段验证续传 fast-path
+- [ ] **Phase 3 生产数据回放**：故意 kill 中段验证续传 fast-path（需要人值守）
 
-> `media_assets` 失败追踪字段（`transcript_last_error` / `transcript_error_type` / `transcript_retry_count` / `transcript_failed_at` / `last_task_id`）**已在 Phase 2 通过 `_ensure_column` 加入并接通写入路径**（见 `db/core.py:507-513`），不需要再 ALTER TABLE。Phase 4 聚合可直接基于这些字段实施。
+> Phase 4 三大块（PARTIAL_FAILED / 失败聚合 / 健康检查）已于 2026-05-05 落地；
+> `media_assets` 失败追踪字段（`transcript_last_error` / `transcript_error_type`
+> / `transcript_retry_count` / `transcript_failed_at` / `last_task_id`）**已在
+> Phase 2 通过 `_ensure_column` 加入并接通写入路径**（见 `db/core.py:507-513`），
+> 不需要再 ALTER TABLE。
 
 ### P2 — UI / 体验
 
 - [ ] **前端测试**：补充 Vitest + React Testing Library（按需，不强求覆盖率）
 - [ ] **Store 类型安全**：消除 `(taskUpdate as any).msg`
 - [ ] **Settings 并发数校验**：程序化 clamp 到 1-10
-- [ ] **logs/ 目录滚动**：services/log_rotation.py 自动归档 30 天前文件
 
 ### P3 — 长期愿景（不做明确投入，按需触发）
 

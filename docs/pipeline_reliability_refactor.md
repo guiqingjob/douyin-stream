@@ -192,12 +192,32 @@
 
 目标是让问题可解释、可定位。
 
-建议工作：
+**已完成（2026-05-05）**：
 
-- 每个视频处理日志带上 `task_id`、`asset_id`、`account_id`、`stage`。
-- 任务详情展示阶段耗时、失败阶段、最后错误。
-- 增加失败原因聚合报表。
-- 增加健康检查：长期 running、已下载未转写、转写成功但文件不存在、数据库状态和文件系统不一致。
+- ✅ **失败原因聚合视图** —— `TranscribeRunRepository.aggregate_failures(days)`
+  按 (error_type, error_stage) 分桶；`/api/v1/metrics/failure-summary?days=N`
+  暴露；Settings 页 `FailureSummarySection` 渲染表格（含 3/7/14/30 天窗口切换、
+  error_type/error_stage 中文化、最近时间相对显示、样本错误 hover 完整内容）
+- ✅ **健康检查脚本** —— `scripts/health_check.py` 检 4 类一致性：
+  - completed 但 transcript 文件不存在
+  - run.stage='saved' 但 asset.transcript_status≠'completed'
+  - task.status='RUNNING' 持续 > 1h（孤儿任务）
+  - run 有 gen_record_id 但 stage > 24h 未推进（Qwen 静默卡死）
+  - 输出 JSON + 退出码（0=healthy / 1=anomaly），可接 cron
+- ✅ **PARTIAL_FAILED 任务状态** —— 引入第三种终态区分"全失败"vs"部分失败"；
+  worker 三态决策、前端 badge 中文化、不触发 auto_retry 整任务（避免重跑成功子任务）
+- ✅ **logs/ 归档机制** —— `services.log_rotation.archive_old_logs(days=30)`
+  把 .log/.jsonl mv 到 logs/archive/yyyy-mm/，不删（保留事故回溯能力）
+
+**已有基础**（早期工作铺好的，本阶段无需新做）：
+
+- 每条日志已带 task_id / request_id / creator_uid 上下文（`core/logging_context.py`）
+- 任务详情展示阶段耗时、失败阶段、最后错误（`TaskMonitorPanel/TaskItem.tsx`）
+
+**未做（计划项）**：
+
+- Phase 3 生产数据回放验证（X3.3）：故意 kill 中段验证续传 fast-path 命中。
+  需要人值守，不在自动化流水范围内。
 
 ## 推荐优先级
 
