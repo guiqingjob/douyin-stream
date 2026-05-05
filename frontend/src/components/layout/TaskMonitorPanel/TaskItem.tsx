@@ -325,9 +325,10 @@ export const TaskItem = memo(function TaskItem({ task, onRetry, isExpanded, onTo
   const isRunning = state === 'running';
   const isPaused = state === 'paused';
   const isFailed = state === 'failed' || state === 'stale';
+  const isPartial = state === 'partial';
   const parsed = useMemo(() => parsePayload(task.payload), [task.payload]);
   const failedRetryableCount = useMemo(() => {
-    if (!isFailed) return 0;
+    if (!isFailed && !isPartial) return 0;
     const raw = parsed?.subtasks;
     if (!Array.isArray(raw)) return 0;
     let count = 0;
@@ -337,7 +338,7 @@ export const TaskItem = memo(function TaskItem({ task, onRetry, isExpanded, onTo
       }
     }
     return count;
-  }, [isFailed, parsed]);
+  }, [isFailed, isPartial, parsed]);
   const showTaskCenterProgress =
     task.task_type === 'pipeline' ||
     task.task_type === 'download' ||
@@ -470,7 +471,7 @@ export const TaskItem = memo(function TaskItem({ task, onRetry, isExpanded, onTo
                 </div>
                 <div className="mt-1 text-xs font-mono text-muted-foreground/50">{task.task_id}</div>
               </div>
-              <TaskActions task={task} isRunning={isRunning} isPaused={isPaused} isFailed={isFailed} onRetry={onRetry} failedRetryableCount={failedRetryableCount} />
+              <TaskActions task={task} isRunning={isRunning} isPaused={isPaused} isFailed={isFailed} isPartial={isPartial} onRetry={onRetry} failedRetryableCount={failedRetryableCount} />
             </div>
 
             {(isRunning || isPaused) && (
@@ -530,7 +531,7 @@ export const TaskItem = memo(function TaskItem({ task, onRetry, isExpanded, onTo
           </div>
           <div className="mt-1 text-xs font-mono text-muted-foreground/50">{task.task_id}</div>
         </div>
-        <TaskActions task={task} isRunning={isRunning} isPaused={isPaused} isFailed={isFailed} onRetry={onRetry} failedRetryableCount={failedRetryableCount} />
+        <TaskActions task={task} isRunning={isRunning} isPaused={isPaused} isFailed={isFailed} isPartial={isPartial} onRetry={onRetry} failedRetryableCount={failedRetryableCount} />
       </div>
 
       {(isRunning || isPaused) && (
@@ -576,6 +577,7 @@ function TaskActions({
   isRunning,
   isPaused,
   isFailed,
+  isPartial = false,
   onRetry,
   failedRetryableCount = 0,
   variant,
@@ -584,6 +586,7 @@ function TaskActions({
   isRunning: boolean;
   isPaused: boolean;
   isFailed: boolean;
+  isPartial?: boolean;
   onRetry: (task: Task) => void;
   failedRetryableCount?: number;
   variant?: 'macos';
@@ -609,7 +612,7 @@ function TaskActions({
         </button>
       )}
 
-      {isFailed && failedRetryableCount > 0 && (
+      {(isFailed || isPartial) && failedRetryableCount > 0 && (
         <button
           disabled={retryingFailed}
           onClick={async () => {
