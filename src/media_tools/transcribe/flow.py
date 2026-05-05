@@ -449,6 +449,84 @@ async def run_real_flow(
                     logger.debug("重置 stage 失败，但不影响 fallback 流程", exc_info=True)
             return None
 
+    async def _try_resume_from_gen_record(api: Any) -> FlowResult | None:
+        """Step 13b 续传分支：已有 gen_record_id 时跳过 token/upload/heartbeat/start。
+
+        命中条件：resume_state 有 gen_record_id + record_id 但没有 export_url。
+        从 poll_until_done 继续 -> export_file -> download_file。
+
+        风险点：Qwen API 的可重入语义未经实测保证。任何异常都会让 stage 回退
+        到 queued 并由完整 flow 接管，确保业务永远跑得通（即便代价是重新上传）。
+        """
+        if resume_state is None or not resume_state.gen_record_id or not resume_state.record_id:
+            return None
+        if resume_state.export_url:
+            # 应当已被 _try_resume_export_only 处理；走到这里说明那一步失败重置了，
+            # 此时 resume_state 仍是入参的旧值，但 stage 已被重置成 queued
+            # —— 我们也跳过 gen_record_id 续传，让完整 flow 接管
+            return None
+
+        try:
+            log(
+                f"resume[gen_record_id]: skip upload, "
+                f"gen_record_id={resume_state.gen_record_id} record_id={resume_state.record_id}"
+            )
+
+            completed_record = await poll_until_done(api, resume_state.gen_record_id)
+            log(f"resumed record completed with status={completed_record['recordStatus']}")
+
+            # record/read 是幂等性最难判断的一步，但失败也只影响"已读"标记
+            try:
+                await api_json(
+                    api,
+                    "https://api.qianwen.com/assistant/api/record/read?c=tongyi-web",
+                    {"recordIds": [resume_state.record_id]},
+                )
+            except Exception as exc:  # noqa: BLE001
+                logger.debug(f"resume: record/read 失败但不影响后续: {exc}")
+
+            _checkpoint("exporting")
+
+            if export_gate is None:
+                export_url = await export_file(api, resume_state.gen_record_id, export_config)
+            else:
+                async with export_gate:
+                    export_url = await export_file(api, resume_state.gen_record_id, export_config)
+
+            _checkpoint("downloading", {"export_url": export_url})
+
+            run_stamp = now_stamp()
+            resolved_title = title or _get_video_title_from_db(input_path)
+            export_out = build_export_output_path(
+                input_path=input_path,
+                output_dir=output_dir,
+                export_config=export_config,
+                run_stamp=run_stamp,
+                title=resolved_title,
+            )
+            ensure_dir(output_dir)
+            await download_file(export_url, export_out)
+            log(f"{export_config.label} resumed: {export_out}")
+
+            return FlowResult(
+                record_id=resume_state.record_id,
+                gen_record_id=resume_state.gen_record_id,
+                export_path=export_out,
+                remote_deleted=False,
+            )
+        except Exception as exc:  # noqa: BLE001  续传失败一律 fallback
+            logger.warning(
+                f"resume[gen_record_id] 失败，回退到完整 flow: {exc}",
+                exc_info=True,
+            )
+            if run_id:
+                try:
+                    from media_tools.repositories.transcribe_run_repository import TranscribeRunRepository
+                    TranscribeRunRepository.update_stage(run_id, "queued")
+                except Exception:  # noqa: BLE001
+                    logger.debug("重置 stage 失败，但不影响 fallback 流程", exc_info=True)
+            return None
+
     # 续传 fast-path：在启动 Playwright 之前尝试，命中则零额度成本完成
     resumed = await _try_resume_export_only()
     if resumed is not None:
@@ -456,6 +534,10 @@ async def run_real_flow(
 
     # 如果调用方提供了共享 API context，直接使用（不启动 Playwright）
     if shared_api is not None:
+        # gen_record_id 续传需要 api，命中则跳过上传节省额度；失败 fallback 到完整 flow
+        from_gen = await _try_resume_from_gen_record(shared_api)
+        if from_gen is not None:
+            return from_gen
         return await _do_flow(shared_api)
 
     resolved_cookie = cookie_string.strip() or resolve_qwen_cookie_string(
@@ -464,9 +546,14 @@ async def run_real_flow(
     )
     api = RequestsApiContext(cookie_string=resolved_cookie)
     try:
+        from_gen = await _try_resume_from_gen_record(api)
+        if from_gen is not None:
+            return from_gen
         return await _do_flow(api)
     finally:
         await api.dispose()
+
+
 def _make_flow_logger(file_name: str):
     def log(message: str) -> None:
         logger.info(f"[{file_name}] {message}")
