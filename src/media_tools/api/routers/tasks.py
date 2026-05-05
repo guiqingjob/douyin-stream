@@ -19,6 +19,7 @@ from media_tools.api.schemas import (
     ScanDirectoryRequest,
     RecoverAwemeTranscribeRequest,
     CreatorTranscribeCleanupRetryRequest,
+    RetryFailedAssetsRequest,
 )
 from media_tools.workers.task_dispatcher import _start_task_worker, _create_task, _retry_task_worker
 from media_tools.douyin.core.cancel_registry import set_cancel_event, clear_cancel_event, clear_download_progress
@@ -346,6 +347,102 @@ async def retry_failed_subtasks(task_id: str):
         raise
     except (sqlite3.Error, OSError, RuntimeError, asyncio.CancelledError) as e:
         logger.exception(f"retry_failed_subtasks failed for {task_id}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@router.post("/transcribe/retry-failed-assets")
+async def retry_failed_assets(req: RetryFailedAssetsRequest):
+    """从 media_assets 真相源派发重试：按 creator/platform/error_type 过滤。
+
+    与旧的 /tasks/{id}/retry-failed 区别：
+      - 不依赖某个历史 task 的 payload.subtasks
+      - 跨任务、跨时间都能聚合——"这个创作者所有失败的"、"所有 quota 错误的"
+    """
+    try:
+        from media_tools.services.media_asset_service import MediaAssetService
+
+        limit = req.limit or 1000
+        rows = MediaAssetService.find_pending_to_transcribe(
+            creator_uid=req.creator_uid,
+            platform=req.platform,
+            error_types=req.error_types,
+            only_failed=True,
+            limit=limit,
+        )
+
+        downloads = get_download_path()
+        file_paths: list[str] = []
+        asset_ids: list[str] = []
+        missing: list[str] = []
+        for row in rows:
+            vp = (row.get("video_path") or "").strip()
+            if not vp:
+                continue
+            candidate = Path(vp)
+            if not candidate.is_absolute():
+                candidate = (downloads / vp).resolve()
+            if candidate.exists() and candidate.is_file():
+                file_paths.append(str(candidate))
+                asset_ids.append(row["asset_id"])
+            else:
+                missing.append(row["asset_id"])
+
+        if not file_paths:
+            raise HTTPException(
+                status_code=409,
+                detail={
+                    "message": "没有可重试的失败视频（DB 标记为 failed 但磁盘上找不到对应文件）",
+                    "failed_in_db": len(rows),
+                    "missing_file_assets": missing[:50],
+                },
+            )
+
+        file_paths = list(dict.fromkeys(file_paths))
+        delete_after = bool(
+            req.delete_after if req.delete_after is not None
+            else get_runtime_setting_bool("auto_delete", True)
+        )
+        new_task_id = str(uuid.uuid4())
+
+        # 提前把新 task_id 记到 asset 上，让界面能看到"这批失败正在被哪个任务处理"
+        for aid in asset_ids:
+            try:
+                MediaAssetService.mark_transcribe_running(aid, task_id=new_task_id)
+            except Exception:  # noqa: BLE001  记录失败不阻塞主流程
+                logger.warning(f"mark_transcribe_running({aid}) failed", exc_info=True)
+
+        local_req = LocalTranscribeRequest(
+            file_paths=file_paths,
+            delete_after=delete_after,
+            directory_root=None,
+        )
+        _register_local_assets(local_req.file_paths, delete_after, local_req.directory_root)
+        await _create_task(
+            new_task_id,
+            "local_transcribe",
+            {
+                "file_paths": local_req.file_paths,
+                "delete_after": delete_after,
+                "directory_root": None,
+                "retry_failed_assets": {
+                    "creator_uid": req.creator_uid,
+                    "platform": req.platform,
+                    "error_types": req.error_types,
+                    "asset_ids": asset_ids,
+                },
+            },
+        )
+        _register_background_task(new_task_id, _background_local_transcribe_worker(new_task_id, local_req))
+        return {
+            "task_id": new_task_id,
+            "status": "started",
+            "file_count": len(file_paths),
+            "missing_file_assets": missing,
+        }
+    except HTTPException:
+        raise
+    except (sqlite3.Error, OSError, RuntimeError, asyncio.CancelledError) as e:
+        logger.exception("retry_failed_assets failed")
         raise HTTPException(status_code=500, detail=str(e))
 
 

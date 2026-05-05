@@ -147,3 +147,26 @@ class RecoverAwemeTranscribeRequest(BaseModel):
 
 class CreatorTranscribeCleanupRetryRequest(BaseModel):
     task_id: str = Field(min_length=1, max_length=200)
+
+
+class RetryFailedAssetsRequest(BaseModel):
+    """重试 media_assets 中 transcript_status='failed' 的视频。
+
+    空参数表示"重试所有失败的资产"；filter 组合生效。
+    """
+    creator_uid: str | None = Field(default=None, max_length=200)
+    platform: str | None = Field(default=None, max_length=40)
+    error_types: List[str] | None = None
+    limit: int | None = Field(default=None, ge=1, le=5000)
+    delete_after: bool | None = None
+
+    @field_validator("error_types")
+    @classmethod
+    def _check_error_types(cls, v: list[str] | None) -> list[str] | None:
+        if v is None:
+            return v
+        if len(v) > 20:
+            raise ValueError("error_types 最多 20 项")
+        cleaned = [str(x).strip() for x in v if isinstance(x, str) and str(x).strip()]
+        return cleaned or None
+
