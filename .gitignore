@@ -222,6 +222,7 @@ tests/*
 !tests/test_flow_run_id_checkpoints.py
 !tests/test_orchestrator_transcribe_runs.py
 !tests/test_flow_resume.py
+!tests/test_partial_failed.py
 !tests/api/test_settings_global_merge.py
 !tests/api/test_tasks_ws_disconnect_cleanup.py
 !tests/api/test_fts_populated_on_startup.py
