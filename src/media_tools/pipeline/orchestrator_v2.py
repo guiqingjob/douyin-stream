@@ -303,6 +303,18 @@ class OrchestratorV2:
                             run_id = None
 
                 try:
+                    # 把 find_resumable 的字典转成 ResumeState 给 flow
+                    from media_tools.transcribe.flow import ResumeState
+                    resume_state = None
+                    if resumable_run:
+                        resume_state = ResumeState(
+                            stage=str(resumable_run.get("stage") or "queued"),
+                            record_id=resumable_run.get("record_id"),
+                            gen_record_id=resumable_run.get("gen_record_id"),
+                            batch_id=resumable_run.get("batch_id"),
+                            export_url=resumable_run.get("export_url"),
+                        )
+
                     result = await run_real_flow(
                         file_path=video_path,
                         auth_state_path=auth_state_path,
@@ -313,6 +325,7 @@ class OrchestratorV2:
                         title=video_title,
                         export_gate=self._export_gate,
                         run_id=run_id,
+                        resume_state=resume_state,
                     )
                     self._mark_qwen_account_used(current_account_id)
 

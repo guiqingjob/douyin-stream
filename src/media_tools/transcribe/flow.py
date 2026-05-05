@@ -26,6 +26,22 @@ class FlowResult:
     remote_deleted: bool
 
 
+@dataclass(frozen=True, slots=True)
+class ResumeState:
+    """从 transcribe_runs 拿到的续传上下文。
+
+    每个字段都可空，flow 根据已知字段决定从哪里续做：
+    - export_url 存在 -> 直接 download_file，零额度消耗（Step 13a）
+    - gen_record_id 存在 -> 跳过 token/upload/heartbeat/start，从 poll 继续（Step 13b）
+    - 都没有 -> 走完整流程
+    """
+    stage: str = "queued"
+    record_id: str | None = None
+    gen_record_id: str | None = None
+    batch_id: str | None = None
+    export_url: str | None = None
+
+
 def build_upload_tag(file_path: str | Path, mime_type: str) -> dict[str, Any]:
     parsed = Path(file_path)
     is_video = 1 if mime_type.startswith("video/") else 0
@@ -197,6 +213,7 @@ async def run_real_flow(
     title: str | None = None,
     shared_api: Any | None = None,
     run_id: str | None = None,
+    resume_state: ResumeState | None = None,
 ) -> FlowResult:
     """执行单个视频的转写流程。
 
@@ -206,6 +223,9 @@ async def run_real_flow(
         run_id: 可选的 transcribe_runs.run_id；提供时会在 4 个关键节点把 stage
             推进到 uploaded / transcribing / exporting / saved，让上传后失败可以
             被 orchestrator 通过 find_resumable 续做。失败由调用方 mark_failed。
+        resume_state: 可选续传上下文。如有 export_url，直接 download 跳过所有 Qwen API；
+            如有 gen_record_id（Step 13b），从 poll 继续。续传分支任何异常会
+            自动 fallback 到完整流程，保证业务永远跑得通。
     """
     input_path = Path(file_path).resolve()
     output_dir = Path(download_dir).resolve()
@@ -384,6 +404,55 @@ async def run_real_flow(
             export_path=export_out,
             remote_deleted=deleted,
         )
+
+    async def _try_resume_export_only() -> FlowResult | None:
+        """Step 13a 续传分支：已有 export_url 时直接 download，跳过所有 Qwen API。
+
+        命中条件：resume_state 存在且有 export_url。
+        失败时返回 None，由外层走完整 flow（保险机制：任何续传异常都不影响业务）。
+        """
+        if resume_state is None or not resume_state.export_url:
+            return None
+        try:
+            log(f"resume[export_url]: download only, gen_record_id={resume_state.gen_record_id}")
+            run_stamp = now_stamp()
+            resolved_title = title or _get_video_title_from_db(input_path)
+            export_out = build_export_output_path(
+                input_path=input_path,
+                output_dir=output_dir,
+                export_config=export_config,
+                run_stamp=run_stamp,
+                title=resolved_title,
+            )
+            ensure_dir(output_dir)
+            await download_file(resume_state.export_url, export_out)
+            log(f"{export_config.label} resumed: {export_out}")
+            # 续传分支不重新打 stage（已是 downloading），但成功后由 orchestrator mark_saved
+            return FlowResult(
+                record_id=resume_state.record_id or "",
+                gen_record_id=resume_state.gen_record_id or "",
+                export_path=export_out,
+                remote_deleted=False,
+            )
+        except Exception as exc:  # noqa: BLE001  续传失败一律 fallback 到完整 flow
+            logger.warning(
+                f"resume[export_url] 失败，回退到完整 flow: {exc}",
+                exc_info=True,
+            )
+            # 让 orchestrator 知道这次续传未生效（stage 已是 downloading，回退到 queued
+            # 才能在完整 flow 中重新被 _checkpoint 推进）
+            if run_id:
+                try:
+                    from media_tools.repositories.transcribe_run_repository import TranscribeRunRepository
+                    TranscribeRunRepository.update_stage(run_id, "queued")
+                except Exception:  # noqa: BLE001
+                    logger.debug("重置 stage 失败，但不影响 fallback 流程", exc_info=True)
+            return None
+
+    # 续传 fast-path：在启动 Playwright 之前尝试，命中则零额度成本完成
+    resumed = await _try_resume_export_only()
+    if resumed is not None:
+        return resumed
 
     # 如果调用方提供了共享 API context，直接使用（不启动 Playwright）
     if shared_api is not None:
