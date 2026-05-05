@@ -22,7 +22,7 @@ import os
 import re
 import sys
 from pathlib import Path
-from datetime import datetime, timedelta
+from datetime import datetime
 from typing import Any, Optional
 
 from rich.console import Console
@@ -143,14 +143,10 @@ class MediaLogger:
         name: str = "media_tools",
         log_dir: Path = Path("logs"),
         level: int = logging.INFO,
-        max_files: int = 10,
-        max_age_days: int = 30,
         json_logs: bool = False,
     ):
         self.name = name
         self.log_dir = log_dir
-        self.max_files = max_files
-        self.max_age_days = max_age_days
         self.json_logs = json_logs
 
         # 确保日志目录存在
@@ -163,8 +159,6 @@ class MediaLogger:
         # 避免重复添加handler
         if not self.logger.handlers:
             self._setup_handlers()
-            # 启动时清理过期日志文件
-            self._cleanup_old_logs()
 
     def _setup_handlers(self):
         """配置日志handler"""
@@ -212,22 +206,6 @@ class MediaLogger:
             json_handler.setLevel(logging.DEBUG)
             json_handler.setFormatter(JsonFormatter())
             self.logger.addHandler(json_handler)
-
-    def _cleanup_old_logs(self):
-        """清理旧日志文件"""
-        if not self.log_dir.exists():
-            return
-
-        cutoff_date = datetime.now() - timedelta(days=self.max_age_days)
-
-        for log_file in self.log_dir.glob("*.log"):
-            try:
-                file_mtime = datetime.fromtimestamp(log_file.stat().st_mtime)
-                if file_mtime < cutoff_date:
-                    log_file.unlink()
-                    self.logger.info(f"清理旧日志: {log_file.name}")
-            except (OSError, PermissionError) as e:
-                self.logger.warning(f"清理日志失败: {e}")
 
     def _clean_msg(self, message: str) -> str:
         """清理消息中的 ANSI 颜色代码，避免和 RichHandler 的颜色叠加。"""
@@ -317,19 +295,18 @@ def get_logger(name: str = "media_tools") -> logging.Logger:
 def init_logging(
     level: str | None = None,
     log_dir: Path = Path("logs"),
-    max_files: int = 10,
-    max_age_days: int = 30,
 ) -> MediaLogger:
     """初始化日志系统
 
     Args:
         level: 日志级别 (DEBUG/INFO/WARNING/ERROR)，未设置时读取 MEDIA_TOOLS_LOG_LEVEL 环境变量，默认 INFO
         log_dir: 日志目录
-        max_files: 最大日志文件数
-        max_age_days: 日志保留天数
 
     Returns:
         MediaLogger实例
+
+    日志归档由 ``services.log_rotation.archive_old_logs`` 在 app lifespan startup
+    显式调用，不在此处自动触发。
     """
     global _logger
 
@@ -350,8 +327,6 @@ def init_logging(
         name="media_tools",
         log_dir=log_dir,
         level=level_map.get(level.upper(), logging.INFO),
-        max_files=max_files,
-        max_age_days=max_age_days,
         json_logs=json_logs,
     )
 

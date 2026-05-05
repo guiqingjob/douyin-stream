@@ -45,6 +45,19 @@ async def lifespan(app: FastAPI):
     except (sqlite3.Error, OSError) as e:
         logger.warning(f"startup cleanup failed: {e}")
 
+    # 启动时归档 30 天前的日志文件（只 mv 不删，保留事故回溯能力）
+    try:
+        from pathlib import Path
+        from media_tools.services.log_rotation import archive_old_logs
+
+        outcome = archive_old_logs(Path("logs"), days=30)
+        if outcome.archived_count:
+            logger.info(
+                f"startup: archived {outcome.archived_count} old log file(s) to {outcome.archive_dir}"
+            )
+    except OSError as e:
+        logger.warning(f"startup log archive failed: {e}")
+
     # 后台清扫 WebSocket 半开连接（每 60s）
     sweeper_task = asyncio.create_task(stale_connection_sweeper(60))
 
