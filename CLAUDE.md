@@ -1,0 +1,102 @@
+# CLAUDE.md
+
+This file provides guidance to Claude Code (claude.ai/code) when working with code in this repository.
+
+## 项目性质
+
+单机本地 Web 工作站：抖音/B站批量下载 → 通义千问云端转写 → 本地阅读管理。**没有部署、没有团队、没有 SLA** —— 不要套用"生产服务"的工程标准（CI/CD、Docker、覆盖率门槛在这里都是负收益）。优先级永远是**业务可靠性 > 工程规范**。
+
+## 常用命令
+
+```bash
+./run.sh                # 同时启动后端 (8000) 和前端 (5173)
+./run.sh backend        # 只启后端
+./run.sh frontend       # 只启前端
+./run.sh build          # 前端生产构建到 frontend/dist/
+```
+
+> README/CONTRIBUTING 里写的 `./run.sh setup` 和 `./run.sh test` **并不存在**，是文档残留。下面是真命令。
+
+```bash
+# 测试（pyproject.toml 已配 pythonpath=src, testpaths=tests）
+pytest                                              # 全量
+pytest tests/test_flow_resume.py                    # 单文件
+pytest tests/test_flow_resume.py::test_xxx          # 单用例
+pytest -k "transcribe and resume"                   # 关键字过滤
+pytest -x --ff                                      # 失败立刻停 + 上次失败的先跑
+
+# Lint（无 CI，但 ruff 已在 .ruff_cache 中用过）
+ruff check src/
+ruff format src/
+
+# 前端
+cd frontend && npm run dev
+cd frontend && npm run build
+cd frontend && npm run lint
+cd frontend && npx vitest                           # 前端测试（vitest.config.ts 已配）
+```
+
+后端入口：`PYTHONPATH=src python -m uvicorn media_tools.api.app:app --reload`。
+
+## 架构核心（必须先理解）
+
+### 真相源分层
+1. **业务真相源** = `media_tools.db`（SQLite, WAL）。`media_assets` 表的 `transcript_status` / `download_status` 才决定业务是否完成；任务（`task_queue`）只是"一次执行尝试"。
+2. **运行时配置真相源** = `SystemSettings` 表（KV）。`auto_transcribe`、`auto_delete`、`concurrency`、`api_key` 全在这里，**不要回去读 `config.yaml`**。`config.yaml` 只剩 `cookie` / `download_path` / `naming` 这种启动期常量。
+3. **转写阶段真相源** = `transcribe_runs` 表（2026-05 新加）。每行 = 某 asset 在某账号上的一次完整尝试，stage 推进序：`queued → uploaded → transcribing → exporting → downloading → saved`。
+
+### 重构脉络
+[docs/pipeline_reliability_refactor.md](docs/pipeline_reliability_refactor.md) 是**当前唯一活跃的设计文档**，第三阶段（可恢复转写流水线）刚落地，第四阶段（可观测性）未做。改 pipeline / transcribe 相关代码前必读。
+
+### 续传 fast-path（重要不变量）
+`find_resumable(asset_id, account_id)` 命中条件：`gen_record_id` 已持久化，且 stage ∈ RESUMABLE_STAGES，**或** stage='failed' 但 `error_stage` ∈ RESUMABLE_STAGES。命中后：
+- 已有 `export_url` → 直接 download，**0 调用 Qwen**
+- 已有 `gen_record_id` → 跳过上传，从 `poll_until_done` 继续
+- **不支持跨账号续传**（Qwen 的 `genRecordId` 与账号绑定）
+- 续传任何异常 → stage 重置 `queued` → 完整 flow 接管（保险丝在 [orchestrator_v2.py](src/media_tools/pipeline/orchestrator_v2.py)）
+
+### 模块布局（big-picture）
+
+```
+api/app.py            FastAPI 入口：lifespan 里做 init_db / FTS 填充 / 启动 scheduler /
+                      cleanup_stale_tasks（重启后清掉孤儿 RUNNING 任务）/ WS 半开扫除
+api/routers/          7 个路由：creators assets tasks settings douyin scheduler metrics
+api/websocket_manager 任务进度推送 + 心跳保活 + stale_connection_sweeper
+
+pipeline/orchestrator_v2.py  (871 行) 单创作者下载+转写主调度，账号池决策 + 重试 + 续传
+pipeline/worker.py            后台 worker
+pipeline/error_types.py       8 种错误分类 → 决定重试策略
+transcribe/flow.py            (594 行) Qwen 实际转写流程；现已支持 resume 分支
+transcribe/db_account_pool    Qwen 账号池（DB 持久化）
+
+repositories/         数据访问层（task / creator / asset / transcribe_run）
+services/             业务逻辑层；task_ops / cleanup / auto_retry / qwen_status / reconciler
+workers/              一次性后台任务（creator_sync / full_sync / local_transcribe ...）
+core/config.py        运行时配置 = SystemSettings；不要绕过
+core/background.py    后台 task registry（shutdown 时统一 cancel_all）
+core/exceptions.py    AppError / NotFoundError / ValidationError → 统一 JSON 响应
+db/core.py            连接（线程级缓存 + WAL）+ 标识符白名单（防 SQL 注入）
+                      _VALID_TABLES 白名单：新加表必须加进去
+```
+
+### 错误处理模式
+- 业务异常抛 `AppError` 子类（[core/exceptions.py](src/media_tools/core/exceptions.py)），由 `app_error_handler` 转 JSON。
+- 路由里**不要**写宽泛 `try/except Exception` —— `UnhandledApiErrorsMiddleware` 已统一兜底 `sqlite3.Error / OSError / RuntimeError`。
+- 之前一轮重构把宽泛捕获从 56 处砍到 9 处，**别再加回来**。捕获就要写具体异常类型。
+
+### 硬约束（被测试强制）
+- **不准用 `print`** —— [test_no_print_in_src.py](tests/test_no_print_in_src.py) 会全仓扫描，用 `media_tools.logger.get_logger`。
+- **不准引入 Playwright** —— [test_no_playwright_dependency.py](tests/test_no_playwright_dependency.py) 扫 `pyproject.toml` / `requirements.txt` / 全部 src import。Qwen 转写已迁移成纯 HTTP，不要回退。（README 里"Playwright 驱动通义千问 Web 端"是过时描述。）
+- 新增表必须加进 `db/core.py` 的 `_VALID_TABLES` 白名单。
+
+### 任务状态机要点
+- 任务 `RUNNING` ≠ 业务进行中。重启时所有内存 worker 丢失，但 DB 还残留 `RUNNING` —— `cleanup_stale_tasks` 在 startup 把它们标 FAILED。
+- 子任务（subtasks）才是业务真相，任务状态由子任务聚合。`PARTIAL_FAILED` 暂时没显式支持，部分失败被并到 `FAILED`。
+
+## 协作约定
+
+- 中文注释、中文 commit message（仓库现有风格：`feat(transcribe): ...`、`fix(pipeline): ...`）。
+- 注释只解释 **WHY**，不解释 WHAT。
+- 别为还没出现的需求做抽象。三行重复优于过早抽象。
+- 改 pipeline / orchestrator / transcribe 前先看 [docs/pipeline_reliability_refactor.md](docs/pipeline_reliability_refactor.md) 第 156-189 行的"已完成机制"，确认你的改动不破坏续传不变量。
+- [docs/STATUS.md](docs/STATUS.md) 停在 2026-04-20，已落后于 transcribe_runs 重构 —— 引用时注意时效。
