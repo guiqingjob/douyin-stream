@@ -14,9 +14,6 @@ python scripts/check_env.py
 ### Python 版本
 要求：**Python 3.9 - 3.13** (由于底层 `f2` 库的限制)。
 
-### 浏览器 (Playwright 扫码登录所需)
-无需手动下载普通浏览器，后续通过 Python 的 `playwright` 命令行自动安装专用的 Chromium 浏览器即可。
-
 ### FFmpeg (视频压缩功能所需)
 **可选**：如果您不需要使用 `scripts/compress.py` 压缩视频功能，则可跳过此步骤。
 
@@ -32,21 +29,15 @@ python scripts/check_env.py
 | 包名 | 用途 |
 | :--- | :--- |
 | `f2` | 抖音视频下载核心框架 |
-| `playwright` | 浏览器自动化（用于扫码登录获取 Cookie） |
 | `pyyaml` | YAML 配置文件解析 |
 | `httpx` | 异步 HTTP 客户端 |
 | `aiofiles` | 异步文件操作 |
 
 ### 安装命令
 
-1. **安装 Python 依赖库**：
+安装 Python 依赖库：
 ```bash
-pip install f2 playwright pyyaml httpx aiofiles
-```
-
-2. **安装 Playwright 浏览器组件**：
-```bash
-playwright install chromium
+pip install f2 pyyaml httpx aiofiles
 ```
 > **注意**：如果上述命令因网络问题失败，请尝试设置相应的镜像源，或多试几次。
 

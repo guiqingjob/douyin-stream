@@ -218,8 +218,8 @@ async def run_real_flow(
     """执行单个视频的转写流程。
 
     Args:
-        shared_api: 可选的 Playwright APIContext，由调用方共享。
-            提供时跳过 Playwright 启动/关闭，避免每个视频都创建 Chromium 进程。
+        shared_api: 可选的 HTTP API 上下文（RequestsApiContext），由调用方共享。
+            提供时跳过 token 解析与上下文创建，避免每个视频都重复鉴权。
         run_id: 可选的 transcribe_runs.run_id；提供时会在 4 个关键节点把 stage
             推进到 uploaded / transcribing / exporting / saved，让上传后失败可以
             被 orchestrator 通过 find_resumable 续做。失败由调用方 mark_failed。
@@ -527,12 +527,12 @@ async def run_real_flow(
                     logger.debug("重置 stage 失败，但不影响 fallback 流程", exc_info=True)
             return None
 
-    # 续传 fast-path：在启动 Playwright 之前尝试，命中则零额度成本完成
+    # 续传 fast-path：在调用 Qwen API 之前尝试，命中则零额度成本完成
     resumed = await _try_resume_export_only()
     if resumed is not None:
         return resumed
 
-    # 如果调用方提供了共享 API context，直接使用（不启动 Playwright）
+    # 如果调用方提供了共享 API context，直接使用（不重新解析 token）
     if shared_api is not None:
         # gen_record_id 续传需要 api，命中则跳过上传节省额度；失败 fallback 到完整 flow
         from_gen = await _try_resume_from_gen_record(shared_api)

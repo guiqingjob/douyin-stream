@@ -48,11 +48,7 @@ cd D:\douyindownload
 ### 第 3 步：一键安装所需零件
 继续在黑框框里复制粘贴这行代码，按回车，等待它自动下载完毕（需要保持网络畅通）：
 ```bash
-pip install f2 playwright pyyaml httpx aiofiles
-```
-装完上面那个后，再运行这个命令（这个是用来安装自动弹出的浏览器的）：
-```bash
-playwright install chromium
+pip install f2 pyyaml httpx aiofiles
 ```
 
 ### 第 4 步：检查是否全部搞定
@@ -126,13 +122,9 @@ python scripts/generate-data.py
 > **原因**：你的抖音登录状态过期了，或者你在网页上退出了登录。
 > **急救**：重新在黑框框里运行 `python scripts/login.py --persist`，重新用手机扫一次码就好了。
 
-**Q3：弹不出扫码的浏览器，提示 `Playwright 未安装`？**
-> **原因**：第三部分安装环境时，你漏掉了最后一步。
-> **急救**：在黑框框里运行 `playwright install chromium`，等它下载完。
-
-**Q4：为什么有些视频没被下载下来？**
+**Q3：为什么有些视频没被下载下来？**
 > **原因**：这个工具非常聪明，默认开启了**“增量更新”**。只要你电脑里已经有这个视频了，它就会自动跳过，绝不重复下载浪费你的硬盘。
 
-**Q5：网页里的视频封面怎么是黑的，或者数据不对？**
+**Q4：网页里的视频封面怎么是黑的，或者数据不对？**
 > **原因**：你可能下载了新视频，但是忘了更新网页数据。
 > **急救**：每次下载完新视频后，记得运行一下 `python scripts/generate-data.py`，然后再刷新你的浏览器页面。

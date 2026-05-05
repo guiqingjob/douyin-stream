@@ -25,7 +25,6 @@ cd media-tools
 
 # 或手动设置
 pip install -r requirements.txt
-playwright install chromium
 ```
 
 ### 4. 创建分支

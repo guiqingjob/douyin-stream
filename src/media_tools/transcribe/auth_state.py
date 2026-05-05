@@ -93,7 +93,7 @@ def _should_keep_qwen_cookie(cookie_name: str) -> bool:
     return any(marker in normalized for marker in QWEN_COOKIE_NAME_MARKERS)
 
 
-def _build_playwright_cookie(name: str, value: str) -> dict[str, Any]:
+def _build_cookie_dict(name: str, value: str) -> dict[str, Any]:
     return {
         "name": name,
         "value": value,
@@ -115,7 +115,7 @@ def build_qwen_storage_state(cookie_values: Mapping[str, str]) -> dict[str, Any]
         if not normalized or not value.strip() or normalized in seen:
             return
         seen.add(normalized)
-        cookies.append(_build_playwright_cookie(name.strip(), value.strip()))
+        cookies.append(_build_cookie_dict(name.strip(), value.strip()))
 
     for name, value in cookie_values.items():
         if _should_keep_qwen_cookie(name):
@@ -245,7 +245,7 @@ def has_qwen_auth_state(auth_state_path: str | Path | None = None) -> bool:
     return read_qwen_storage_state_file(target_path) is not None
 
 
-def resolve_qwen_auth_state_for_playwright(auth_state_path: str | Path) -> ResolvedQwenAuthState:
+def resolve_qwen_auth_state(auth_state_path: str | Path) -> ResolvedQwenAuthState:
     target_path = _normalized_path(auth_state_path)
     if is_default_qwen_auth_state_path(target_path):
         db_state = load_qwen_storage_state_from_db()
@@ -347,7 +347,7 @@ def resolve_qwen_cookie_string(*, auth_state_path: str | Path, account_id: str =
         if cookie_data:
             return cookie_data
 
-    resolved = resolve_qwen_auth_state_for_playwright(auth_state_path)
+    resolved = resolve_qwen_auth_state(auth_state_path)
     storage_state = resolved.storage_state
     if isinstance(storage_state, str):
         try:

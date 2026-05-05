@@ -21,7 +21,7 @@ async def transcribe_files(task_id: str, _progress_fn, new_files: list, display_
     video_paths = [Path(f) for f in new_files]
 
     # 使用 orchestrator 的 transcribe_batch 统一并发控制
-    # （共享 Playwright、账号互斥、导出限流）
+    # （共享 HTTP API context、账号互斥、导出限流）
     try:
         report = await orchestrator.transcribe_batch(video_paths, resume=False)
     except (OSError, RuntimeError) as exc:
