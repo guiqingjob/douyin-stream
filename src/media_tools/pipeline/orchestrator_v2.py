@@ -339,70 +339,21 @@ class OrchestratorV2:
         video_path: Path,
         transcript_path: Path | None,
     ) -> None:
-        """同步更新 media_assets 表的转写状态。"""
+        """同步更新 media_assets 表的转写状态（成功路径）。"""
         try:
             from media_tools.pipeline.preview import extract_transcript_preview, extract_transcript_text
-            from media_tools.db.core import get_db_connection, update_fts_for_asset
-            import sqlite3
-            import re
+            from media_tools.services.media_asset_service import MediaAssetService
 
-            if transcript_path:
-                try:
-                    transcript_name = str(transcript_path.relative_to(Path(self.config.output_dir).resolve()))
-                except ValueError:
-                    transcript_name = str(transcript_path.name)
-            else:
-                transcript_name = ""
-            if transcript_path:
-                preview = extract_transcript_preview(transcript_path)
-                full_text = extract_transcript_text(transcript_path)
-            else:
-                preview = ""
-                full_text = ""
-            aweme_matches = re.findall(r'\d{15,}', video_path.name)
-
-            with get_db_connection() as conn:
-                if aweme_matches:
-                    asset_id = aweme_matches[0]
-                    conn.execute("""
-                        UPDATE media_assets
-                        SET transcript_path = ?, transcript_status = 'completed',
-                            transcript_preview = ?, transcript_text = ?,
-                            transcript_last_error = NULL, transcript_error_type = NULL,
-                            transcript_failed_at = NULL,
-                            update_time = CURRENT_TIMESTAMP
-                        WHERE asset_id = ?
-                    """, (
-                        transcript_name,
-                        preview,
-                        full_text,
-                        asset_id,
-                    ))
-                else:
-                    conn.execute("""
-                        UPDATE media_assets
-                        SET transcript_path = ?, transcript_status = 'completed',
-                            transcript_preview = ?, transcript_text = ?,
-                            transcript_last_error = NULL, transcript_error_type = NULL,
-                            transcript_failed_at = NULL,
-                            update_time = CURRENT_TIMESTAMP
-                        WHERE video_path LIKE ? OR title LIKE ?
-                    """, (
-                        transcript_name,
-                        preview,
-                        full_text,
-                        f"%{video_path.name}%",
-                        f"%{video_path.stem}%",
-                    ))
-                if aweme_matches:
-                    try:
-                        title_row = conn.execute(
-                            "SELECT title FROM media_assets WHERE asset_id = ?", (asset_id,)
-                        ).fetchone()
-                        update_fts_for_asset(asset_id, title_row["title"] if title_row else "", full_text)
-                    except sqlite3.Error as fts_err:
-                        logger.warning(f"FTS索引更新失败: {fts_err}")
-        except sqlite3.Error as e:
+            preview = extract_transcript_preview(transcript_path) if transcript_path else ""
+            full_text = extract_transcript_text(transcript_path) if transcript_path else ""
+            MediaAssetService.mark_transcribe_completed(
+                video_path=video_path,
+                transcript_path=transcript_path,
+                output_dir=Path(self.config.output_dir),
+                preview=preview,
+                full_text=full_text,
+            )
+        except (OSError, ValueError) as e:
             logger.warning(f"更新 media_assets 转写状态失败: {e}")
 
     def _mark_media_asset_transcript_failed(
@@ -411,49 +362,15 @@ class OrchestratorV2:
         error_type: str,
         error_message: str,
     ) -> None:
-        """同步把转写失败信息写回 media_assets 表。
-
-        让创作者页 / 失败列表 / 失败重试都能基于 DB 真相源工作，而不是只能看 task payload。
-        """
+        """同步把转写失败信息写回 media_assets 表（失败路径）。"""
         try:
-            from media_tools.db.core import get_db_connection
-            import sqlite3
-            import re
-
-            err_text = (error_message or "")[:500]
-            aweme_matches = re.findall(r'\d{15,}', video_path.name)
-
-            with get_db_connection() as conn:
-                if aweme_matches:
-                    asset_id = aweme_matches[0]
-                    conn.execute(
-                        """
-                        UPDATE media_assets
-                        SET transcript_status = 'failed',
-                            transcript_last_error = ?,
-                            transcript_error_type = ?,
-                            transcript_retry_count = COALESCE(transcript_retry_count, 0) + 1,
-                            transcript_failed_at = CURRENT_TIMESTAMP,
-                            update_time = CURRENT_TIMESTAMP
-                        WHERE asset_id = ?
-                        """,
-                        (err_text, error_type, asset_id),
-                    )
-                else:
-                    conn.execute(
-                        """
-                        UPDATE media_assets
-                        SET transcript_status = 'failed',
-                            transcript_last_error = ?,
-                            transcript_error_type = ?,
-                            transcript_retry_count = COALESCE(transcript_retry_count, 0) + 1,
-                            transcript_failed_at = CURRENT_TIMESTAMP,
-                            update_time = CURRENT_TIMESTAMP
-                        WHERE video_path LIKE ? OR title LIKE ?
-                        """,
-                        (err_text, error_type, f"%{video_path.name}%", f"%{video_path.stem}%"),
-                    )
-        except sqlite3.Error as e:
+            from media_tools.services.media_asset_service import MediaAssetService
+            MediaAssetService.mark_transcribe_failed(
+                video_path=video_path,
+                error_type=error_type,
+                error_message=error_message,
+            )
+        except (OSError, ValueError) as e:
             logger.warning(f"写回 media_assets 失败状态失败: {e}")
 
     async def transcribe_with_retry(
