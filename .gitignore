@@ -191,6 +191,10 @@ docs/*
 !docs/ui/
 !docs/ui/**
 
+!scripts/
+scripts/*
+!scripts/health_check.py
+
 !tests/
 tests/*
 !tests/regression/
