@@ -81,6 +81,100 @@ def _build_output_template(base_dir: Path, creator_folder: str, series_folder: s
     return str(target_dir / "%(title)s__%(id)s__%(format_id)s.%(ext)s")
 
 
+def _iter_yt_dlp_entries(info: dict | None):
+    """扁平化 yt-dlp info：单视频返回自身，playlist/channel 递归其 entries。"""
+    if not isinstance(info, dict):
+        return
+    entries = info.get("entries")
+    if isinstance(entries, list):
+        for entry in entries:
+            yield from _iter_yt_dlp_entries(entry)
+    else:
+        yield info
+
+
+def _persist_bilibili_assets_to_db(
+    info: dict | None,
+    new_files: list[str],
+    downloads_path: Path,
+    uploader_info: UploaderInfo | None,
+) -> None:
+    """把 yt-dlp 本次下载的结果写入 media_assets。
+
+    asset_id 用 build_bilibili_asset_id(bvid, p_index)，与前端/后端已有命名约定保持一致。
+    仅在文件实际被下载到磁盘时才入库（new_files 命中）。
+    """
+    if not new_files:
+        return
+
+    from media_tools.services.media_asset_service import MediaAssetService
+    from media_tools.bilibili.utils.naming import build_bilibili_creator_uid, build_bilibili_asset_id
+
+    new_files_resolved = {str(Path(p).resolve()): p for p in new_files}
+
+    for entry in _iter_yt_dlp_entries(info):
+        bvid = entry.get("id") or entry.get("display_id")
+        if not bvid:
+            continue
+
+        # 解析对应的下载文件（requested_downloads 里有 filepath）
+        requested = entry.get("requested_downloads") or []
+        downloaded_path: Path | None = None
+        for item in requested:
+            fp = item.get("filepath")
+            if not fp:
+                continue
+            resolved = str(Path(fp).resolve())
+            if resolved in new_files_resolved:
+                downloaded_path = Path(fp)
+                break
+        if downloaded_path is None:
+            continue
+
+        uploader = (
+            entry.get("uploader") or entry.get("channel") or entry.get("uploader_name")
+            or (uploader_info.nickname if uploader_info else "")
+        )
+        mid = (
+            entry.get("uploader_id") or entry.get("channel_id") or entry.get("mid")
+            or (uploader_info.mid if uploader_info else "")
+        )
+        if not mid:
+            # 没 mid 就没法挂创作者，跳过而非乱写
+            continue
+        creator_uid = build_bilibili_creator_uid(str(mid))
+
+        p_index_raw = entry.get("playlist_index")
+        p_index = int(p_index_raw) if isinstance(p_index_raw, int) else None
+        asset_id = build_bilibili_asset_id(str(bvid), p_index)
+
+        title = entry.get("title") or downloaded_path.stem
+        duration = entry.get("duration")
+        duration_int = int(duration) if isinstance(duration, (int, float)) else None
+        source_url = entry.get("webpage_url") or entry.get("original_url") or ""
+
+        try:
+            video_path_rel = str(downloaded_path.relative_to(downloads_path))
+        except ValueError:
+            video_path_rel = str(downloaded_path)
+
+        try:
+            folder_path = downloaded_path.parent.name
+        except (OSError, ValueError):
+            folder_path = ""
+
+        MediaAssetService.mark_downloaded(
+            asset_id=asset_id,
+            creator_uid=creator_uid,
+            title=title,
+            video_path=video_path_rel,
+            source_platform="bilibili",
+            source_url=source_url,
+            folder_path=folder_path,
+            duration=duration_int,
+        )
+
+
 def download_up_by_url(
     url: str,
     max_counts: int | None = None,
@@ -272,6 +366,12 @@ def download_up_by_url(
 
     if task_id:
         unregister_cancel_flag(task_id)
+
+    # 把每个已下载文件落到 media_assets，让 B 站视频与其它平台一样受视频级状态机管理
+    try:
+        _persist_bilibili_assets_to_db(info, new_files, downloads_path, uploader_info)
+    except Exception as e:  # noqa: BLE001  入库失败不应阻塞下载流程
+        logger.warning(f"bilibili 下载入库失败: {e}")
 
     result = {"success": True, "new_files": new_files}
     if uploader_info:
