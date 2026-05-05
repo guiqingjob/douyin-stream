@@ -70,6 +70,7 @@ export {
   cancelTask,
   rerunTask,
   retryFailedSubtasks,
+  retryFailedAssets,
   setAutoRetry,
   clearTaskHistory,
   deleteTask,

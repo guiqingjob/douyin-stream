@@ -37,6 +37,7 @@ export default function Creators() {
     confirmDelete,
     deletingUids,
     transcribingUids,
+    retryingFailedUids,
     newCreatorUrl,
     isAdding,
     scheduleTask,
@@ -46,6 +47,7 @@ export default function Creators() {
     handleUnfollow,
     handleDownload,
     handleTranscribe,
+    handleRetryFailed,
     handleFullSyncNow,
     handleToggleSchedule,
   } = useCreatorsActions({
@@ -125,6 +127,8 @@ export default function Creators() {
                 onDownload={handleDownload}
                 onTranscribe={handleTranscribe}
                 transcribingUids={transcribingUids}
+                onRetryFailed={handleRetryFailed}
+                retryingFailedUids={retryingFailedUids}
                 onDelete={(uid) => setConfirmDelete({ uid, nickname: creator.nickname || creator.uid })}
                 settings={settings}
               />

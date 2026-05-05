@@ -8,6 +8,7 @@ import {
   toggleSchedule,
   triggerCreatorDownload,
   triggerFullSyncFollowing,
+  retryFailedAssets,
   type ScheduleTask,
   type Creator,
 } from '@/lib/api';
@@ -29,6 +30,7 @@ export function useCreatorsActions({
   const [confirmDelete, setConfirmDelete] = useState<{ uid: string; nickname: string } | null>(null);
   const [deletingUids, setDeletingUids] = useState<Set<string>>(new Set());
   const [transcribingUids, setTranscribingUids] = useState<Set<string>>(new Set());
+  const [retryingFailedUids, setRetryingFailedUids] = useState<Set<string>>(new Set());
   const [newCreatorUrl, setNewCreatorUrl] = useState('');
   const [isAdding, setIsAdding] = useState(false);
   const [scheduleTask, setScheduleTask] = useState<ScheduleTask | null>(null);
@@ -132,6 +134,29 @@ export function useCreatorsActions({
     }
   };
 
+  const handleRetryFailed = async (uid: string, nickname: string) => {
+    if (retryingFailedUids.has(uid)) return;
+    setRetryingFailedUids((prev) => new Set(prev).add(uid));
+    try {
+      const result = await retryFailedAssets({ creator_uid: uid });
+      toast.success(`已重试 ${nickname || uid} 的 ${result.file_count} 个失败素材`, {
+        description: result.missing_file_assets?.length
+          ? `任务 ID: ${result.task_id}（${result.missing_file_assets.length} 个文件已不在磁盘上，跳过）`
+          : `任务 ID: ${result.task_id}`,
+      });
+      await fetchInitialTasks();
+      reloadCreators();
+    } catch {
+      // interceptor already toasts
+    } finally {
+      setRetryingFailedUids((prev) => {
+        const next = new Set(prev);
+        next.delete(uid);
+        return next;
+      });
+    }
+  };
+
   const handleFullSyncNow = async () => {
     try {
       const result = await triggerFullSyncFollowing();
@@ -163,6 +188,7 @@ export function useCreatorsActions({
     confirmDelete,
     deletingUids,
     transcribingUids,
+    retryingFailedUids,
     newCreatorUrl,
     isAdding,
     scheduleTask,
@@ -172,6 +198,7 @@ export function useCreatorsActions({
     handleUnfollow,
     handleDownload,
     handleTranscribe,
+    handleRetryFailed,
     handleFullSyncNow,
     handleToggleSchedule,
   };

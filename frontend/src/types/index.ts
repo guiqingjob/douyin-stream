@@ -12,6 +12,7 @@ export interface Creator {
   downloaded_videos_count?: number;
   transcript_completed_count?: number;
   transcript_pending_count?: number;
+  transcript_failed_count?: number;
   unread_completed_count?: number;
   disk_asset_count?: number;
   disk_transcript_completed_count?: number;
@@ -31,6 +32,12 @@ export interface Asset {
   is_starred?: boolean;
   create_time?: string;
   update_time?: string;
+  transcript_error_type?: string | null;
+  transcript_last_error?: string | null;
+  transcript_retry_count?: number | null;
+  transcript_failed_at?: string | null;
+  source_platform?: string | null;
+  last_task_id?: string | null;
 }
 
 export interface Task {

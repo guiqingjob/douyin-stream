@@ -39,6 +39,29 @@ export const retryFailedSubtasks = async (
   return response.data;
 };
 
+export type RetryFailedAssetsRequest = {
+  creator_uid?: string;
+  platform?: string;
+  error_types?: string[];
+  limit?: number;
+  delete_after?: boolean;
+};
+
+export type RetryFailedAssetsResponse = {
+  task_id: string;
+  status: string;
+  file_count: number;
+  missing_file_assets: string[];
+};
+
+export const retryFailedAssets = async (
+  body: RetryFailedAssetsRequest = {},
+  signal?: AbortSignal,
+): Promise<RetryFailedAssetsResponse> => {
+  const response = await apiClient.post('/tasks/transcribe/retry-failed-assets', body, { signal });
+  return response.data;
+};
+
 export const setAutoRetry = async (taskId: string, enabled: boolean = true, signal?: AbortSignal): Promise<{ status: string; message: string }> => {
   const response = await apiClient.post(`/tasks/${taskId}/auto-retry?enabled=${enabled}`, null, { signal });
   return response.data;

@@ -1,4 +1,4 @@
-import { ExternalLink, Download, HardDriveDownload, Loader2, RefreshCcw, Trash2, FileText } from 'lucide-react';
+import { ExternalLink, Download, HardDriveDownload, Loader2, RefreshCcw, Trash2, FileText, AlertTriangle } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
@@ -13,6 +13,8 @@ interface CreatorCardProps {
   onDownload: (uid: string, nickname: string, mode: 'incremental' | 'full') => void;
   onTranscribe: (uid: string, nickname: string) => void;
   transcribingUids: Set<string>;
+  onRetryFailed: (uid: string, nickname: string) => void;
+  retryingFailedUids: Set<string>;
   onDelete: (uid: string) => void;
   settings?: {
     status_summary?: {
@@ -47,6 +49,8 @@ export function CreatorCard({
   onDownload,
   onTranscribe,
   transcribingUids,
+  onRetryFailed,
+  retryingFailedUids,
   onDelete,
   settings,
 }: CreatorCardProps) {
@@ -107,7 +111,7 @@ export function CreatorCard({
             )}
             <Badge tone={statusBadge.tone}>{statusBadge.label}</Badge>
           </div>
-          <div className="flex items-center gap-4 mt-2 text-xs">
+          <div className="flex flex-wrap items-center gap-x-4 gap-y-1 mt-2 text-xs">
             <span className="text-muted-foreground">
               素材 <strong className="text-foreground font-medium tabular-nums">{creator.disk_asset_count ?? 0}</strong>
             </span>
@@ -117,6 +121,15 @@ export function CreatorCard({
             <span className="text-muted-foreground">
               待处理 <strong className="text-foreground font-medium tabular-nums">{creator.disk_transcript_pending_count ?? 0}</strong>
             </span>
+            {(creator.transcript_failed_count ?? 0) > 0 && (
+              <span
+                className="inline-flex items-center gap-1 text-destructive"
+                title="转写失败的视频数；点击下方「重试失败」可仅重新派发这些视频"
+              >
+                <AlertTriangle className="size-3" />
+                失败 <strong className="font-medium tabular-nums">{creator.transcript_failed_count}</strong>
+              </span>
+            )}
           </div>
         </div>
       </div>
@@ -172,6 +185,24 @@ export function CreatorCard({
           </Button>
         )}
       </div>
+
+      {(creator.transcript_failed_count ?? 0) > 0 && (
+        <div className="flex gap-2 mt-2">
+          <Button
+            variant="secondary"
+            size="sm"
+            onClick={() => onRetryFailed(creator.uid, creator.nickname)}
+            disabled={retryingFailedUids.has(creator.uid)}
+            className="flex-1 text-destructive hover:text-destructive"
+            title={`重新派发该创作者下 ${creator.transcript_failed_count} 个失败的转写`}
+          >
+            {retryingFailedUids.has(creator.uid)
+              ? <Loader2 className="size-4 animate-spin" />
+              : <AlertTriangle className="size-4" />}
+            重试失败 ({creator.transcript_failed_count})
+          </Button>
+        </div>
+      )}
 
       {/* Footer */}
       <div className="h-[52px] mt-3 flex items-center justify-between px-3 rounded-lg text-xs text-muted-foreground transition-colors duration-200 hover:bg-muted/40">
