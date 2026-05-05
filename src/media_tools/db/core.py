@@ -16,7 +16,7 @@ _IDENTIFIER_RE = re.compile(r'^[a-zA-Z_][a-zA-Z0-9_]*$')
 _VALID_TABLES = frozenset({
     'creators', 'media_assets', 'task_queue', 'auth_credentials',
     'Accounts_Pool', 'SystemSettings', 'scheduled_tasks', 'assets_fts',
-    'video_metadata', 'user_info_web'
+    'video_metadata', 'user_info_web', 'transcribe_runs'
 })
 
 
@@ -433,6 +433,33 @@ def init_db(db_path: str | Path):
         )
         """)
 
+        # 10. 转写运行记录 (Transcribe Runs) — 第三阶段：可恢复转写流水线
+        # 每行 = 某个视频在某个通义账号上的一次完整转写尝试。
+        # stage 推进顺序：queued -> uploaded -> transcribing -> exporting -> downloading -> saved
+        # 上传后失败的 run（stage in RESUMABLE_STAGES）允许下次同 asset+account 的尝试续做，
+        # 跳过 token/get + upload，直接从 poll/export/download 继续，避免烧额度。
+        cursor.execute("""
+        CREATE TABLE IF NOT EXISTS transcribe_runs (
+            run_id TEXT PRIMARY KEY,
+            asset_id TEXT NOT NULL,
+            video_path TEXT NOT NULL,
+            account_id TEXT NOT NULL,
+            task_id TEXT,
+            stage TEXT NOT NULL DEFAULT 'queued',
+            record_id TEXT,
+            gen_record_id TEXT,
+            batch_id TEXT,
+            export_task_id TEXT,
+            export_url TEXT,
+            transcript_path TEXT,
+            last_error TEXT,
+            error_stage TEXT,
+            error_type TEXT,
+            created_at DATETIME NOT NULL,
+            updated_at DATETIME NOT NULL
+        )
+        """)
+
         # 创建索引优化查询
         cursor.execute("CREATE INDEX IF NOT EXISTS idx_media_assets_creator ON media_assets(creator_uid)")
         cursor.execute("CREATE INDEX IF NOT EXISTS idx_media_assets_video_status ON media_assets(video_status)")
@@ -444,6 +471,20 @@ def init_db(db_path: str | Path):
             "ON media_assets(creator_uid, video_status, transcript_status)"
         )
         cursor.execute("CREATE INDEX IF NOT EXISTS idx_task_queue_update_time ON task_queue(update_time)")
+        # transcribe_runs：find_resumable 主查询走 (asset_id, account_id, stage)；
+        # find_saved_for_asset 走 (asset_id, stage)；运维排查失败走 (stage, updated_at)
+        cursor.execute(
+            "CREATE INDEX IF NOT EXISTS idx_transcribe_runs_asset_account "
+            "ON transcribe_runs(asset_id, account_id, stage)"
+        )
+        cursor.execute(
+            "CREATE INDEX IF NOT EXISTS idx_transcribe_runs_asset_stage "
+            "ON transcribe_runs(asset_id, stage)"
+        )
+        cursor.execute(
+            "CREATE INDEX IF NOT EXISTS idx_transcribe_runs_stage_updated "
+            "ON transcribe_runs(stage, updated_at)"
+        )
 
         _ensure_column(conn, "task_queue", "update_time", "DATETIME")
         _ensure_column(conn, "task_queue", "cancel_requested", "INTEGER DEFAULT 0")
