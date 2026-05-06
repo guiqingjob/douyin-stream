@@ -13,7 +13,7 @@ logger = get_logger('pipeline')
 async def run_local_transcribe(file_paths: list[str], update_progress_fn=None, delete_after: bool = False):
     """转写本地视频文件（不经过下载步骤）"""
     from media_tools.pipeline.config import load_pipeline_config
-    from media_tools.pipeline.orchestrator_v2 import create_orchestrator
+    from media_tools.pipeline.orchestrator import create_orchestrator
 
     valid_paths = filter_supported_media_paths(file_paths)
 
@@ -190,7 +190,7 @@ async def run_pipeline_for_user(url: str, max_counts: int, update_progress_fn, d
     from media_tools.pipeline.download_router import download_by_url as download_router
     from media_tools.pipeline.download_router import resolve_platform
     from media_tools.pipeline.config import load_pipeline_config
-    from media_tools.pipeline.orchestrator_v2 import create_orchestrator
+    from media_tools.pipeline.orchestrator import create_orchestrator
 
     await call_progress(update_progress_fn, 0.1, "正在下载视频...", stage="download",
                         pipeline_progress={"download": {"done": 0, "total": max_counts or 0}})
@@ -333,7 +333,7 @@ async def run_pipeline_for_user(url: str, max_counts: int, update_progress_fn, d
 async def run_batch_pipeline(video_urls: list[str], update_progress_fn, delete_after: bool = True, task_id: str | None = None):
     from media_tools.pipeline.download_router import download_by_url as download_router
     from media_tools.pipeline.config import load_pipeline_config
-    from media_tools.pipeline.orchestrator_v2 import create_orchestrator
+    from media_tools.pipeline.orchestrator import create_orchestrator
 
     total = len(video_urls)
     if total == 0:

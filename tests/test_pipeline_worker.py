@@ -22,7 +22,7 @@ class PipelineWorkerTests(unittest.IsolatedAsyncioTestCase):
             "media_tools.pipeline.config.load_pipeline_config",
             return_value=fake_config,
         ), patch(
-            "media_tools.pipeline.orchestrator_v2.create_orchestrator",
+            "media_tools.pipeline.orchestrator.create_orchestrator",
             return_value=orchestrator,
         ):
             result = await run_pipeline_for_user(

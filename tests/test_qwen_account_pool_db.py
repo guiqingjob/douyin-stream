@@ -253,7 +253,7 @@ def test_qwen_claim_iterates_db_accounts(monkeypatch) -> None:
 def test_orchestrator_tries_multiple_qwen_accounts(monkeypatch, tmp_path) -> None:
     import asyncio
     from pathlib import Path
-    from media_tools.pipeline.orchestrator_v2 import OrchestratorV2
+    from media_tools.pipeline.orchestrator import OrchestratorV2
     from media_tools.pipeline.config import PipelineConfig
     from media_tools.pipeline.models import AccountPool
 
@@ -275,7 +275,7 @@ def test_orchestrator_tries_multiple_qwen_accounts(monkeypatch, tmp_path) -> Non
 
         return _R()
 
-    monkeypatch.setattr("media_tools.pipeline.orchestrator_v2.run_real_flow", _fake_run_real_flow)
+    monkeypatch.setattr("media_tools.pipeline.orchestrator.run_real_flow", _fake_run_real_flow)
 
     cfg = PipelineConfig(account_id="")
     orch = OrchestratorV2(config=cfg, auth_state_path=Path("dummy.json"))

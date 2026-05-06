@@ -78,7 +78,7 @@ class BilibiliCreatorDownloadTaskTests(unittest.IsolatedAsyncioTestCase):
             "media_tools.workers.creator_sync.asyncio.to_thread",
             new=AsyncMock(return_value={"success": True, "new_files": [str(tmp_video)]}),
         ), patch(
-            "media_tools.pipeline.orchestrator_v2.create_orchestrator",
+            "media_tools.pipeline.orchestrator.create_orchestrator",
             return_value=orchestrator,
         ):
             await background_creator_download_worker(task_id, creator_uid, "incremental")

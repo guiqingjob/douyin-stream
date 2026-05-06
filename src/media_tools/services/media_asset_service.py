@@ -4,7 +4,7 @@
 transcript reconciler），导致失败状态从未被任何一处写入。本服务把"转写完成 / 转写失败 /
 按状态发现待重试"等关键写入和查询集中起来，让 media_assets 真正成为业务真相源。
 
-不强制其它写入点立即迁移；orchestrator_v2 优先切到本服务，新功能（如 B 站入库、
+不强制其它写入点立即迁移；orchestrator 优先切到本服务，新功能（如 B 站入库、
 retry-failed-assets API）直接基于本服务构建。
 """
 from __future__ import annotations

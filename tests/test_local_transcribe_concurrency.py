@@ -117,7 +117,7 @@ def test_local_transcribe_uses_batch_transcribe(monkeypatch) -> None:
     def _fake_create_orchestrator(*args, **kwargs):  # noqa: ANN001
         return fake
 
-    monkeypatch.setattr("media_tools.pipeline.orchestrator_v2.create_orchestrator", _fake_create_orchestrator)
+    monkeypatch.setattr("media_tools.pipeline.orchestrator.create_orchestrator", _fake_create_orchestrator)
 
     mp3_path = Path("/tmp/local_concurrency_test.mp3")
     mp3_path.write_bytes(b"ok" * 6000)  # 12KB, above MIN_VIDEO_BYTES
