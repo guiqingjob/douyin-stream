@@ -1,10 +1,10 @@
 """Backfill missing transcript_preview / transcript_text in the background.
 
-from typing import Optional, Union
 New transcripts write both inline (orchestrator / local worker). This module
 handles existing rows that predate those columns, and keeps the FTS5 search
 index up to date.
 """
+from typing import Optional, Union
 import os.path
 import sqlite3
 import threading
