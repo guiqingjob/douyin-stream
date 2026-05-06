@@ -97,27 +97,29 @@ export function TaskMonitorPanel() {
       </DialogTrigger>
 
       <DialogContent className="flex max-h-[85vh] flex-col gap-0 overflow-hidden rounded-[var(--radius-card)] border border-border/60 bg-card p-0 apple-shadow-md sm:max-w-[680px]">
-        <DialogHeader className="shrink-0 border-b border-border/60 px-6 py-4 pr-12">
+        <div className="shrink-0 border-b border-border/60 px-6 py-4">
           <div className="flex items-center justify-between">
-            <DialogTitle className="flex items-center gap-2.5 text-[15px] font-semibold">
+            <div className="flex items-center gap-2.5">
               <div className="flex size-8 items-center justify-center rounded-md bg-primary/10">
                 <Activity className="size-4 text-primary" />
               </div>
-              任务中心
-            </DialogTitle>
-            {hasNonRunning && (
-              <Button
-                variant="ghost"
-                size="sm"
-                onClick={handleClearHistory}
-                className="h-8 gap-1.5 text-xs text-muted-foreground hover:text-foreground"
-              >
-                <Trash2 className="size-3.5" />
-                清除历史
-              </Button>
-            )}
+              <span className="text-title-3 font-semibold">任务中心</span>
+            </div>
+            <div className="flex items-center gap-2">
+              {hasNonRunning && (
+                <Button
+                  variant="ghost"
+                  size="sm"
+                  onClick={handleClearHistory}
+                  className="h-8 gap-1.5 text-xs text-muted-foreground hover:text-foreground"
+                >
+                  <Trash2 className="size-3.5" />
+                  清除历史
+                </Button>
+              )}
+            </div>
           </div>
-        </DialogHeader>
+        </div>
 
         <div className="shrink-0 grid grid-cols-4 gap-3 border-b border-border/60 px-6 py-4">
           {[
