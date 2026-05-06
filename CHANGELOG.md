@@ -7,6 +7,62 @@
 
 ---
 
+## [2.2.0] - 2026-05-06
+
+### 🎉 新增
+
+- **Ghost transcripts 清理**：`reconcile_transcripts()` 新增 prune 逻辑，清理 DB 中已完成但文件已不存在的"幽灵"记录
+- **健康检查脚本**：`scripts/health_check.py` 检查 4 类一致性问题（DB与文件系统同步）
+- **失败原因聚合视图**：API + Settings 页表格展示最近 N 天 Top 错误类型
+- **PARTIAL_FAILED 任务状态**：区分"全失败"与"部分失败"，显示"重试失败子任务"按钮
+- **断点续传增强**：
+  - `flow` 实现 `export_url` 续传分支（Step 13a）
+  - `flow` 实现 `gen_record_id` 续传分支（Step 13b，带 fallback）
+  - `orchestrator` 检测可续传 run
+
+### 🔧 改进
+
+- **WebSocket 错误日志防抖**：添加 `_lastWsErrorLog` 状态，避免 `onerror` 每秒多次触发
+- **路径遍历检测优化**：移除过于宽泛的 `..` 字符串检查（文件名可能包含 `....`），改用 `os.path.commonpath()` 做准确检测
+- **日志归档策略**：`logs/` 目录改为归档不删，便于事故回放分析
+
+### 🐛 修复
+
+- 修复 WebSocket 错误日志持续打印问题（添加 1 秒防抖）
+- 修复路径遍历检测误报问题（文件名包含 `....md` 被错误标记）
+- 修复 `find_resumable` 兼容已上传后失败的 run
+
+### 📝 文档
+
+- **重构规划文档** (`docs/refactor/`) - 创建完整的重构规划文档，包括：
+  - `01-overview.md` - 重构概览（背景、目标、范围）
+  - `02-strategy.md` - 重构策略（技术方案、设计原则）
+  - `03-implementation.md` - 实施步骤（时间节点、里程碑）
+  - `04-quality.md` - 质量保障（测试策略、CI/CD）
+  - `05-risk.md` - 风险评估（风险清单、应对方案）
+  - `06-acceptance.md` - 验收标准（质量指标、验收流程）
+- **CLAUDE.md** - 新增项目向导文档
+- **STATUS.md** - 更新到 2026-05-05，Phase 4 落地小结
+- **README.md** - 同步更新
+
+### 🧹 清理
+
+- 归档 4 个 Phase 2 之前的 `_auto_*.json` 孤儿状态文件
+- 清除 Qwen 转写已迁移纯 HTTP 后的 Playwright 残留描述
+- 移除 `orchestrator_v2.py` 版本号标识，统一为 `orchestrator.py`
+
+### 🧪 测试
+
+- 补提 PARTIAL_FAILED 13 个测试到 git 白名单
+- 补提漏入库的 `services.cleanup` 测试
+
+### 📊 统计
+
+- 提交数: 20+ 次
+- 文件修改: 30+ 个
+
+---
+
 ## [2.1.0] - 2026-04-20
 
 ### 🎉 新增
