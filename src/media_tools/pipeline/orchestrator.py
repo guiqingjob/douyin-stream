@@ -337,7 +337,7 @@ class OrchestratorV2:
                         except Exception as exc:  # noqa: BLE001
                             logger.warning(f"transcribe_runs.mark_saved 失败 (run_id={run_id}): {exc}")
 
-                    if self.config.remove_video and not self.config.keep_original:
+                    if self.config.remove_video or not self.config.keep_original:
                         video_path.unlink()
                         logger.info(f"已删除原视频: {video_path}")
 
