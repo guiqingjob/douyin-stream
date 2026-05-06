@@ -132,7 +132,7 @@ async def background_creator_download_worker(
         transcribe_stats = {"success_count": 0, "failed_count": 0, "total": 0}
         all_subtasks: list[dict] = []
 
-        await _progress_fn(0.1, f"下载中...", stage="download")
+        await _progress_fn(0.1, f"下载中...", stage=info.get("stage", "download"))
 
         if platform == "bilibili":
             from media_tools.bilibili.core.downloader import download_up_by_url
@@ -144,7 +144,7 @@ async def background_creator_download_worker(
             except (RuntimeError, OSError, ValueError) as e:
                 error_msg = str(e)
                 if "412" in error_msg or "blocked" in error_msg.lower():
-                    await _progress_fn(0.5, f"B站请求被拦截(412)，请更换IP或稍后重试", stage="download")
+                    await _progress_fn(0.5, f"B站请求被拦截(412)，请更换IP或稍后重试", stage=info.get("stage", "download"))
                     raise RuntimeError(f"B站请求被拦截(412)，请更换IP或稍后重试: {error_msg}")
                 raise
             if isinstance(result, dict):
@@ -170,12 +170,12 @@ async def background_creator_download_worker(
                     await asyncio.sleep(5)
                     info = get_download_progress(task_id)
                     if info:
-                        d = info.get("downloaded", 0)
-                        s = info.get("skipped", 0)
-                        details = info.get("details", [])
+                        d = info.get("download_progress", {}).get("downloaded", 0)
+                        s = info.get("download_progress", {}).get("skipped", 0)
+                        errors = info.get("errors", [])
                         subtasks = [
                             {"title": d_.get("title", "未知")[:60], "status": d_.get("status", "unknown")}
-                            for d_ in details[-50:]
+                            for d_ in errors[-50:]
                         ]
                         await update_task_progress(
                             task_id,
@@ -183,7 +183,7 @@ async def background_creator_download_worker(
                             f"已下载 {d} 个，跳过 {s} 个",
                             f"creator_sync_{mode}",
                             subtasks=subtasks,
-                            stage="download",
+                            stage=info.get("stage", "download"),
                         )
 
             poll_task = asyncio.create_task(_poll())

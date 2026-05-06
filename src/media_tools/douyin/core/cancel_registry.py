@@ -53,10 +53,13 @@ def is_task_cancelled(task_id: Optional[str]) -> bool:
     return event is not None and event.is_set()
 
 
-def get_download_progress(task_id: str) -> Optional[TaskProgress]:
+def get_download_progress(task_id: str) -> Optional[dict]:
     """获取指定任务的下载进度信息。"""
     with _lock:
-        return _download_progress.get(task_id)
+        progress = _download_progress.get(task_id)
+        if progress:
+            return progress.to_dict()
+        return None
 
 
 def set_download_progress(task_id: str, info: dict) -> None:
