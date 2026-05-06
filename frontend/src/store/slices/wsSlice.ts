@@ -13,6 +13,7 @@ export interface WsSlice {
   _wsInstance: WebSocket | null;
   _wsRetryTimer: ReturnType<typeof setTimeout> | null;
   _wsClosing: boolean;
+  _lastWsErrorLog: number;
   connectWebSocket: () => void;
   disconnectWebSocket: () => void;
 }
@@ -23,6 +24,7 @@ export const createWsSlice: StateCreator<StoreState, [], [], WsSlice> = (set, ge
   _wsInstance: null,
   _wsRetryTimer: null,
   _wsClosing: false,
+  _lastWsErrorLog: 0,
 
   connectWebSocket: () => {
     // 已有有效连接或正在连接：直接返回
@@ -136,8 +138,11 @@ export const createWsSlice: StateCreator<StoreState, [], [], WsSlice> = (set, ge
       set({ _wsRetryTimer: timer });
     };
 
-    ws.onerror = (err) => {
-      console.error('Task WebSocket error', err);
+    ws.onerror = () => {
+      const now = Date.now();
+      if (now - get()._lastWsErrorLog < 1000) return;
+      set({ _lastWsErrorLog: now });
+      console.error('Task WebSocket error');
       ws.close();
     };
   },
@@ -151,6 +156,6 @@ export const createWsSlice: StateCreator<StoreState, [], [], WsSlice> = (set, ge
       set({ _wsClosing: true });
       _wsInstance.close();
     }
-    set({ _wsInstance: null, wsConnected: false, _wsRetryTimer: null, _wsRetryCount: 0, _wsClosing: false });
+    set({ _wsInstance: null, wsConnected: false, _wsRetryTimer: null, _wsRetryCount: 0, _wsClosing: false, _lastWsErrorLog: 0 });
   },
 });

@@ -4,6 +4,7 @@ New transcripts write both inline (orchestrator / local worker). This module
 handles existing rows that predate those columns, and keeps the FTS5 search
 index up to date.
 """
+import os.path
 import sqlite3
 import threading
 from pathlib import Path
@@ -36,14 +37,9 @@ def _validate_path(base_dir: Path, transcript_path: str) -> Path | None:
     """
     base_resolved = base_dir.resolve()
 
-    # 1. 基本校验：禁止 .. 路径穿越、空字节、换行符
-    if ".." in transcript_path:
-        logger.warning(
-            f"[SECURITY] Path traversal attempt: "
-            f"db_value={transcript_path!r}, base_dir={base_resolved}"
-        )
-        return None
-
+    # 1. 基本校验：禁止空字节、换行符（防止注入）
+    # 注：不再检查 ".." 因为文件名可能包含 "...." 这样的合法字符
+    # 路径穿越检测由 commonpath 检查（下方的 #2）来完成
     if "\x00" in transcript_path or "\n" in transcript_path or "\r" in transcript_path:
         logger.warning(
             f"[SECURITY] Invalid chars in transcript_path: "
@@ -56,13 +52,18 @@ def _validate_path(base_dir: Path, transcript_path: str) -> Path | None:
         full_path = (base_dir / transcript_path).resolve()
 
         # 校验路径前缀，禁止穿越到 base_dir 外
-        if not str(full_path).startswith(str(base_resolved) + str(Path('/'))):
-            logger.warning(
-                f"[SECURITY] Path traversal attempt detected: "
-                f"db_value={transcript_path!r}, resolved={full_path}, "
-                f"base_dir={base_resolved}"
-            )
-            return None
+        # 使用 os.path.commonpath 而非字符串 startswith，避免符号链接导致误报
+        try:
+            common = os.path.commonpath([str(full_path), str(base_resolved)])
+            if common != str(base_resolved):
+                logger.warning(
+                    f"[SECURITY] Path traversal attempt detected: "
+                    f"db_value={transcript_path!r}, resolved={full_path}, "
+                    f"base_dir={base_resolved}"
+                )
+                return None
+        except ValueError:
+            pass
 
         # 3. 校验文件存在且可读
         if not full_path.is_file():
