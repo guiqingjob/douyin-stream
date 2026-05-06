@@ -7,6 +7,7 @@ from pathlib import Path
 from typing import Any, Optional, Union
 
 from media_tools.logger import get_logger
+from .error_classifier import TranscribeErrorClassifier
 logger = get_logger(__name__)
 
 from .auth_state import resolve_qwen_cookie_string
@@ -28,13 +29,6 @@ class FlowResult:
 
 @dataclass(frozen=True)
 class ResumeState:
-    """从 transcribe_runs 拿到的续传上下文。
-
-    每个字段都可空，flow 根据已知字段决定从哪里续做：
-    - export_url 存在 -> 直接 download_file，零额度消耗（Step 13a）
-    - gen_record_id 存在 -> 跳过 token/upload/heartbeat/start，从 poll 继续（Step 13b）
-    - 都没有 -> 走完整流程
-    """
     stage: str = "queued"
     record_id: Optional[str] = None
     gen_record_id: Optional[str] = None
@@ -88,7 +82,6 @@ async def poll_until_done(context: Any, gen_record_id: str, timeout_seconds: flo
     async def _poll_loop() -> dict[str, Any]:
         while True:
             response = await api_json(context, url, payload)
-            # 部分错误响应会返回 {"data": null}，dict.get 默认值在 key 存在但值为 None 时不生效
             data = response.get("data") or {}
             for batch in data.get("batchRecord", []):
                 for record in batch.get("recordList", []):
@@ -96,17 +89,19 @@ async def poll_until_done(context: Any, gen_record_id: str, timeout_seconds: flo
                         status = record.get("recordStatus")
                         if status == 30:
                             return record
-                        # 转写失败状态：立即报错，不等超时
                         if status in (40, 41):
                             fail_reason = record.get("failReason") or record.get("errorMessage") or f"recordStatus={status}"
-                            raise RuntimeError(f"转写失败: {fail_reason}")
+                            error_info = TranscribeErrorClassifier.classify(fail_reason)
+                            logger.error(f"转写错误 [{error_info.error_code}]: {error_info.message} - {error_info.suggestion}")
+                            raise RuntimeError(f"{error_info.message}")
             import random
             await asyncio.sleep(5 + random.uniform(0, 2))
 
     try:
         return await asyncio.wait_for(_poll_loop(), timeout=timeout_seconds)
     except asyncio.TimeoutError:
-        raise RuntimeError(f"Polling timed out after {timeout_seconds}s for genRecordId={gen_record_id}")
+        error_info = TranscribeErrorClassifier.classify("timeout")
+        raise RuntimeError(f"{error_info.message}")
 
 
 async def delete_record(context: Any, record_ids: list[str]) -> bool:
@@ -152,11 +147,13 @@ async def export_file(context: Any, gen_record_id: str, export_config: ExportCon
         message = str(export_start_json.get("message", "")).lower()
         request_too_fast = code == "EPO.RequestTooFast" or "request too fast" in message
         if not request_too_fast or attempt == max_attempts - 1:
-            raise RuntimeError(f"Export start response missing exportTaskId: {export_start_json}")
+            error_info = TranscribeErrorClassifier.classify(f"export error: {message}")
+            raise RuntimeError(f"{error_info.message}")
         await asyncio.sleep(initial_backoff * (2**attempt))
 
     if not export_task_id:
-        raise RuntimeError(f"Export start response missing exportTaskId: {export_start_json}")
+        error_info = TranscribeErrorClassifier.classify("export failed")
+        raise RuntimeError(f"{error_info.message}")
 
     for _ in range(60):
         export_poll_json = await api_json(
@@ -176,9 +173,8 @@ async def export_file(context: Any, gen_record_id: str, export_config: ExportCon
                 return export_url
         await asyncio.sleep(5)
 
-    raise RuntimeError(f"Export did not produce a downloadable URL for exportTaskId={export_task_id}")
-
-
+    error_info = TranscribeErrorClassifier.classify("export timeout")
+    raise RuntimeError(f"{error_info.message}")
 
 
 def record_flow_quota_usage(
@@ -215,18 +211,6 @@ async def run_real_flow(
     run_id: Optional[str] = None,
     resume_state: ResumeState | None = None,
 ) -> FlowResult:
-    """执行单个视频的转写流程。
-
-    Args:
-        shared_api: 可选的 HTTP API 上下文（RequestsApiContext），由调用方共享。
-            提供时跳过 token 解析与上下文创建，避免每个视频都重复鉴权。
-        run_id: 可选的 transcribe_runs.run_id；提供时会在 4 个关键节点把 stage
-            推进到 uploaded / transcribing / exporting / saved，让上传后失败可以
-            被 orchestrator 通过 find_resumable 续做。失败由调用方 mark_failed。
-        resume_state: 可选续传上下文。如有 export_url，直接 download 跳过所有 Qwen API；
-            如有 gen_record_id（Step 13b），从 poll 继续。续传分支任何异常会
-            自动 fallback 到完整流程，保证业务永远跑得通。
-    """
     input_path = Path(file_path).resolve()
     output_dir = Path(download_dir).resolve()
     mime_type = guess_mime_type(input_path)
@@ -238,14 +222,13 @@ async def run_real_flow(
     )
     log = _make_flow_logger(input_path.name)
 
-    # 仅在 run_id 存在时才 import + 写 transcribe_runs，避免给单元测试增加依赖
     def _checkpoint(stage: str, extra: Optional[Dict[str, Any]] = None) -> None:
         if not run_id:
             return
         try:
             from media_tools.repositories.transcribe_run_repository import TranscribeRunRepository
             TranscribeRunRepository.update_stage(run_id, stage, extra)
-        except Exception as exc:  # noqa: BLE001  打卡失败不应中断主流程
+        except Exception as exc:
             logger.warning(f"transcribe_runs 打卡失败 (run_id={run_id}, stage={stage}): {exc}")
 
     async def _do_flow(api: Any) -> FlowResult:
@@ -267,7 +250,8 @@ async def run_real_flow(
             },
         )
         if not isinstance(token_json, dict) or "data" not in token_json:
-            raise RuntimeError(f"获取上传凭证失败: {token_json}")
+            error_info = TranscribeErrorClassifier.classify("auth error")
+            raise RuntimeError(f"{error_info.message}")
         token = token_json["data"]
         log(f"genRecordId: {token['genRecordId']}")
         log(f"recordId: {token['recordId']}")
@@ -286,7 +270,6 @@ async def run_real_flow(
         )
         log("upload heartbeat sent")
 
-        # 打卡点 1：上传完成。Qwen 端文件已落，下次失败重试可以从这里续做
         _checkpoint("uploaded", {
             "record_id": token["recordId"],
             "gen_record_id": token["genRecordId"],
@@ -308,7 +291,6 @@ async def run_real_flow(
         )
         log(f"started batchId={start_json['data']['batchId']}")
 
-        # 打卡点 2：record/start 已提交，进入轮询阶段
         _checkpoint("transcribing", {"batch_id": start_json["data"]["batchId"]})
 
         completed_record = await poll_until_done(api, token["genRecordId"])
@@ -320,7 +302,6 @@ async def run_real_flow(
             {"recordIds": [token["recordId"]]},
         )
 
-        # 打卡点 3：进入导出阶段
         _checkpoint("exporting")
 
         if export_gate is None:
@@ -329,7 +310,6 @@ async def run_real_flow(
             async with export_gate:
                 export_url = await export_file(api, token["genRecordId"], export_config)
 
-        # 打卡点 4：拿到 export_url，准备下载到本地
         _checkpoint("downloading", {"export_url": export_url})
 
         run_stamp = now_stamp()
@@ -406,11 +386,6 @@ async def run_real_flow(
         )
 
     async def _try_resume_export_only() -> FlowResult | None:
-        """Step 13a 续传分支：已有 export_url 时直接 download，跳过所有 Qwen API。
-
-        命中条件：resume_state 存在且有 export_url。
-        失败时返回 None，由外层走完整 flow（保险机制：任何续传异常都不影响业务）。
-        """
         if resume_state is None or not resume_state.export_url:
             return None
         try:
@@ -427,43 +402,29 @@ async def run_real_flow(
             ensure_dir(output_dir)
             await download_file(resume_state.export_url, export_out)
             log(f"{export_config.label} resumed: {export_out}")
-            # 续传分支不重新打 stage（已是 downloading），但成功后由 orchestrator mark_saved
             return FlowResult(
                 record_id=resume_state.record_id or "",
                 gen_record_id=resume_state.gen_record_id or "",
                 export_path=export_out,
                 remote_deleted=False,
             )
-        except Exception as exc:  # noqa: BLE001  续传失败一律 fallback 到完整 flow
+        except Exception as exc:
             logger.warning(
                 f"resume[export_url] 失败，回退到完整 flow: {exc}",
                 exc_info=True,
             )
-            # 让 orchestrator 知道这次续传未生效（stage 已是 downloading，回退到 queued
-            # 才能在完整 flow 中重新被 _checkpoint 推进）
             if run_id:
                 try:
                     from media_tools.repositories.transcribe_run_repository import TranscribeRunRepository
                     TranscribeRunRepository.update_stage(run_id, "queued")
-                except Exception:  # noqa: BLE001
+                except Exception:
                     logger.debug("重置 stage 失败，但不影响 fallback 流程", exc_info=True)
             return None
 
     async def _try_resume_from_gen_record(api: Any) -> FlowResult | None:
-        """Step 13b 续传分支：已有 gen_record_id 时跳过 token/upload/heartbeat/start。
-
-        命中条件：resume_state 有 gen_record_id + record_id 但没有 export_url。
-        从 poll_until_done 继续 -> export_file -> download_file。
-
-        风险点：Qwen API 的可重入语义未经实测保证。任何异常都会让 stage 回退
-        到 queued 并由完整 flow 接管，确保业务永远跑得通（即便代价是重新上传）。
-        """
         if resume_state is None or not resume_state.gen_record_id or not resume_state.record_id:
             return None
         if resume_state.export_url:
-            # 应当已被 _try_resume_export_only 处理；走到这里说明那一步失败重置了，
-            # 此时 resume_state 仍是入参的旧值，但 stage 已被重置成 queued
-            # —— 我们也跳过 gen_record_id 续传，让完整 flow 接管
             return None
 
         try:
@@ -475,14 +436,13 @@ async def run_real_flow(
             completed_record = await poll_until_done(api, resume_state.gen_record_id)
             log(f"resumed record completed with status={completed_record['recordStatus']}")
 
-            # record/read 是幂等性最难判断的一步，但失败也只影响"已读"标记
             try:
                 await api_json(
                     api,
                     "https://api.qianwen.com/assistant/api/record/read?c=tongyi-web",
                     {"recordIds": [resume_state.record_id]},
                 )
-            except Exception as exc:  # noqa: BLE001
+            except Exception as exc:
                 logger.debug(f"resume: record/read 失败但不影响后续: {exc}")
 
             _checkpoint("exporting")
@@ -514,7 +474,7 @@ async def run_real_flow(
                 export_path=export_out,
                 remote_deleted=False,
             )
-        except Exception as exc:  # noqa: BLE001  续传失败一律 fallback
+        except Exception as exc:
             logger.warning(
                 f"resume[gen_record_id] 失败，回退到完整 flow: {exc}",
                 exc_info=True,
@@ -523,18 +483,15 @@ async def run_real_flow(
                 try:
                     from media_tools.repositories.transcribe_run_repository import TranscribeRunRepository
                     TranscribeRunRepository.update_stage(run_id, "queued")
-                except Exception:  # noqa: BLE001
+                except Exception:
                     logger.debug("重置 stage 失败，但不影响 fallback 流程", exc_info=True)
             return None
 
-    # 续传 fast-path：在调用 Qwen API 之前尝试，命中则零额度成本完成
     resumed = await _try_resume_export_only()
     if resumed is not None:
         return resumed
 
-    # 如果调用方提供了共享 API context，直接使用（不重新解析 token）
     if shared_api is not None:
-        # gen_record_id 续传需要 api，命中则跳过上传节省额度；失败 fallback 到完整 flow
         from_gen = await _try_resume_from_gen_record(shared_api)
         if from_gen is not None:
             return from_gen

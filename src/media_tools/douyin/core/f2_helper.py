@@ -192,3 +192,113 @@ def _patch_f2_live_output() -> None:
 
 
 _patch_f2_live_output()
+
+
+import datetime
+
+
+class StructuredLogger:
+    """结构化日志记录器 - 添加时间戳、图标和阶段标识"""
+    
+    _stage_icons = {
+        "list": "📋",
+        "fetching": "📋",
+        "audit": "✔️",
+        "auditing": "✔️",
+        "download": "⬇️",
+        "downloading": "⬇️",
+        "transcribe": "✍️",
+        "transcribing": "✍️",
+        "export": "📤",
+        "exporting": "📤",
+        "done": "✅",
+        "completed": "✅",
+        "success": "✅",
+        "failed": "❌",
+        "error": "❌",
+        "cancel": "🚫",
+        "cancelled": "🚫",
+    }
+    
+    _type_icons = {
+        "info": "ℹ️",
+        "success": "✅",
+        "warning": "⚠️",
+        "error": "❌",
+        "debug": "🔧",
+    }
+    
+    @classmethod
+    def _get_timestamp(cls) -> str:
+        """获取格式化的时间戳"""
+        return datetime.datetime.now().strftime("%H:%M:%S")
+    
+    @classmethod
+    def _get_stage_icon(cls, stage: str) -> str:
+        """获取阶段图标"""
+        return cls._stage_icons.get(stage.lower(), "📦")
+    
+    @classmethod
+    def log(cls, message: str, stage: str = "", log_type: str = "info") -> None:
+        """记录结构化日志"""
+        timestamp = cls._get_timestamp()
+        type_icon = cls._type_icons.get(log_type.lower(), "ℹ️")
+        stage_icon = cls._get_stage_icon(stage) if stage else ""
+        
+        if stage:
+            log_message = f"[{timestamp}] {type_icon} {stage_icon} {stage.upper():<12} - {message}"
+        else:
+            log_message = f"[{timestamp}] {type_icon} {message}"
+        
+        if log_type.lower() == "error":
+            logger.error(log_message)
+        elif log_type.lower() == "warning":
+            logger.warning(log_message)
+        elif log_type.lower() == "debug":
+            logger.debug(log_message)
+        else:
+            logger.info(log_message)
+    
+    @classmethod
+    def info(cls, message: str, stage: str = "") -> None:
+        cls.log(message, stage, "info")
+    
+    @classmethod
+    def success(cls, message: str, stage: str = "") -> None:
+        cls.log(message, stage, "success")
+    
+    @classmethod
+    def warning(cls, message: str, stage: str = "") -> None:
+        cls.log(message, stage, "warning")
+    
+    @classmethod
+    def error(cls, message: str, stage: str = "") -> None:
+        cls.log(message, stage, "error")
+    
+    @classmethod
+    def debug(cls, message: str, stage: str = "") -> None:
+        cls.log(message, stage, "debug")
+
+
+def _patch_f2_live_output() -> None:
+    """优化 F2 的 rich.live 输出，保留下载进度但过滤重复的'当前任务处理完成'消息。"""
+    try:
+        from rich import live
+        from rich.rule import Rule
+        
+        original_update = live.Live.update
+        
+        def filtered_update(self, renderable, *args, **kwargs):
+            if isinstance(renderable, Rule):
+                text = str(renderable.text)
+                if "当前任务处理完成" in text:
+                    return
+            original_update(self, renderable, *args, **kwargs)
+        
+        live.Live.update = filtered_update
+        
+    except Exception as e:
+        logger.debug(f"Failed to patch F2 live output: {e}")
+
+
+_patch_f2_live_output()

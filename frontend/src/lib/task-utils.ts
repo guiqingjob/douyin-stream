@@ -13,22 +13,83 @@ export interface StageInfo {
   label: string;
   icon: string;
   color: 'primary' | 'success' | 'destructive' | 'muted';
+  description: string;
 }
 
 const STAGE_CONFIG: Record<TaskStage, StageInfo> = {
-  created: { label: '等待中', icon: '⏳', color: 'muted' },
-  fetching: { label: '获取列表', icon: '📋', color: 'primary' },
-  auditing: { label: '对账中', icon: '✔️', color: 'primary' },
-  downloading: { label: '下载中', icon: '⬇️', color: 'primary' },
-  transcribing: { label: '转写中', icon: '✍️', color: 'primary' },
-  exporting: { label: '导出中', icon: '📤', color: 'primary' },
-  completed: { label: '已完成', icon: '✅', color: 'success' },
-  failed: { label: '失败', icon: '❌', color: 'destructive' },
-  cancelled: { label: '已取消', icon: '🚫', color: 'muted' },
+  created: { 
+    label: '等待中', 
+    icon: '⏳', 
+    color: 'muted',
+    description: '任务已创建，等待后台处理'
+  },
+  fetching: { 
+    label: '获取列表', 
+    icon: '📋', 
+    color: 'primary',
+    description: '正在从服务器获取视频列表'
+  },
+  auditing: { 
+    label: '对账中', 
+    icon: '✔️', 
+    color: 'primary',
+    description: '比对本地已有文件，确定待下载内容'
+  },
+  downloading: { 
+    label: '下载中', 
+    icon: '⬇️', 
+    color: 'primary',
+    description: '正在下载视频文件'
+  },
+  transcribing: { 
+    label: '转写中', 
+    icon: '✍️', 
+    color: 'primary',
+    description: '正在将语音转为文字'
+  },
+  exporting: { 
+    label: '导出中', 
+    icon: '📤', 
+    color: 'primary',
+    description: '正在导出字幕文件'
+  },
+  completed: { 
+    label: '已完成', 
+    icon: '✅', 
+    color: 'success',
+    description: '任务全部完成'
+  },
+  failed: { 
+    label: '失败', 
+    icon: '❌', 
+    color: 'destructive',
+    description: '任务执行失败'
+  },
+  cancelled: { 
+    label: '已取消', 
+    icon: '🚫', 
+    color: 'muted',
+    description: '任务已被取消'
+  },
 };
 
+export const STAGE_ORDER: TaskStage[] = [
+  'created',
+  'fetching',
+  'auditing',
+  'downloading',
+  'transcribing',
+  'exporting',
+  'completed',
+];
+
 export function getStageInfo(stage: TaskStage): StageInfo {
-  return STAGE_CONFIG[stage] || { label: stage, icon: '❓', color: 'muted' };
+  return STAGE_CONFIG[stage] || { 
+    label: stage, 
+    icon: '❓', 
+    color: 'muted',
+    description: ''
+  };
 }
 
 export function formatStageMessage(task: Task, progress?: TaskProgress | null): string {
@@ -36,7 +97,11 @@ export function formatStageMessage(task: Task, progress?: TaskProgress | null): 
     return parseTaskMessage(task.payload) || '';
   }
 
-  const { stage, download_progress, transcribe_progress } = progress;
+  if (progress.message) {
+    return progress.message;
+  }
+
+  const { stage, download_progress, transcribe_progress, error_count } = progress;
 
   if (stage === 'fetching') {
     return '正在获取视频列表...';
@@ -46,7 +111,10 @@ export function formatStageMessage(task: Task, progress?: TaskProgress | null): 
     const total = download_progress?.total || 0;
     const downloaded = download_progress?.downloaded || 0;
     const skipped = download_progress?.skipped || 0;
-    return `对账中：发现 ${downloaded + skipped} 个本地已有，${total - downloaded - skipped} 个待下载`;
+    const pending = total - downloaded - skipped;
+    return pending > 0 
+      ? `对账中：发现 ${downloaded + skipped} 个本地已有，${pending} 个待下载`
+      : `对账完成：全部 ${total} 个视频已存在`;
   }
 
   if (stage === 'downloading' && download_progress) {
@@ -69,19 +137,24 @@ export function formatStageMessage(task: Task, progress?: TaskProgress | null): 
   if (stage === 'completed') {
     const dl = download_progress;
     const tp = transcribe_progress;
-    const dlInfo = dl ? `下载 ${dl.downloaded} 个` : '';
-    const tpInfo = tp ? `，转写 ${tp.done} 个` : '';
-    if (dlInfo || tpInfo) {
-      return `已完成：${dlInfo}${tpInfo}`;
+    const parts: string[] = [];
+    if (dl) {
+      if (dl.downloaded > 0) parts.push(`下载 ${dl.downloaded}/${dl.total}`);
+      if (dl.failed > 0) parts.push(`失败 ${dl.failed}`);
+    }
+    if (tp) {
+      if (tp.done > 0) parts.push(`转写 ${tp.done}/${tp.total}`);
+      if (tp.failed > 0) parts.push(`转写失败 ${tp.failed}`);
+    }
+    if (parts.length > 0) {
+      return `已完成：${parts.join('，')}`;
     }
     return '已完成';
   }
 
   if (stage === 'failed') {
-    const errors = progress.errors;
-    if (errors.length > 0) {
-      const lastError = errors[errors.length - 1];
-      return `失败：${lastError.error || lastError.title || '未知错误'}`;
+    if (error_count && error_count > 0) {
+      return `失败：${error_count} 个错误`;
     }
     return '失败';
   }
@@ -100,7 +173,7 @@ function truncateText(text: string, maxLength: number): string {
 }
 
 export function getProgressPercent(task: Task, progress?: TaskProgress | null): number {
-  if (progress?.overall_percent) {
+  if (progress?.overall_percent !== undefined && progress.overall_percent !== null) {
     return Math.round(progress.overall_percent);
   }
 
@@ -120,17 +193,25 @@ export function getProgressDetails(task: Task, progress?: TaskProgress | null): 
   const parts: string[] = [];
 
   if (progress.download_progress) {
-    const { downloaded, skipped, failed } = progress.download_progress;
-    if (downloaded > 0) parts.push(`下载完成 ${downloaded} 个`);
-    if (skipped > 0) parts.push(`跳过 ${skipped} 个`);
-    if (failed > 0) parts.push(`失败 ${failed} 个`);
+    const { downloaded, skipped, failed, total } = progress.download_progress;
+    const dlParts: string[] = [];
+    if (downloaded > 0) dlParts.push(`${downloaded}`);
+    if (skipped > 0) dlParts.push(`跳过${skipped}`);
+    if (failed > 0) dlParts.push(`失败${failed}`);
+    if (dlParts.length > 0) {
+      parts.push(`下载 ${dlParts.join('/')}/${total}`);
+    }
   }
 
   if (progress.transcribe_progress) {
-    const { done, skipped, failed } = progress.transcribe_progress;
-    if (done > 0) parts.push(`转写完成 ${done} 个`);
-    if (skipped > 0) parts.push(`转写跳过 ${skipped} 个`);
-    if (failed > 0) parts.push(`转写失败 ${failed} 个`);
+    const { done, skipped, failed, total } = progress.transcribe_progress;
+    const tpParts: string[] = [];
+    if (done > 0) tpParts.push(`${done}`);
+    if (skipped > 0) tpParts.push(`跳过${skipped}`);
+    if (failed > 0) tpParts.push(`失败${failed}`);
+    if (tpParts.length > 0) {
+      parts.push(`转写 ${tpParts.join('/')}/${total}`);
+    }
   }
 
   return parts.join('，');
@@ -156,6 +237,7 @@ export function parseTaskMessage(payload?: string) {
   try {
     const parsed = JSON.parse(payload);
     if (typeof parsed?.msg === 'string') return parsed.msg;
+    if (typeof parsed?.message === 'string') return parsed.message;
   } catch {
     return '';
   }
@@ -180,12 +262,10 @@ export function getTaskDisplayState(task: Task): DisplayTaskState {
   if (task.status === 'PAUSED') return 'paused';
   if (isTaskStale(task)) return 'stale';
   if (ACTIVE_STATUSES.has(task.status)) {
-    // 后端可能未及时更新状态，检测消息内容判断是否实际已完成
     const msg = parseTaskMessage(task.payload);
     if (msg.includes('全部下载完成') || msg.includes('下载完成') || msg.includes('全部转写完成') || msg.includes('转写完成')) {
       return 'success';
     }
-    // 检查 pipeline_progress：下载任务所有视频已下载完成
     if (task.task_type === 'download') {
       try {
         const parsed = JSON.parse(task.payload);
@@ -222,7 +302,6 @@ export function getTaskStatusLabel(task: Task) {
 export function getTaskMessage(task: Task) {
   const msg = parseTaskMessage(task.payload) || task.error_msg || '';
   if (msg) return msg;
-  // Completed tasks with no message is normal — don't show a confusing fallback
   if (task.status === 'COMPLETED' || task.status === 'SUCCESS') return '';
   return '暂无详细信息';
 }
@@ -258,7 +337,6 @@ export function formatRelativeTime(value?: string | null) {
   return `${Math.floor(diff / day)} 天前`;
 }
 
-/** Short format for tight spaces (e.g. sidebar list item second line). Keeps within ~120px horizontal budget. */
 export function formatRelativeTimeShort(value?: string | null) {
   if (!value) return '';
   const ts = new Date(value).getTime();
@@ -320,4 +398,12 @@ export function getTaskFilterCategory(taskType: string): TaskFilterCategory {
 export function filterTasksByCategory(tasks: Task[], category: TaskFilterCategory): Task[] {
   if (category === 'all') return tasks;
   return tasks.filter((t) => getTaskFilterCategory(t.task_type) === category);
+}
+
+export function getStageProgress(currentStage: TaskStage): { current: number; total: number } {
+  const index = STAGE_ORDER.indexOf(currentStage);
+  return {
+    current: index >= 0 ? index + 1 : STAGE_ORDER.length,
+    total: STAGE_ORDER.length,
+  };
 }
