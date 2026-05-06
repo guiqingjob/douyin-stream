@@ -66,11 +66,13 @@ api/websocket_manager 任务进度推送 + 心跳保活 + stale_connection_sweep
 pipeline/orchestrator.py  (871 行) 单创作者下载+转写主调度，账号池决策 + 重试 + 续传
 pipeline/worker.py            后台 worker
 pipeline/error_types.py       8 种错误分类 → 决定重试策略
-transcribe/flow.py            (594 行) Qwen 实际转写流程；现已支持 resume 分支
+transcribe/flow.py            Qwen 实际转写流程；现已支持 resume 分支
+transcribe/error_classifier.py 错误分类器：提供友好错误消息和操作建议
 transcribe/db_account_pool    Qwen 账号池（DB 持久化）
 
 repositories/         数据访问层（task / creator / asset / transcribe_run）
 services/             业务逻辑层；task_ops / cleanup / auto_retry / qwen_status / reconciler
+services/pipeline_progress.py 进度构建：标准化 API 响应结构（阶段标签/图标/消息）
 workers/              一次性后台任务（creator_sync / full_sync / local_transcribe ...）
 core/config.py        运行时配置 = SystemSettings；不要绕过
 core/background.py    后台 task registry（shutdown 时统一 cancel_all）
