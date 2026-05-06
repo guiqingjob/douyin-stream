@@ -168,23 +168,27 @@ def get_f2_kwargs() -> dict:
     return kwargs
 
 
-def _disable_f2_live_output() -> None:
-    """禁用 F2 的 rich.live 实时输出。"""
+
+
+def _patch_f2_live_output() -> None:
+    """优化 F2 的 rich.live 输出，保留下载进度但过滤重复的'当前任务处理完成'消息。"""
     try:
         from rich import live
+        from rich.rule import Rule
         
-        def noop(*args, **kwargs):
-            pass
+        original_update = live.Live.update
         
-        live.Live.__init__ = lambda self, *args, **kwargs: None
-        live.Live.update = noop
-        live.Live.start = noop
-        live.Live.stop = noop
-        live.Live.__enter__ = lambda self: self
-        live.Live.__exit__ = noop
+        def filtered_update(self, renderable, *args, **kwargs):
+            if isinstance(renderable, Rule):
+                text = str(renderable.text)
+                if "当前任务处理完成" in text:
+                    return
+            original_update(self, renderable, *args, **kwargs)
+        
+        live.Live.update = filtered_update
         
     except Exception as e:
-        logger.debug(f"Failed to disable F2 live output: {e}")
+        logger.debug(f"Failed to patch F2 live output: {e}")
 
 
-_disable_f2_live_output()
+_patch_f2_live_output()
