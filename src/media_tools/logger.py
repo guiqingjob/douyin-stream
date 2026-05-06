@@ -294,8 +294,8 @@ def get_logger(name: str = "media_tools") -> logging.Logger:
 
 
 def init_logging(
-    level: str | None = None,
-    log_dir: Path | None = None,
+    level: Optional[str] = None,
+    log_dir: Optional[Path] = None,
 ) -> MediaLogger:
     """初始化日志系统
 

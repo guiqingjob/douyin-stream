@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from typing import List, Literal
+from typing import List, Literal, Optional, Union
 
 from pydantic import BaseModel, Field, field_validator
 
@@ -78,18 +78,18 @@ SyncMode = Literal["incremental", "full"]
 class CreatorDownloadRequest(BaseModel):
     uid: str = Field(min_length=1, max_length=200)
     mode: SyncMode = "incremental"
-    batch_size: int | None = Field(default=None, ge=1, le=1000)
+    batch_size: Optional[int] = Field(default=None, ge=1, le=1000)
 
 
 class FullSyncRequest(BaseModel):
     mode: SyncMode = "incremental"
-    batch_size: int | None = Field(default=None, ge=1, le=1000)
+    batch_size: Optional[int] = Field(default=None, ge=1, le=1000)
 
 
 class LocalTranscribeRequest(BaseModel):
     file_paths: List[str]
-    delete_after: bool | None = None
-    directory_root: str | None = None
+    delete_after: Optional[bool] = None
+    directory_root: Optional[str] = None
 
     @field_validator("file_paths")
     @classmethod
@@ -102,7 +102,7 @@ class LocalTranscribeRequest(BaseModel):
 
     @field_validator("directory_root")
     @classmethod
-    def _check_dir(cls, v: str | None) -> str | None:
+    def _check_dir(cls, v: Optional[str]) -> Optional[str]:
         if v is None or v == "":
             return v
         return _validate_path(v)
@@ -154,15 +154,15 @@ class RetryFailedAssetsRequest(BaseModel):
 
     空参数表示"重试所有失败的资产"；filter 组合生效。
     """
-    creator_uid: str | None = Field(default=None, max_length=200)
-    platform: str | None = Field(default=None, max_length=40)
-    error_types: List[str] | None = None
-    limit: int | None = Field(default=None, ge=1, le=5000)
-    delete_after: bool | None = None
+    creator_uid: Optional[str] = Field(default=None, max_length=200)
+    platform: Optional[str] = Field(default=None, max_length=40)
+    error_types: Optional[List[str]] = None
+    limit: Optional[int] = Field(default=None, ge=1, le=5000)
+    delete_after: Optional[bool] = None
 
     @field_validator("error_types")
     @classmethod
-    def _check_error_types(cls, v: list[str] | None) -> list[str] | None:
+    def _check_error_types(cls, v: Optional[List[str]]) -> Optional[List[str]]:
         if v is None:
             return v
         if len(v) > 20:

@@ -1,5 +1,5 @@
-"""本地视频扫描和数据库记录查询"""
 from __future__ import annotations
+"""本地视频扫描和数据库记录查询"""
 
 import sqlite3
 from pathlib import Path

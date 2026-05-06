@@ -1,8 +1,8 @@
+from __future__ import annotations
 """轻量 metrics 端点：暴露任务队列、WebSocket、后台任务、DB 连接等关键指标。
 
 不引入 Prometheus 依赖；返回 JSON 格式，方便 ops 用 curl 或简单脚本采集。
 """
-from __future__ import annotations
 
 import logging
 import sqlite3

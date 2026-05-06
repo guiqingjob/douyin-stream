@@ -1,5 +1,5 @@
-"""基于接口的下载器实现 - 使用组合模式分离职责"""
 from __future__ import annotations
+"""基于接口的下载器实现 - 使用组合模式分离职责"""
 
 import asyncio
 import os

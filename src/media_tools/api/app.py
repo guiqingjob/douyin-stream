@@ -1,10 +1,11 @@
+from typing import Optional, Union
 from contextlib import asynccontextmanager
 from fastapi import FastAPI, Request, HTTPException
 from fastapi.responses import JSONResponse
 from fastapi.middleware.cors import CORSMiddleware
 from starlette.middleware.base import BaseHTTPMiddleware
 from starlette.middleware.base import RequestResponseEndpoint
-from media_tools.api.routers import creators, assets, tasks, settings, douyin, scheduler, metrics
+from media_tools.api.routers import creators, assets, tasks, settings, douyin, scheduler, metrics, search
 from media_tools.api.websocket_manager import stale_connection_sweeper
 from media_tools.core import background
 from media_tools.core.exceptions import AppError
@@ -128,7 +129,7 @@ async def request_context_middleware(request: Request, call_next):
         clear_logging_context()
 
 
-_api_key_cache: str | None = None
+_api_key_cache: Optional[str] = None
 _api_key_cache_time: float = 0.0
 
 
@@ -223,6 +224,7 @@ app.include_router(settings.router)
 app.include_router(douyin.router)
 app.include_router(scheduler.router)
 app.include_router(metrics.router)
+app.include_router(search.router)
 app.include_router(v2_router)
 
 import shutil

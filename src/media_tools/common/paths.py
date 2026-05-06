@@ -1,5 +1,5 @@
-"""Common path utilities — 委托给统一配置系统。"""
 from __future__ import annotations
+"""Common path utilities — 委托给统一配置系统。"""
 
 from pathlib import Path
 

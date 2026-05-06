@@ -1,9 +1,9 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
-from datetime import UTC, datetime
+from datetime import datetime, timezone
 from pathlib import Path
-from typing import Any
+from typing import Any, Optional, Union
 import json
 import re
 import uuid
@@ -14,7 +14,7 @@ from .http import RequestsApiContext, api_json
 from .runtime import ensure_dir
 
 
-@dataclass(frozen=True, slots=True)
+@dataclass(frozen=True)
 class QuotaSnapshot:
     raw: Any
     used_upload: int
@@ -24,7 +24,7 @@ class QuotaSnapshot:
     free: bool
 
 
-@dataclass(frozen=True, slots=True)
+@dataclass(frozen=True)
 class ClaimEquityResult:
     claimed: bool
     skipped: bool
@@ -46,7 +46,7 @@ def remaining_hours_from_snapshot(snapshot: QuotaSnapshot) -> int:
 
 
 def today_key() -> str:
-    return datetime.now(UTC).date().isoformat()
+    return datetime.now(timezone.utc).date().isoformat()
 
 
 def quota_state_path() -> Path:
@@ -126,7 +126,7 @@ def merge_equity_claim_record(
 
 async def get_quota_snapshot(
     *,
-    auth_state_path: str | Path,
+    auth_state_path: Union[str, Path],
     account_id: str = "",
     cookie_string: str = "",
     referer: str = "https://www.qianwen.com/discover/audioread",
@@ -222,7 +222,7 @@ def record_quota_consumption(
                 consumed_minutes=minutes,
                 before_remaining=before_snapshot.remaining_upload,
                 after_remaining=after_snapshot.remaining_upload,
-                updated_at=datetime.now(UTC).isoformat(timespec="seconds"),
+                updated_at=datetime.now(timezone.utc).isoformat(timespec="seconds"),
             )
             records[key] = account_record
             _write_quota_state(records)
@@ -278,7 +278,7 @@ def _write_equity_claim_record(
             key = account_key(account_id)
             day = today_key()
             account_record = records.get(key, {})
-            claimed_at = datetime.now(UTC).isoformat(timespec="seconds")
+            claimed_at = datetime.now(timezone.utc).isoformat(timespec="seconds")
             account_record[day] = merge_equity_claim_record(
                 account_record.get(day, {}),
                 before_remaining=before_snapshot.remaining_upload,
@@ -294,7 +294,7 @@ def _write_equity_claim_record(
 async def claim_equity_quota(
     *,
     account_id: str,
-    auth_state_path: str | Path,
+    auth_state_path: Union[str, Path],
     force: bool = False,
 ) -> ClaimEquityResult:
     if not force and has_claimed_equity_today(account_id):

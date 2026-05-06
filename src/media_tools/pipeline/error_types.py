@@ -1,5 +1,5 @@
-"""Pipeline 错误类型分类"""
 from __future__ import annotations
+"""Pipeline 错误类型分类"""
 
 from enum import Enum
 

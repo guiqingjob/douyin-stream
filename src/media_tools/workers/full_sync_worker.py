@@ -1,3 +1,4 @@
+from typing import Optional, Union
 import asyncio
 import sqlite3
 from media_tools.core.logging_context import task_context
@@ -10,7 +11,7 @@ from media_tools.services.task_state import _task_heartbeat
 from media_tools.workers.creator_sync import _build_interval_from_last_fetch
 
 
-async def _background_full_sync_worker(task_id: str, mode: str = "incremental", batch_size: int | None = None, original_params: dict | None = None):
+async def _background_full_sync_worker(task_id: str, mode: str = "incremental", batch_size: Optional[int] = None, original_params: Optional[dict] = None):
     async def _progress_fn(p, m, result_summary=None, subtasks=None, stage=""):
         await update_task_progress(task_id, p, m, f"full_sync_{mode}", result_summary, subtasks, stage)
 

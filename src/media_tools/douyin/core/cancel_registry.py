@@ -1,5 +1,6 @@
-"""全局任务取消注册表，供 Douyin 下载器与 API 路由共享。"""
 from __future__ import annotations
+"""全局任务取消注册表，供 Douyin 下载器与 API 路由共享。"""
+from typing import Optional, Union
 
 import threading
 import time
@@ -44,7 +45,7 @@ def clear_cancel_event(task_id: str) -> None:
         _last_activity.pop(task_id, None)
 
 
-def is_task_cancelled(task_id: str | None) -> bool:
+def is_task_cancelled(task_id: Optional[str]) -> bool:
     """检查指定任务是否已被请求取消。"""
     if not task_id:
         return False
@@ -53,7 +54,7 @@ def is_task_cancelled(task_id: str | None) -> bool:
     return event is not None and event.is_set()
 
 
-def get_download_progress(task_id: str) -> dict | None:
+def get_download_progress(task_id: str) -> Optional[dict]:
     """获取指定任务的下载进度信息。"""
     with _lock:
         return _download_progress.get(task_id)

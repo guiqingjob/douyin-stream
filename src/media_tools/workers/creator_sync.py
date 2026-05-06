@@ -1,12 +1,12 @@
-"""创作者同步工作者"""
 from __future__ import annotations
+"""创作者同步工作者"""
 
 import asyncio
 import json
 import logging
 import sqlite3
-from datetime import UTC, datetime, timedelta
-from typing import Any
+from datetime import datetime, timezone, timedelta
+from typing import Any, Optional, Union
 
 from media_tools.core.config import get_runtime_setting_bool
 from media_tools.core.logging_context import task_context
@@ -23,7 +23,7 @@ from media_tools.workers.transcribe import transcribe_files
 logger = logging.getLogger(__name__)
 
 
-def _build_interval_from_last_fetch(last_fetch_time: str | None) -> str | None:
+def _build_interval_from_last_fetch(last_fetch_time: Optional[str]) -> Optional[str]:
     """根据 last_fetch_time 构建 F2 interval 参数
 
     F2 interval 格式: "2026-01-15|2026-04-26"
@@ -38,8 +38,8 @@ def _build_interval_from_last_fetch(last_fetch_time: str | None) -> str | None:
         # 兼容多种日期格式
         fetch_dt = datetime.fromisoformat(last_fetch_time.replace("Z", "+00:00"))
         if fetch_dt.tzinfo is None:
-            fetch_dt = fetch_dt.replace(tzinfo=UTC)
-        now = datetime.now(UTC)
+            fetch_dt = fetch_dt.replace(tzinfo=timezone.utc)
+        now = datetime.now(timezone.utc)
 
         if (now - fetch_dt) > timedelta(days=180):
             logger.info(f"last_fetch_time 距今超过 180 天，退化为全量模式")
@@ -57,8 +57,8 @@ async def background_creator_download_worker(
     task_id: str,
     uid: str,
     mode: str = "incremental",
-    batch_size: int | None = None,
-    original_params: dict | None = None,
+    batch_size: Optional[int] = None,
+    original_params: Optional[dict] = None,
 ):
     """创作者同步 Worker - 下载 + 自动转写
 

@@ -42,6 +42,7 @@ def list_assets(
 
     limit = resolve_query_value(limit, 100)
     offset = resolve_query_value(offset, 0)
+    transcript_status = resolve_query_value(transcript_status, None)
 
     # 解析 transcript_status 过滤：白名单校验，拒绝 SQL 注入
     allowed_statuses = {"completed", "pending", "none", "failed"}

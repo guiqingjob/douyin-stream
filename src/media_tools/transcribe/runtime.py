@@ -1,13 +1,14 @@
 from __future__ import annotations
+from typing import Optional, Union
 
 from dataclasses import dataclass
-from datetime import UTC, datetime
+from datetime import datetime, timezone
 from pathlib import Path
 import os
 import sys
 
 
-@dataclass(frozen=True, slots=True)
+@dataclass(frozen=True)
 class ExportConfig:
     file_type: int
     extension: str
@@ -20,7 +21,7 @@ def strip_quotes(value: str) -> str:
     return value
 
 
-def load_dotenv(dotenv_path: str | Path | None = None) -> Path:
+def load_dotenv(dotenv_path: str | Optional[Path] = None) -> Path:
     path = Path(dotenv_path or Path.cwd() / ".env").resolve()
     try:
         for raw_line in path.read_text(encoding="utf-8").splitlines():
@@ -37,24 +38,24 @@ def load_dotenv(dotenv_path: str | Path | None = None) -> Path:
     return path
 
 
-def as_absolute(input_path: str | Path) -> Path:
+def as_absolute(input_path: Union[str, Path]) -> Path:
     path = Path(input_path)
     if path.is_absolute():
         return path
     return (Path.cwd() / path).resolve()
 
 
-def ensure_dir(dir_path: str | Path) -> Path:
+def ensure_dir(dir_path: Union[str, Path]) -> Path:
     path = as_absolute(dir_path)
     path.mkdir(parents=True, exist_ok=True)
     return path
 
 
 def now_stamp() -> str:
-    return datetime.now(UTC).isoformat(timespec="seconds").replace(":", "-")
+    return datetime.now(timezone.utc).isoformat(timespec="seconds").replace(":", "-")
 
 
-def guess_mime_type(file_path: str | Path) -> str:
+def guess_mime_type(file_path: Union[str, Path]) -> str:
     suffix = Path(file_path).suffix.lower()
     if suffix == ".mp4":
         return "video/mp4"

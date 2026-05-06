@@ -7,7 +7,7 @@ from email.utils import formatdate
 import os
 import re
 from pathlib import Path
-from typing import Any, Callable, Iterable
+from typing import Any, Callable, Iterable, Optional, Union
 from urllib import request as urllib_request
 from xml.sax.saxutils import escape as xml_escape
 
@@ -299,11 +299,11 @@ async def upload_file_to_oss(
     *,
     token: dict[str, Any],
     file_buffer: bytes | None = None,
-    file_path: str | Path | None = None,
+    file_path: str | Optional[Path] = None,
     mime_type: str,
     part_size: int = 1024 * 1024,
     on_progress: ProgressCallback | None = None,
-    upload_mode: str | None = None,
+    upload_mode: Optional[str] = None,
 ) -> None:
     """上传文件到OSS
     

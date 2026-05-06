@@ -1,3 +1,4 @@
+from typing import Optional, Union
 import logging
 import sqlite3
 import uuid
@@ -35,9 +36,9 @@ class BilibiliAccountRequest(BaseModel):
     remark: str = ""
 
 class GlobalSettingsRequest(BaseModel):
-    concurrency: int | None = None
-    auto_delete: bool | None = None
-    auto_transcribe: bool | None = None
+    concurrency: Optional[int] = None
+    auto_delete: Optional[bool] = None
+    auto_transcribe: Optional[bool] = None
 
 class RemarkRequest(BaseModel):
     remark: str

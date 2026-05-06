@@ -1,8 +1,8 @@
-"""素材数据访问层 - 所有 media_assets 表的操作集中在这里"""
 from __future__ import annotations
+"""素材数据访问层 - 所有 media_assets 表的操作集中在这里"""
 
 import sqlite3
-from typing import Any
+from typing import Any, Optional, Union
 
 from media_tools.db.core import get_db_connection
 
@@ -21,7 +21,7 @@ class AssetRepository:
             return [dict(row) for row in cursor.fetchall()]
 
     @staticmethod
-    def find_by_id(asset_id: str) -> dict[str, Any] | None:
+    def find_by_id(asset_id: str) -> Optional[Dict[str, Any]]:
         """按 ID 查询素材"""
         with get_db_connection() as conn:
             cursor = conn.execute(
@@ -32,7 +32,7 @@ class AssetRepository:
             return dict(row) if row else None
 
     @staticmethod
-    def get_transcript_path(asset_id: str) -> str | None:
+    def get_transcript_path(asset_id: str) -> Optional[str]:
         """获取素材转写路径"""
         with get_db_connection() as conn:
             cursor = conn.execute(

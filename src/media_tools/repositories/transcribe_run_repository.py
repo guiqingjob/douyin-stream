@@ -1,15 +1,15 @@
+from __future__ import annotations
 """转写运行记录仓库 - transcribe_runs 表的所有操作
 
 每个 run 代表一次对某个视频、在某个通义账号上的完整转写尝试。
 stage 字段记录当前进行到哪一阶段，record_id / gen_record_id 在上传成功后持久化，
 使得上传后任意环节失败时，下一次重试可以从 uploaded 阶段恢复，不再重传文件。
 """
-from __future__ import annotations
 
 import sqlite3
 import uuid
 from datetime import datetime
-from typing import Any
+from typing import Any, Optional, Union
 
 from media_tools.db.core import get_db_connection
 from media_tools.logger import get_logger
@@ -33,7 +33,7 @@ class TranscribeRunRepository:
         asset_id: str,
         video_path: str,
         account_id: str,
-        task_id: str | None = None,
+        task_id: Optional[str] = None,
     ) -> str:
         run_id = str(uuid.uuid4())
         now = datetime.now().isoformat()
@@ -49,7 +49,7 @@ class TranscribeRunRepository:
         return run_id
 
     @staticmethod
-    def find_resumable(asset_id: str, account_id: str) -> dict[str, Any] | None:
+    def find_resumable(asset_id: str, account_id: str) -> Optional[Dict[str, Any]]:
         """查找该 asset 在该 account 上可以续做的 run。
 
         命中条件：gen_record_id 已持久化，且：
@@ -84,7 +84,7 @@ class TranscribeRunRepository:
     def update_stage(
         run_id: str,
         stage: str,
-        extra: dict[str, Any] | None = None,
+        extra: Optional[Dict[str, Any]] = None,
     ) -> None:
         """推进 stage，并可选地写入 record_id / gen_record_id / batch_id 等附加字段。"""
         extra = extra or {}
@@ -132,7 +132,7 @@ class TranscribeRunRepository:
             )
 
     @staticmethod
-    def get(run_id: str) -> dict[str, Any] | None:
+    def get(run_id: str) -> Optional[Dict[str, Any]]:
         with get_db_connection() as conn:
             conn.row_factory = sqlite3.Row
             row = conn.execute(
@@ -141,7 +141,7 @@ class TranscribeRunRepository:
         return dict(row) if row else None
 
     @staticmethod
-    def find_saved_for_asset(asset_id: str) -> dict[str, Any] | None:
+    def find_saved_for_asset(asset_id: str) -> Optional[Dict[str, Any]]:
         """查询某个 asset 是否已经有成功落盘的 run。用于跨任务去重。"""
         with get_db_connection() as conn:
             conn.row_factory = sqlite3.Row

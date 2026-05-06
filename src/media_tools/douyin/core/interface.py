@@ -1,5 +1,5 @@
-"""下载器模块接口定义 - 定义视频下载相关的抽象接口"""
 from __future__ import annotations
+"""下载器模块接口定义 - 定义视频下载相关的抽象接口"""
 
 from abc import ABC, abstractmethod
 from pathlib import Path

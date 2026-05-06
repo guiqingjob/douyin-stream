@@ -1,5 +1,5 @@
-"""临时文件安全管理"""
 from __future__ import annotations
+"""临时文件安全管理"""
 
 import atexit
 import os
@@ -8,7 +8,7 @@ import tempfile
 import threading
 from contextlib import contextmanager
 from pathlib import Path
-from typing import Any, Generator
+from typing import Any, Generator, Optional, Union
 
 from media_tools.logger import get_logger
 
@@ -58,7 +58,7 @@ signal.signal(signal.SIGINT, _cleanup_on_signal)
 
 
 @contextmanager
-def managed_temp_file(mode: str = 'w', suffix: str = '.txt', dir: str | None = None) -> Generator[tuple, None, None]:
+def managed_temp_file(mode: str = 'w', suffix: str = '.txt', dir: Optional[str] = None) -> Generator[tuple, None, None]:
     """安全的临时文件上下文管理器"""
     import io
     fd, path = tempfile.mkstemp(suffix=suffix, prefix='bili_tmp_', dir=dir)

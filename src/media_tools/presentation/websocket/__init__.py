@@ -1,5 +1,5 @@
-"""表示层 - WebSocket 实时推送"""
 from __future__ import annotations
+"""表示层 - WebSocket 实时推送"""
 
 import asyncio
 import json

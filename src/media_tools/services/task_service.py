@@ -1,9 +1,9 @@
+from __future__ import annotations
 """TaskService - 任务管理服务层（迁移过渡版本）
 
 本文件作为迁移过渡层，逐步将业务逻辑委托给新的领域驱动架构。
 最终目标是完全移除本文件，直接使用新架构。
 """
-from __future__ import annotations
 
 import asyncio
 import json

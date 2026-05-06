@@ -1,8 +1,9 @@
+from typing import Optional, Union
 from fastapi import APIRouter, HTTPException
 
 router = APIRouter(prefix="/api/v1/douyin", tags=["douyin"])
 
-_f2_import_error: Exception | None = None
+_f2_import_error: Optional[Exception] = None
 
 try:
     from f2.apps.douyin.handler import DouyinHandler as _RealDouyinHandler

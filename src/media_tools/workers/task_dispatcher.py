@@ -1,4 +1,4 @@
-from typing import Any
+from typing import Any, Optional, Union
 import uuid
 
 from fastapi import HTTPException
@@ -55,14 +55,14 @@ async def _start_task_worker(task_id: str, task_type: str, original_params: dict
     elif task_type.startswith("creator_sync") and "uid" in original_params:
         uid = str(original_params.get("uid", ""))
         mode = str(original_params.get("mode", "incremental"))
-        batch_size: int | None = original_params.get("batch_size")
+        batch_size: Optional[int] = original_params.get("batch_size")
         from media_tools.workers.creator_sync import background_creator_download_worker
         _register_background_task(task_id, background_creator_download_worker(task_id, uid, mode, batch_size, original_params))
         return {"task_id": task_id, "status": "started", "message": "Creator sync task rerun"}
 
     elif task_type.startswith("full_sync") and "mode" in original_params:
         mode = str(original_params.get("mode", "incremental"))
-        batch_size: int | None = original_params.get("batch_size")
+        batch_size: Optional[int] = original_params.get("batch_size")
         _register_background_task(task_id, _background_full_sync_worker(task_id, mode, batch_size, original_params))
         return {"task_id": task_id, "status": "started", "message": "Full sync task rerun"}
 
@@ -122,7 +122,7 @@ async def _retry_task_worker(task_id: str, task_type: str, original_params: dict
     elif task_type.startswith("creator_sync") and "uid" in original_params:
         uid = str(original_params.get("uid", ""))
         mode = str(original_params.get("mode", "incremental"))
-        batch_size: int | None = original_params.get("batch_size")
+        batch_size: Optional[int] = original_params.get("batch_size")
         new_task_id = str(uuid.uuid4())
         await _create_task(new_task_id, f"creator_sync_{mode}", {"uid": uid, "mode": mode, "batch_size": batch_size})
         from media_tools.workers.creator_sync import background_creator_download_worker
@@ -131,7 +131,7 @@ async def _retry_task_worker(task_id: str, task_type: str, original_params: dict
 
     elif task_type.startswith("full_sync") and "mode" in original_params:
         mode = str(original_params.get("mode", "incremental"))
-        batch_size: int | None = original_params.get("batch_size")
+        batch_size: Optional[int] = original_params.get("batch_size")
         new_task_id = str(uuid.uuid4())
         await _create_task(new_task_id, f"full_sync_{mode}", {"mode": mode, "batch_size": batch_size})
         _register_background_task(new_task_id, _background_full_sync_worker(new_task_id, mode, batch_size, original_params))

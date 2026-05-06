@@ -1,11 +1,11 @@
-"""事件总线 — 发布-订阅模式，用于解耦任务状态变更和通知。"""
 from __future__ import annotations
+"""事件总线 — 发布-订阅模式，用于解耦任务状态变更和通知。"""
 
 import asyncio
 import logging
 from abc import ABC
 from dataclasses import dataclass
-from typing import Callable, Awaitable, Any
+from typing import Callable, Awaitable, Any, Optional, Union
 
 logger = logging.getLogger(__name__)
 
@@ -23,14 +23,14 @@ class TaskProgressEvent(Event):
     stage: str
     percent: float
     message: str
-    result_summary: dict | None = None
+    result_summary: Optional[dict] = None
     subtasks: list[dict] | None = None
 
 
 @dataclass
 class TaskCompletedEvent(Event):
     """任务完成事件"""
-    result_summary: dict | None = None
+    result_summary: Optional[dict] = None
     subtasks: list[dict] | None = None
 
 

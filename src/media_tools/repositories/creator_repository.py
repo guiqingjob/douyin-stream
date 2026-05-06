@@ -1,8 +1,8 @@
-"""创作者数据访问层 - 所有 creators 表的操作集中在这里"""
 from __future__ import annotations
+"""创作者数据访问层 - 所有 creators 表的操作集中在这里"""
 
 import sqlite3
-from typing import Any
+from typing import Any, Optional, Union
 
 from media_tools.db.core import get_db_connection, get_table_columns
 
@@ -20,7 +20,7 @@ class CreatorRepository:
             return [dict(row) for row in cursor.fetchall()]
 
     @staticmethod
-    def find_by_id(uid: str) -> dict[str, Any] | None:
+    def find_by_id(uid: str) -> Optional[Dict[str, Any]]:
         """按 ID 查询创作者"""
         with get_db_connection() as conn:
             cursor = conn.execute(
@@ -63,9 +63,9 @@ class CreatorRepository:
     @staticmethod
     def update(
         uid: str,
-        sec_user_id: str | None = None,
-        nickname: str | None = None,
-        homepage_url: str | None = None,
+        sec_user_id: Optional[str] = None,
+        nickname: Optional[str] = None,
+        homepage_url: Optional[str] = None,
     ) -> None:
         """更新创作者信息"""
         with get_db_connection() as conn:

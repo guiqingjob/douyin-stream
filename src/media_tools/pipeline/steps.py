@@ -1,5 +1,5 @@
-"""Pipeline 步骤实现 - 基于接口的具体步骤类"""
 from __future__ import annotations
+"""Pipeline 步骤实现 - 基于接口的具体步骤类"""
 
 import asyncio
 import logging

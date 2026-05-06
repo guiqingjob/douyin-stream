@@ -6,7 +6,7 @@ import socket
 import time
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Any
+from typing import Any, Optional, Union
 from urllib import request as urllib_request
 
 import requests
@@ -29,7 +29,7 @@ async def api_json(context: Any, url: str, body: Any, headers: dict[str, str] | 
     return await response.json()
 
 
-@dataclass(frozen=True, slots=True)
+@dataclass(frozen=True)
 class RequestsApiResponse:
     ok: bool
     status: int
@@ -69,7 +69,7 @@ class RequestsApiContext:
         )
         return merged
 
-    def _request(self, url: str, *, method: str, headers: dict[str, str] | None, data: str | None) -> RequestsApiResponse:
+    def _request(self, url: str, *, method: str, headers: dict[str, str] | None, data: Optional[str]) -> RequestsApiResponse:
         merged = self._build_headers(headers)
         try:
             resp = self._session.request(
@@ -104,7 +104,7 @@ class RequestsApiContext:
         *,
         method: str = "POST",
         headers: dict[str, str] | None = None,
-        data: str | None = None,
+        data: Optional[str] = None,
     ) -> RequestsApiResponse:
         return await asyncio.to_thread(self._request, url, method=method, headers=headers, data=data)
 
@@ -127,7 +127,7 @@ def _download_file(url: str, output_path: Path, timeout: int = 30) -> None:
                 raise RuntimeError(f"下载失败 (重试{attempt + 1}次): {url}") from e
 
 
-async def download_file(url: str, output_path: str | Path, timeout: int = 30) -> Path:
+async def download_file(url: str, output_path: Union[str, Path], timeout: int = 30) -> Path:
     path = Path(output_path).resolve()
     await asyncio.to_thread(_download_file, url, path, timeout)
     return path

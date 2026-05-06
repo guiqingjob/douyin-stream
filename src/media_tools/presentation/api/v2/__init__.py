@@ -1,5 +1,5 @@
-"""表示层 - REST API 路由"""
 from __future__ import annotations
+"""表示层 - REST API 路由"""
 
 from fastapi import APIRouter, HTTPException, Query
 from typing import Any, Dict, List, Optional
@@ -20,7 +20,10 @@ _asset_service = AssetDomainService(
     create_asset_repository(),
     create_creator_repository(),
 )
-_creator_service = CreatorDomainService(create_creator_repository())
+_creator_service = CreatorDomainService(
+    create_creator_repository(),
+    create_asset_repository(),
+)
 _task_service = TaskDomainService(create_task_repository())
 
 
@@ -183,15 +186,16 @@ def _creator_to_dict(creator) -> Dict[str, Any]:
     """将 Creator 实体转换为字典"""
     return {
         "uid": creator.uid,
+        "sec_user_id": creator.sec_user_id,
         "nickname": creator.nickname,
-        "avatar_url": creator.avatar_url,
-        "video_count": creator.video_count,
+        "avatar": creator.avatar,
+        "platform": creator.platform.value,
+        "sync_status": creator.sync_status.value,
+        "homepage_url": creator.homepage_url,
+        "bio": creator.bio,
         "downloaded_count": creator.downloaded_count,
         "transcript_count": creator.transcript_count,
         "last_fetch_time": creator.last_fetch_time.isoformat() if creator.last_fetch_time else None,
-        "status": creator.status,
-        "create_time": creator.create_time.isoformat(),
-        "update_time": creator.update_time.isoformat(),
     }
 
 
@@ -203,7 +207,11 @@ def _task_to_dict(task) -> Dict[str, Any]:
         "status": task.status.value,
         "payload": task.payload,
         "progress": task.progress,
-        "error_message": task.error_message,
-        "created_at": task.created_at.isoformat(),
-        "updated_at": task.updated_at.isoformat(),
+        "error_msg": task.error_msg,
+        "create_time": task.create_time.isoformat(),
+        "update_time": task.update_time.isoformat(),
+        "start_time": task.start_time.isoformat() if task.start_time else None,
+        "end_time": task.end_time.isoformat() if task.end_time else None,
+        "cancel_requested": task.cancel_requested,
+        "auto_retry": task.auto_retry,
     }

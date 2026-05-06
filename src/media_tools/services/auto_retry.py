@@ -1,4 +1,5 @@
 from __future__ import annotations
+from typing import Optional, Union
 
 import asyncio
 import json
@@ -24,7 +25,7 @@ _AUTO_RETRY_SUPPORTED_PREFIXES: tuple[str, ...] = (
 )
 
 
-def _is_auto_retry_supported(task_type: str | None, payload: dict | None) -> bool:
+def _is_auto_retry_supported(task_type: Optional[str], payload: Optional[dict]) -> bool:
     if not task_type:
         return False
     if task_type in _AUTO_RETRY_SUPPORTED_TYPES:

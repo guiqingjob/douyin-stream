@@ -1,5 +1,5 @@
-"""应用层 - 业务管道编排"""
 from __future__ import annotations
+"""应用层 - 业务管道编排"""
 
 import asyncio
 import logging

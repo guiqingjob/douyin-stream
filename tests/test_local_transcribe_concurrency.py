@@ -2,14 +2,14 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Any
+from typing import Any, Optional
 import asyncio
 
 
-@dataclass(frozen=True, slots=True)
+@dataclass(frozen=True)
 class _Result:
     success: bool
-    transcript_path: str | None = None
+    transcript_path: Optional[str] = None
 
 
 class _FakeOrchestrator:

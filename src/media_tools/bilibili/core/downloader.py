@@ -10,7 +10,7 @@ import time
 from dataclasses import dataclass, field
 from datetime import datetime
 from pathlib import Path
-from typing import Any, Callable
+from typing import Any, Callable, Optional, Union
 
 from media_tools.common.paths import get_download_path
 from media_tools.logger import get_logger
@@ -81,7 +81,7 @@ def _build_output_template(base_dir: Path, creator_folder: str, series_folder: s
     return str(target_dir / "%(title)s__%(id)s__%(format_id)s.%(ext)s")
 
 
-def _iter_yt_dlp_entries(info: dict | None):
+def _iter_yt_dlp_entries(info: Optional[dict]):
     """扁平化 yt-dlp info：单视频返回自身，playlist/channel 递归其 entries。"""
     if not isinstance(info, dict):
         return
@@ -94,7 +94,7 @@ def _iter_yt_dlp_entries(info: dict | None):
 
 
 def _persist_bilibili_assets_to_db(
-    info: dict | None,
+    info: Optional[dict],
     new_files: list[str],
     downloads_path: Path,
     uploader_info: UploaderInfo | None,
@@ -119,7 +119,7 @@ def _persist_bilibili_assets_to_db(
 
         # 解析对应的下载文件（requested_downloads 里有 filepath）
         requested = entry.get("requested_downloads") or []
-        downloaded_path: Path | None = None
+        downloaded_path: Optional[Path] = None
         for item in requested:
             fp = item.get("filepath")
             if not fp:
@@ -177,10 +177,10 @@ def _persist_bilibili_assets_to_db(
 
 def download_up_by_url(
     url: str,
-    max_counts: int | None = None,
+    max_counts: Optional[int] = None,
     skip_existing: bool = True,
     progress_cb: ProgressCallback | None = None,
-    task_id: str | None = None,
+    task_id: Optional[str] = None,
     disable_auto_transcribe: bool = False,
 ) -> dict:
     if YoutubeDL is None:
@@ -289,7 +289,7 @@ def download_up_by_url(
 
     # Cookie 配置 - 转换为 Netscape 格式文件
     # expires 使用 2038-01-01 (2145888000) 避免 session cookie 立即过期
-    cookie_content: str | None = None
+    cookie_content: Optional[str] = None
     if cookie:
         cookie_lines = ["# Netscape HTTP Cookie File"]
         for part in cookie.split(";"):

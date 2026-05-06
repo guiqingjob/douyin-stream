@@ -1,12 +1,12 @@
-"""Pipeline 数据模型"""
 from __future__ import annotations
+"""Pipeline 数据模型"""
 
 import asyncio
 import json
 import logging
 from dataclasses import dataclass, field, asdict
 from pathlib import Path
-from typing import Any, Optional
+from typing import Any, Optional, Union
 
 from .error_types import ErrorType
 from ..transcribe.runtime import ensure_dir
@@ -28,7 +28,7 @@ class AccountPool:
         self,
         accounts: list[dict[str, Any]],
         balances: list[int] | None = None,
-        max_concurrent_per_account: int | None = None,
+        max_concurrent_per_account: Optional[int] = None,
     ):
         self._accounts = accounts
         self._balances = balances or [0] * len(accounts)
@@ -42,7 +42,7 @@ class AccountPool:
             f"总余额 {sum(self._balances)}，每账号最大并发 {self._max_concurrent}"
         )
 
-    def _pick_account(self) -> dict[str, Any] | None:
+    def _pick_account(self) -> Optional[Dict[str, Any]]:
         """内部方法：按权重选一个有空闲槽位的账号（调用方需持锁）"""
         import random
 
@@ -71,7 +71,7 @@ class AccountPool:
 
         return selected
 
-    async def acquire(self, preferred_account_id: str | None = None) -> dict[str, Any] | None:
+    async def acquire(self, preferred_account_id: Optional[str] = None) -> Optional[Dict[str, Any]]:
         """获取一个有空闲槽位的账号（并发安全）
 
         每个账号可同时处理 max_concurrent 个任务。
@@ -161,7 +161,7 @@ class PipelineResultV2:
     error_type: ErrorType = ErrorType.UNKNOWN
     attempts: int = 1
     duration: float = 0.0
-    account_id: str | None = None
+    account_id: Optional[str] = None
 
     def __str__(self) -> str:
         if self.success:

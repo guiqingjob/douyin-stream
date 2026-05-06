@@ -23,13 +23,13 @@ ALLOW_SUFFIXES: set[str] = {
 }
 
 
-@dataclass(frozen=True, slots=True)
+@dataclass(frozen=True)
 class CleanupFailedPath:
     path: str
     reason: CleanupFailureReason
 
 
-@dataclass(frozen=True, slots=True)
+@dataclass(frozen=True)
 class CleanupOutcome:
     deleted_count: int = 0
     failed_count: int = 0

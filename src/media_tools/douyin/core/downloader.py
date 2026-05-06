@@ -4,6 +4,7 @@
 视频下载模块 - 单个/批量/交互下载（直接调用 F2 API）
 """
 
+from typing import Optional, Union
 import asyncio
 import os
 import shutil
@@ -50,7 +51,7 @@ def _is_probably_valid_mp4(file_path: Path) -> bool:
         return False
 
 
-def _extract_aweme_id_from_filename(stem: str) -> str | None:
+def _extract_aweme_id_from_filename(stem: str) -> Optional[str]:
     m = re.search(r"\d{15,}", stem)
     return m.group(0) if m else None
 
@@ -297,7 +298,7 @@ def _save_single_video_metadata(video: dict, nickname: str = "") -> int:
             conn.close()
 
 
-def _rename_videos_in_downloads(nickname: str, uid: str, downloads_path: Path) -> str | None:
+def _rename_videos_in_downloads(nickname: str, uid: str, downloads_path: Path) -> Optional[str]:
     """重命名下载目录下的视频文件（包括已在目标子目录的情况）"""
     import re
     import sqlite3
@@ -546,11 +547,11 @@ def _sync_media_assets(uid: str, nickname: str, folder_name: str):
 
 async def _download_with_stats(
     url: str,
-    max_counts: int | None = None,
+    max_counts: Optional[int] = None,
     skip_existing: bool = True,
-    interval: str | None = None,
+    interval: Optional[str] = None,
     existing_source: str = "file+db",
-    task_id: str | None = None,
+    task_id: Optional[str] = None,
 ):
     """
     使用 F2 API 下载视频并保存统计数据
@@ -817,7 +818,7 @@ async def _download_with_stats(
     }
 
 
-def download_by_url_sync(url, max_counts=None, skip_existing: bool = True, interval: str | None = None, existing_source: str = "file+db", task_id: str | None = None):
+def download_by_url_sync(url, max_counts=None, skip_existing: bool = True, interval: Optional[str] = None, existing_source: str = "file+db", task_id: Optional[str] = None):
     """同步包装器：通过 URL 下载单个博主的视频"""
     try:
         # 检查是否已有运行中的事件循环
@@ -851,11 +852,11 @@ def download_by_url_sync(url, max_counts=None, skip_existing: bool = True, inter
 
 def download_by_url(
     url,
-    max_counts: int | None = None,
+    max_counts: Optional[int] = None,
     disable_auto_transcribe=False,
     skip_existing: bool = True,
-    task_id: str | None = None,
-    interval: str | None = None,
+    task_id: Optional[str] = None,
+    interval: Optional[str] = None,
     existing_source: str = "file+db",
 ):
     """
@@ -990,7 +991,7 @@ async def download_aweme_by_url(url: str):
     }
 
 
-def download_by_uid(uid, max_counts=None, skip_existing: bool = True, task_id: str | None = None, interval: str | None = None, existing_source: str = "file+db"):
+def download_by_uid(uid, max_counts=None, skip_existing: bool = True, task_id: Optional[str] = None, interval: Optional[str] = None, existing_source: str = "file+db"):
     """
     通过 UID 下载博主视频
 

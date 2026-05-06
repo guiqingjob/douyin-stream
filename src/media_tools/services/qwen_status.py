@@ -1,5 +1,5 @@
-"""Qwen 账户状态查询与配额领取服务"""
 from __future__ import annotations
+"""Qwen 账户状态查询与配额领取服务"""
 
 import logging
 import sqlite3

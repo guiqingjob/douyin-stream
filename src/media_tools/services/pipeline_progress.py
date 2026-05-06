@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from typing import Any
+from typing import Any, Optional, Union
 
 ALLOWED_STAGES = {"list", "audit", "download", "upload", "transcribe", "export", "done", "failed"}
 
@@ -35,7 +35,7 @@ def _normalize_stage(raw: str) -> str:
     return normalized if normalized in ALLOWED_STAGES else "download"
 
 
-def _clamp_progress(progress: float | int | None) -> float:
+def _clamp_progress(progress: float | Optional[int]) -> float:
     try:
         value = float(progress or 0.0)
     except (TypeError, ValueError):
@@ -82,7 +82,7 @@ def _extract_result_summary_counts(payload: dict[str, Any]) -> tuple[int, int]:
     return 0, 0
 
 
-def _extract_export_meta(payload: dict[str, Any]) -> tuple[str | None, str | int | None]:
+def _extract_export_meta(payload: dict[str, Any]) -> tuple[Optional[str], str | Optional[int]]:
     pipeline_progress = payload.get("pipeline_progress")
     if isinstance(pipeline_progress, dict):
         export = pipeline_progress.get("export")
@@ -115,16 +115,16 @@ def _extract_export_meta(payload: dict[str, Any]) -> tuple[str | None, str | int
 def build_pipeline_progress(
     task_type: str,
     status: str,
-    progress: float | int | None,
-    payload: dict[str, Any] | None = None,
-) -> dict[str, Any] | None:
+    progress: float | Optional[int],
+    payload: Optional[Dict[str, Any]] = None,
+) -> Optional[Dict[str, Any]]:
     if task_type != "pipeline" and task_type != "download" and not task_type.startswith("creator_sync"):
         return None
 
     payload = payload or {}
     overall = _clamp_progress(progress)
 
-    stage: str | None = None
+    stage: Optional[str] = None
     payload_pp = payload.get("pipeline_progress")
     if isinstance(payload_pp, dict):
         raw_stage = payload_pp.get("stage")

@@ -1,9 +1,9 @@
-"""任务状态机 — 定义所有合法的状态转移和阶段划分。"""
 from __future__ import annotations
+"""任务状态机 — 定义所有合法的状态转移和阶段划分。"""
 
 from enum import Enum, auto
 from dataclasses import dataclass, field
-from typing import Callable
+from typing import Callable, Optional, Union
 
 
 class TaskStatus(Enum):
@@ -73,7 +73,7 @@ class Subtask:
     id: str
     title: str
     status: TaskStatus
-    error: str | None = None
+    error: Optional[str] = None
     progress: float = 0.0
 
 

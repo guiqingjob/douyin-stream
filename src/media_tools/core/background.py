@@ -1,3 +1,4 @@
+from __future__ import annotations
 """后台 asyncio.Task 统一 registry。
 
 历史上 `_background_tasks: set[asyncio.Task]` 在 task_state、auto_retry、
@@ -9,11 +10,10 @@ websocket_manager、task_helpers 各有一份，shutdown 时无统一入口取�
 - `active_count()` / `snapshot()`：用于 /metrics 和健康检查
 - `cancel_all()`：lifespan shutdown 时一次性取消并等待
 """
-from __future__ import annotations
 
 import asyncio
 import logging
-from typing import Any, Coroutine
+from typing import Any, Coroutine, Optional, Union
 
 logger = logging.getLogger(__name__)
 
@@ -27,7 +27,7 @@ def register(task: asyncio.Task[Any]) -> asyncio.Task[Any]:
     return task
 
 
-def create(coro: Coroutine[Any, Any, Any], *, name: str | None = None) -> asyncio.Task[Any]:
+def create(coro: Coroutine[Any, Any, Any], *, name: Optional[str] = None) -> asyncio.Task[Any]:
     """`asyncio.create_task` 的快捷封装，自动 register。"""
     task = asyncio.create_task(coro, name=name) if name else asyncio.create_task(coro)
     return register(task)

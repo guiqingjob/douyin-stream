@@ -1,3 +1,4 @@
+from __future__ import annotations
 """统一配置系统 — AppConfig 是运行时配置的唯一事实源。
 
 配置项归属：
@@ -9,17 +10,16 @@
     from media_tools.core.config import get_app_config
     
     config = get_app_config()
-    print(config.concurrency)
-    print(config.download_path)
-    print(config.debug_mode)
+    config.concurrency      # 并发数
+    config.download_path    # 下载路径
+    config.debug_mode       # 调试模式
 """
-from __future__ import annotations
 
 import logging
 import os
 import sqlite3
 from pathlib import Path
-from typing import Any, Callable, Optional
+from typing import Any, Callable, Optional, Union
 
 logger = logging.getLogger(__name__)
 
@@ -47,7 +47,7 @@ _settings_cache: dict[str, tuple[str, float]] = {}  # key -> (value, expire_time
 _settings_cache_ttl: int = 300  # 5分钟缓存过期时间
 
 
-def _get_system_setting(key: str) -> str | None:
+def _get_system_setting(key: str) -> Optional[str]:
     """从 SystemSettings 表读取单个配置值（带缓存）。"""
     now = time.time()
     
@@ -75,7 +75,7 @@ def _get_system_setting(key: str) -> str | None:
         return None
 
 
-def _invalidate_settings_cache(key: str | None = None) -> None:
+def _invalidate_settings_cache(key: Optional[str] = None) -> None:
     """清除设置缓存。"""
     if key is None:
         _settings_cache.clear()
@@ -99,7 +99,7 @@ def _set_system_setting(key: str, value: str) -> None:
         raise ConfigError(f"无法保存配置 {key}: {e}") from e
 
 
-def get_runtime_setting(key: str, default: str | None = None) -> str:
+def get_runtime_setting(key: str, default: Optional[str] = None) -> str:
     """读取运行时配置。优先从 SystemSettings 读取，fallback 到默认值。"""
     value = _get_system_setting(key)
     if value is not None:
@@ -137,7 +137,7 @@ def set_runtime_setting(key: str, value: str | bool | int) -> None:
 
 # --- Config.yaml access (read-only for runtime) ---
 
-_CONFIG_MGR: Any | None = None
+_CONFIG_MGR: Optional[Any] = None
 
 
 def _get_config_mgr() -> Any:
@@ -429,11 +429,11 @@ class PipelineConfig:
         self,
         export_format: str = "",
         output_dir: str = "",
-        delete_after_export: bool | None = None,
+        delete_after_export: Optional[bool] = None,
         account_id: str = "",
-        remove_video: bool | None = None,
-        keep_original: bool | None = None,
-        concurrency: int | None = None,
+        remove_video: Optional[bool] = None,
+        keep_original: Optional[bool] = None,
+        concurrency: Optional[int] = None,
     ):
         self._export_format = export_format
         self._output_dir = output_dir

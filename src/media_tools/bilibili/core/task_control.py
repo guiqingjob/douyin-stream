@@ -1,5 +1,5 @@
-"""下载任务取消/暂停控制"""
 from __future__ import annotations
+"""下载任务取消/暂停控制"""
 
 import os
 import signal

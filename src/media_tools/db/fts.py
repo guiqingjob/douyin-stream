@@ -1,5 +1,5 @@
-"""FTS5 全文搜索索引管理"""
 from __future__ import annotations
+"""FTS5 全文搜索索引管理"""
 
 import logging
 import sqlite3

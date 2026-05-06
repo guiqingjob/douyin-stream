@@ -1,5 +1,6 @@
 """带缓存的系统设置访问层
 
+from typing import Optional, Union
 对热点数据（如系统设置）增加内存缓存，减少数据库访问次数，
 提升响应速度。
 """
@@ -68,7 +69,7 @@ class CachedSystemSettings:
             CachedSystemSettings._cache[key] = (value, time.time() + CachedSystemSettings._default_ttl)
 
     @staticmethod
-    def invalidate_cache(key: str | None = None) -> None:
+    def invalidate_cache(key: Optional[str] = None) -> None:
         """清除缓存
         
         Args:

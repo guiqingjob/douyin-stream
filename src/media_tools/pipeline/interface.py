@@ -1,5 +1,5 @@
-"""Pipeline 管道流程接口定义 - 定义可插拔的管道步骤"""
 from __future__ import annotations
+"""Pipeline 管道流程接口定义 - 定义可插拔的管道步骤"""
 
 from abc import ABC, abstractmethod
 from pathlib import Path

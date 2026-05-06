@@ -1,4 +1,5 @@
 from __future__ import annotations
+from typing import Optional, Union
 
 import logging
 import shutil
@@ -15,11 +16,11 @@ LOG_SUFFIXES: set[str] = {".log", ".jsonl"}
 ARCHIVE_DIRNAME = "archive"
 
 
-@dataclass(frozen=True, slots=True)
+@dataclass(frozen=True)
 class ArchiveOutcome:
     archived_count: int = 0
     failed_count: int = 0
-    archive_dir: Path | None = None
+    archive_dir: Optional[Path] = None
     failed_paths: list[str] = field(default_factory=list)
 
 

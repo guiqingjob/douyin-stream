@@ -46,6 +46,12 @@ class LocalAssetsVisibilityTests(unittest.TestCase):
               folder_path TEXT DEFAULT '',
               is_read BOOLEAN DEFAULT 0,
               is_starred BOOLEAN DEFAULT 0,
+              transcript_error_type TEXT,
+              transcript_last_error TEXT,
+              transcript_retry_count INTEGER DEFAULT 0,
+              transcript_failed_at DATETIME,
+              source_platform TEXT,
+              last_task_id TEXT,
               create_time DATETIME,
               update_time DATETIME
             )

@@ -1,5 +1,6 @@
-"""Pipeline 状态管理器 - 负责断点续传"""
 from __future__ import annotations
+"""Pipeline 状态管理器 - 负责断点续传"""
+from typing import Optional, Union
 
 import json
 import logging
@@ -22,7 +23,7 @@ class PipelineStateManager:
     支持中断后从断点继续执行。
     """
 
-    def __init__(self, state_file: Path | str | None = DEFAULT_STATE_FILE):
+    def __init__(self, state_file: Path | Optional[str] = DEFAULT_STATE_FILE):
         if state_file is None:
             from media_tools.core.config import get_project_root
             state_file = get_project_root() / ".pipeline_state.json"

@@ -1,7 +1,7 @@
 import json
 import re
 from pathlib import Path
-from typing import Any, Dict, Tuple
+from typing import Any, Dict, Tuple, Optional, Union
 
 import yaml
 from .logger import logger
@@ -109,7 +109,7 @@ class AuthParser:
         return True, "解析成功", result
 
     def validate_data(
-        self, raw_data: str, data_type: str = "cookie", rule_name: str | None = None
+        self, raw_data: str, data_type: str = "cookie", rule_name: Optional[str] = None
     ) -> Tuple[bool, str, Dict]:
         """统一入口：验证与解析"""
         if data_type == "cookie":

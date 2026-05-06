@@ -7,7 +7,7 @@ from pathlib import Path
 from media_tools.db.core import get_db_connection
 
 
-@dataclass(frozen=True, slots=True)
+@dataclass(frozen=True)
 class DbQwenAccount:
     account_id: str
     remark: str

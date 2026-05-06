@@ -1,5 +1,6 @@
-"""素材文件操作服务"""
 from __future__ import annotations
+"""素材文件操作服务"""
+from typing import Optional, Union
 
 import logging
 import os
@@ -15,11 +16,11 @@ LOCAL_CREATOR_UID = "local:upload"
 
 def _resolve_asset_video_file(
     *,
-    creator_uid: str | None,
-    source_url: str | None,
-    video_path: str | None,
+    creator_uid: Optional[str],
+    source_url: Optional[str],
+    video_path: Optional[str],
     download_dir: Path,
-) -> Path | None:
+) -> Optional[Path]:
     """解析素材视频文件的实际路径（含安全检查）"""
     if creator_uid == LOCAL_CREATOR_UID and source_url:
         try:
@@ -48,12 +49,12 @@ def get_source_url_column(conn) -> str:
 
 def delete_asset_files(
     creator_uid: str,
-    source_url: str | None,
-    video_path: str | None,
-    transcript_name: str | None,
+    source_url: Optional[str],
+    video_path: Optional[str],
+    transcript_name: Optional[str],
     *,
-    download_dir: Path | None = None,
-    transcripts_dir: Path | None = None,
+    download_dir: Optional[Path] = None,
+    transcripts_dir: Optional[Path] = None,
 ) -> list[str]:
     """删除素材关联的文件，返回失败的列表"""
     failed: list[str] = []

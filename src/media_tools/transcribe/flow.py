@@ -4,7 +4,7 @@ import asyncio
 import json
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Any
+from typing import Any, Optional, Union
 
 from media_tools.logger import get_logger
 logger = get_logger(__name__)
@@ -18,7 +18,7 @@ from .quota import get_quota_snapshot, record_quota_consumption
 from .runtime import ExportConfig, ensure_dir, guess_mime_type, now_stamp
 
 
-@dataclass(frozen=True, slots=True)
+@dataclass(frozen=True)
 class FlowResult:
     record_id: str
     gen_record_id: str
@@ -26,7 +26,7 @@ class FlowResult:
     remote_deleted: bool
 
 
-@dataclass(frozen=True, slots=True)
+@dataclass(frozen=True)
 class ResumeState:
     """从 transcribe_runs 拿到的续传上下文。
 
@@ -36,13 +36,13 @@ class ResumeState:
     - 都没有 -> 走完整流程
     """
     stage: str = "queued"
-    record_id: str | None = None
-    gen_record_id: str | None = None
-    batch_id: str | None = None
-    export_url: str | None = None
+    record_id: Optional[str] = None
+    gen_record_id: Optional[str] = None
+    batch_id: Optional[str] = None
+    export_url: Optional[str] = None
 
 
-def build_upload_tag(file_path: str | Path, mime_type: str) -> dict[str, Any]:
+def build_upload_tag(file_path: Union[str, Path], mime_type: str) -> dict[str, Any]:
     parsed = Path(file_path)
     is_video = 1 if mime_type.startswith("video/") else 0
     return {
@@ -202,17 +202,17 @@ def record_flow_quota_usage(
 
 async def run_real_flow(
     *,
-    file_path: str | Path,
-    auth_state_path: str | Path,
-    download_dir: str | Path,
+    file_path: Union[str, Path],
+    auth_state_path: Union[str, Path],
+    download_dir: Union[str, Path],
     export_config: ExportConfig,
     should_delete: bool = False,
     account_id: str = "",
     cookie_string: str = "",
     export_gate: asyncio.Semaphore | None = None,
-    title: str | None = None,
-    shared_api: Any | None = None,
-    run_id: str | None = None,
+    title: Optional[str] = None,
+    shared_api: Optional[Any] = None,
+    run_id: Optional[str] = None,
     resume_state: ResumeState | None = None,
 ) -> FlowResult:
     """执行单个视频的转写流程。
@@ -239,7 +239,7 @@ async def run_real_flow(
     log = _make_flow_logger(input_path.name)
 
     # 仅在 run_id 存在时才 import + 写 transcribe_runs，避免给单元测试增加依赖
-    def _checkpoint(stage: str, extra: dict[str, Any] | None = None) -> None:
+    def _checkpoint(stage: str, extra: Optional[Dict[str, Any]] = None) -> None:
         if not run_id:
             return
         try:

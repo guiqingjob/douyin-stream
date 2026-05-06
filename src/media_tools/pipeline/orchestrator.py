@@ -1,3 +1,4 @@
+from __future__ import annotations
 """Pipeline 流程编排器 V2 - 增强版
 
 在原有基础上提供：
@@ -7,7 +8,6 @@
 - 批量操作汇总报告（详细执行报告）
 - 更好的错误处理（区分网络、配额、认证等错误类型）
 """
-from __future__ import annotations
 
 import asyncio
 import json
@@ -18,7 +18,7 @@ import re
 import sqlite3
 import time
 from pathlib import Path
-from typing import Optional, Callable, Awaitable, Any
+from typing import Optional, Callable, Awaitable, Any, Union
 
 from ..transcribe.flow import run_real_flow
 from ..transcribe.runtime import get_export_config, ensure_dir, now_stamp
@@ -75,7 +75,7 @@ class OrchestratorV2:
         self.on_progress = on_progress
         self._creator_folder_override = creator_folder_override
         self._account_pool: AccountPool | None = None  # 账号轮换池
-        self._current_account_id: str | None = None  # 当前转写使用的账户
+        self._current_account_id: Optional[str] = None  # 当前转写使用的账户
         # 导出限流信号量（通义 API 限频），默认 2 并发
         self._export_gate = export_gate or asyncio.Semaphore(
             getattr(self.config, 'export_concurrency', 2)
@@ -193,7 +193,7 @@ class OrchestratorV2:
     async def _transcribe_single_video(
         self,
         video_path: Path,
-        account_id: str | None = None,
+        account_id: Optional[str] = None,
     ) -> PipelineResultV2:
         """对单个视频执行转写（内部方法，不含重试）
 
@@ -231,7 +231,7 @@ class OrchestratorV2:
             output_dir = str(target_dir)
             Path(output_dir).mkdir(parents=True, exist_ok=True)
 
-            last_error: Exception | None = None
+            last_error: Optional[Exception] = None
             last_error_type: ErrorType = ErrorType.UNKNOWN
 
             # 初始化账号池（如果尚未初始化）
@@ -271,8 +271,8 @@ class OrchestratorV2:
                     break
 
                 # 第三阶段：为这次尝试创建 run。失败时即便 mark_failed 也不影响主流程。
-                run_id: str | None = None
-                resumable_run: dict[str, Any] | None = None
+                run_id: Optional[str] = None
+                resumable_run: Optional[Dict[str, Any]] = None
                 if asset_id_for_run:
                     # 先看这个 (asset, account) 组合是否有可续传的 run（上传过但失败）
                     try:
@@ -412,7 +412,7 @@ class OrchestratorV2:
     def _update_media_asset_transcript(
         self,
         video_path: Path,
-        transcript_path: Path | None,
+        transcript_path: Optional[Path],
     ) -> None:
         """同步更新 media_assets 表的转写状态（成功路径）。"""
         try:
@@ -486,7 +486,7 @@ class OrchestratorV2:
         max_attempts = self.retry_config.max_retries + 1  # 首次 + 重试次数
         state.max_attempts = max_attempts
         total_attempts = 0
-        execution_account_id: str | None = None
+        execution_account_id: Optional[str] = None
 
         for attempt in range(1, max_attempts + 1):
             total_attempts = attempt

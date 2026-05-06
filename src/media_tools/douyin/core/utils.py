@@ -1,5 +1,6 @@
-"""抖音核心工具函数"""
 from __future__ import annotations
+"""抖音核心工具函数"""
+from typing import Optional, Union
 
 import asyncio
 import concurrent.futures
@@ -36,7 +37,7 @@ def _run_async_coro(coro):
     return asyncio.run(coro)
 
 
-def _resolve_sec_user_id(url: str) -> str | None:
+def _resolve_sec_user_id(url: str) -> Optional[str]:
     """将用户主页链接规范化为 canonical sec_user_id。"""
     raw_match = re.search(r'/user/([^/"\s?]+)', url)
     raw_value = raw_match.group(1) if raw_match else ''

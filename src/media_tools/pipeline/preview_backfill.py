@@ -1,5 +1,6 @@
 """Backfill missing transcript_preview / transcript_text in the background.
 
+from typing import Optional, Union
 New transcripts write both inline (orchestrator / local worker). This module
 handles existing rows that predate those columns, and keeps the FTS5 search
 index up to date.
@@ -25,7 +26,7 @@ def _transcripts_dir() -> Path:
     return get_project_root() / "transcripts"
 
 
-def _validate_path(base_dir: Path, transcript_path: str) -> Path | None:
+def _validate_path(base_dir: Path, transcript_path: str) -> Optional[Path]:
     """
     校验并安全拼接 transcript_path
 

@@ -2,7 +2,7 @@ import asyncio
 import inspect
 import sqlite3
 from pathlib import Path
-from typing import Any
+from typing import Any, Optional, Union
 from media_tools.logger import get_logger
 from media_tools.db.core import local_asset_id
 from media_tools.pipeline.task_helpers import call_progress, create_managed_task, filter_supported_media_paths
@@ -186,7 +186,7 @@ async def run_local_transcribe(file_paths: list[str], update_progress_fn=None, d
     }
 
 
-async def run_pipeline_for_user(url: str, max_counts: int, update_progress_fn, delete_after: bool = True, task_id: str | None = None):
+async def run_pipeline_for_user(url: str, max_counts: int, update_progress_fn, delete_after: bool = True, task_id: Optional[str] = None):
     from media_tools.pipeline.download_router import download_by_url as download_router
     from media_tools.pipeline.download_router import resolve_platform
     from media_tools.pipeline.config import load_pipeline_config
@@ -244,7 +244,7 @@ async def run_pipeline_for_user(url: str, max_counts: int, update_progress_fn, d
     total = len(new_files)
 
     # 使用批量并发转写
-    def _progress_callback(current: int, total: int, video_path: Path, status: str, account_id: str | None = None):
+    def _progress_callback(current: int, total: int, video_path: Path, status: str, account_id: Optional[str] = None):
         progress = 0.4 + 0.6 * (current / total) if total > 0 else 0.4
         transcribe_info: dict[str, Any] = {"done": current, "total": total}
         if account_id:
@@ -273,7 +273,7 @@ async def run_pipeline_for_user(url: str, max_counts: int, update_progress_fn, d
 
     success_count = report.success
     failed_count = report.failed
-    export_file: str | None = None
+    export_file: Optional[str] = None
     for item in reversed(getattr(report, "results", []) or []):
         transcript_path = item.get("transcript_path") if isinstance(item, dict) else None
         if isinstance(transcript_path, str) and transcript_path.strip():
@@ -330,7 +330,7 @@ async def run_pipeline_for_user(url: str, max_counts: int, update_progress_fn, d
         **({"export_file": export_file} if export_file else {}),
     }
 
-async def run_batch_pipeline(video_urls: list[str], update_progress_fn, delete_after: bool = True, task_id: str | None = None):
+async def run_batch_pipeline(video_urls: list[str], update_progress_fn, delete_after: bool = True, task_id: Optional[str] = None):
     from media_tools.pipeline.download_router import download_by_url as download_router
     from media_tools.pipeline.config import load_pipeline_config
     from media_tools.pipeline.orchestrator import create_orchestrator
@@ -365,7 +365,7 @@ async def run_batch_pipeline(video_urls: list[str], update_progress_fn, delete_a
     orchestrator = create_orchestrator(config, state_file=state_file)
 
     # 使用批量并发转写
-    def _progress_callback(current: int, total: int, video_path: Path, status: str, account_id: str | None = None):
+    def _progress_callback(current: int, total: int, video_path: Path, status: str, account_id: Optional[str] = None):
         progress = 0.4 + 0.6 * (current / total) if total > 0 else 0.4
         transcribe_info: dict[str, Any] = {"done": current, "total": total}
         if account_id:
@@ -391,7 +391,7 @@ async def run_batch_pipeline(video_urls: list[str], update_progress_fn, delete_a
 
     success_count = report.success
     failed_count = report.failed
-    export_file: str | None = None
+    export_file: Optional[str] = None
     for item in reversed(getattr(report, "results", []) or []):
         transcript_path = item.get("transcript_path") if isinstance(item, dict) else None
         if isinstance(transcript_path, str) and transcript_path.strip():
@@ -447,7 +447,7 @@ async def run_batch_pipeline(video_urls: list[str], update_progress_fn, delete_a
     }
 
 
-async def run_download_only(video_urls: list[str], update_progress_fn, task_id: str | None = None):
+async def run_download_only(video_urls: list[str], update_progress_fn, task_id: Optional[str] = None):
     """仅下载视频，不转写"""
     from media_tools.pipeline.download_router import download_by_url as download_router, DownloadResult
 

@@ -1,5 +1,5 @@
-"""Pipeline 配置管理 — 委托给统一配置系统。"""
 from __future__ import annotations
+"""Pipeline 配置管理 — 委托给统一配置系统。"""
 
 from media_tools.core.config import get_pipeline_config, PipelineConfig
 

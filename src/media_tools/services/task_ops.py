@@ -4,6 +4,7 @@ import logging
 import os
 import sqlite3
 from datetime import datetime, timedelta
+from typing import Optional
 from media_tools.api.websocket_manager import manager
 from media_tools.db.core import get_db_connection
 from media_tools.core.config import get_runtime_setting_int
@@ -26,7 +27,7 @@ def get_task_stale_minutes() -> int:
     return get_runtime_setting_int("task_stale_minutes", DEFAULT_TASK_STALE_MINUTES)
 
 
-def _extract_payload_pipeline_stage(payload: str | None) -> str:
+def _extract_payload_pipeline_stage(payload: Optional[str]) -> str:
     if not payload:
         return ""
     try:
@@ -49,7 +50,7 @@ def _get_stale_minutes_for_stage(stage: str, default_minutes: int) -> int:
     return default_minutes
 
 
-def cleanup_stale_tasks(conn: sqlite3.Connection, stale_minutes: int | None = None):
+def cleanup_stale_tasks(conn: sqlite3.Connection, stale_minutes: Optional[int] = None):
     default_minutes = stale_minutes if stale_minutes is not None else get_task_stale_minutes()
     default_minutes = default_minutes if default_minutes > 0 else DEFAULT_TASK_STALE_MINUTES
 
@@ -109,10 +110,10 @@ async def notify_task_update(
     msg: str,
     status: str = "RUNNING",
     task_type: str = "pipeline",
-    result_summary: dict | None = None,
-    subtasks: list | None = None,
+    result_summary: Optional[dict] = None,
+    subtasks: Optional[list] = None,
     stage: str = "",
-    pipeline_progress: dict | None = None,
+    pipeline_progress: Optional[dict] = None,
 ):
     message = {
         "task_id": task_id,
@@ -141,10 +142,10 @@ async def update_task_progress(
     progress: float,
     msg: str,
     task_type: str = "pipeline",
-    result_summary: dict | None = None,
-    subtasks: list | None = None,
+    result_summary: Optional[dict] = None,
+    subtasks: Optional[list] = None,
     stage: str = "",
-    pipeline_progress: dict | None = None,
+    pipeline_progress: Optional[dict] = None,
 ):
     updated = False
     try:
@@ -231,11 +232,11 @@ async def _complete_task(
     task_type: str,
     msg: str,
     status: str = "COMPLETED",
-    error_msg: str | None = None,
-    result_summary: dict | None = None,
-    subtasks: list | None = None,
+    error_msg: Optional[str] = None,
+    result_summary: Optional[dict] = None,
+    subtasks: Optional[list] = None,
 ) -> None:
-    pipeline_progress: dict | None = None
+    pipeline_progress: Optional[dict] = None
     progress_for_notify: float = 0.0
     updated = False
     try:

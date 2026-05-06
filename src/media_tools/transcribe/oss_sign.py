@@ -1,11 +1,11 @@
-"""OSS 请求签名工具"""
 from __future__ import annotations
+"""OSS 请求签名工具"""
 
 import base64
 import hashlib
 import hmac
 import re
-from typing import Any
+from typing import Any, Optional, Union
 
 
 def md5_base64(input_bytes: bytes) -> str:

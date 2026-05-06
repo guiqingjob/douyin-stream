@@ -1,22 +1,22 @@
-"""转写导出工具函数"""
 from __future__ import annotations
+"""转写导出工具函数"""
 
 import json
 import re
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Any
+from typing import Any, Optional, Union
 
 from .runtime import ExportConfig, ensure_dir, now_stamp
 
 
-@dataclass(frozen=True, slots=True)
+@dataclass(frozen=True)
 class FlowDebugArtifacts:
     transcript_path: Path
     doc_edit_path: Path
 
 
-def _get_video_title_from_db(video_path: Path) -> str | None:
+def _get_video_title_from_db(video_path: Path) -> Optional[str]:
     """从文件名提取标题（下载时已清洗）"""
     stem = Path(video_path).stem
     if re.search(r'\d{15,}', stem):
@@ -30,11 +30,11 @@ def _get_video_title_from_db(video_path: Path) -> str | None:
 
 def build_export_output_path(
     *,
-    input_path: str | Path,
-    output_dir: str | Path,
+    input_path: Union[str, Path],
+    output_dir: Union[str, Path],
     export_config: ExportConfig,
-    run_stamp: str | None = None,
-    title: str | None = None,
+    run_stamp: Optional[str] = None,
+    title: Optional[str] = None,
 ) -> Path:
     """构建导出文件路径"""
     stamp = run_stamp or now_stamp()
@@ -51,7 +51,7 @@ def build_export_output_path(
 
 def save_debug_artifacts(
     *,
-    output_dir: str | Path,
+    output_dir: Union[str, Path],
     output_base: str,
     run_stamp: str,
     transcript_json: Any,

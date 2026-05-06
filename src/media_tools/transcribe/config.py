@@ -1,4 +1,5 @@
 from __future__ import annotations
+from typing import Optional, Union
 
 from dataclasses import dataclass
 from pathlib import Path
@@ -8,7 +9,7 @@ from .errors import ConfigurationError
 from .runtime import as_absolute, env_flag
 
 
-@dataclass(frozen=True, slots=True)
+@dataclass(frozen=True)
 class AppPaths:
     auth_state_path: Path
     accounts_file: Path
@@ -18,7 +19,7 @@ class AppPaths:
     download_dir: Path
 
 
-@dataclass(frozen=True, slots=True)
+@dataclass(frozen=True)
 class AppConfig:
     base_url: str
     app_url: str
@@ -36,11 +37,11 @@ class AppConfig:
     paths: AppPaths
 
 
-def _strip(value: str | None, default: str) -> str:
+def _strip(value: Optional[str], default: str) -> str:
     return str(value or default).strip()
 
 
-def parse_int_setting(name: str, default: int, *, minimum: int | None = None) -> int:
+def parse_int_setting(name: str, default: int, *, minimum: Optional[int] = None) -> int:
     raw = os.environ.get(name)
     if raw is None or not raw.strip():
         value = default
@@ -54,7 +55,7 @@ def parse_int_setting(name: str, default: int, *, minimum: int | None = None) ->
     return value
 
 
-def parse_float_setting(name: str, default: float, *, minimum: float | None = None) -> float:
+def parse_float_setting(name: str, default: float, *, minimum: Optional[float] = None) -> float:
     raw = os.environ.get(name)
     if raw is None or not raw.strip():
         value = default

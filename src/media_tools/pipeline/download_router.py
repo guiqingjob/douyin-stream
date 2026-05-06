@@ -3,7 +3,7 @@ from __future__ import annotations
 import asyncio
 import re
 from dataclasses import dataclass, field
-from typing import Any
+from typing import Any, Optional, Union
 
 
 @dataclass
@@ -52,7 +52,7 @@ def is_aweme_url(url: str) -> bool:
     return bool(re.search(r'douyin\.com/video/\d+', url))
 
 
-def download_by_url(url: str, max_counts: int | None, disable_auto_transcribe: bool, skip_existing: bool, task_id: str | None = None) -> DownloadResult:
+def download_by_url(url: str, max_counts: Optional[int], disable_auto_transcribe: bool, skip_existing: bool, task_id: Optional[str] = None) -> DownloadResult:
     platform = resolve_platform(url)
     raw: dict[str, Any]
     if platform == "bilibili":

@@ -1,5 +1,5 @@
-"""转写工作者 - 视频转写逻辑"""
 from __future__ import annotations
+"""转写工作者 - 视频转写逻辑"""
 
 import asyncio
 import logging

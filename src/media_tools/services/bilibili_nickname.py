@@ -1,5 +1,5 @@
-"""B站用户昵称获取服务"""
 from __future__ import annotations
+"""B站用户昵称获取服务"""
 
 import asyncio
 import logging

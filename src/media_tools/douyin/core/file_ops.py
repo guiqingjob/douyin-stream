@@ -1,5 +1,6 @@
-"""抖音下载器文件操作工具"""
 from __future__ import annotations
+"""抖音下载器文件操作工具"""
+from typing import Optional, Union
 
 import logging
 import re
@@ -40,7 +41,7 @@ def _clean_video_title(raw_title: str) -> str:
     return clean
 
 
-def _reorganize_files(nickname: str, uid: str) -> str | None:
+def _reorganize_files(nickname: str, uid: str) -> Optional[str]:
     """整理文件到下载目录/{博主昵称}/"""
     config = get_config()
     downloads_path = config.get_download_path()

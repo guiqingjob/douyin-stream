@@ -1,7 +1,8 @@
 from __future__ import annotations
+from typing import Optional, Union
 
 from dataclasses import dataclass
-from datetime import UTC, datetime
+from datetime import datetime, timezone
 from pathlib import Path
 import json
 
@@ -10,7 +11,7 @@ from .errors import ConfigurationError
 from .runtime import as_absolute, ensure_dir
 
 
-@dataclass(frozen=True, slots=True)
+@dataclass(frozen=True)
 class ExecutionAccount:
     account_id: str
     account_label: str
@@ -18,28 +19,28 @@ class ExecutionAccount:
     accounts_file_path: Path
 
 
-@dataclass(frozen=True, slots=True)
+@dataclass(frozen=True)
 class ExecutionAccounts:
     strategy: str
     pool_state_path: Path
     accounts: list[ExecutionAccount]
 
 
-@dataclass(frozen=True, slots=True)
+@dataclass(frozen=True)
 class ConfiguredAccount:
     id: str
     label: str
     storage_state_path: str
 
 
-def normalize_account_strategy(strategy: str | None) -> str:
+def normalize_account_strategy(strategy: Optional[str]) -> str:
     normalized = str(strategy or load_config().default_account_strategy).strip().lower()
     if normalized not in {"round-robin", "failover", "sticky"}:
         raise ConfigurationError(f"Unsupported account strategy: {strategy}")
     return normalized
 
 
-def _accounts_config_path(config_path: str | Path | None = None) -> Path:
+def _accounts_config_path(config_path: str | Optional[Path] = None) -> Path:
     if config_path is not None:
         return as_absolute(config_path)
     return load_config().paths.accounts_file
@@ -56,7 +57,7 @@ def _normalize_account_entry(entry: object) -> ConfiguredAccount | None:
     return ConfiguredAccount(id=account_id, label=label, storage_state_path=storage_state_path)
 
 
-def load_accounts_config(config_path: str | Path | None = None) -> tuple[Path, list[ConfiguredAccount]]:
+def load_accounts_config(config_path: str | Optional[Path] = None) -> tuple[Path, list[ConfiguredAccount]]:
     path = _accounts_config_path(config_path)
     try:
         parsed = json.loads(path.read_text(encoding="utf-8"))
@@ -75,7 +76,7 @@ def load_accounts_config(config_path: str | Path | None = None) -> tuple[Path, l
 def resolve_auth_state_path(
     *,
     account_id: str = "",
-    fallback_path: str | Path = ".auth/qwen-storage-state.json",
+    fallback_path: Union[str, Path] = ".auth/qwen-storage-state.json",
 ) -> ExecutionAccount:
     selected_account_id = str(account_id).strip()
     accounts_file_path = _accounts_config_path()
@@ -141,7 +142,7 @@ def _rotate_accounts(accounts: list[ConfiguredAccount], pivot_account_id: str) -
 def resolve_execution_accounts(
     *,
     account_id: str = "",
-    fallback_path: str | Path = ".auth/qwen-storage-state.json",
+    fallback_path: Union[str, Path] = ".auth/qwen-storage-state.json",
     strategy: str = "round-robin",
 ) -> ExecutionAccounts:
     selected_account_id = str(account_id).strip()
@@ -201,7 +202,7 @@ def mark_account_success(account_id: str) -> None:
     content = json.dumps(
         {
             "lastSuccessfulAccountId": selected_account_id,
-            "updatedAt": datetime.now(UTC).isoformat(timespec="seconds"),
+            "updatedAt": datetime.now(timezone.utc).isoformat(timespec="seconds"),
         },
         indent=2,
     )

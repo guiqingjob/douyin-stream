@@ -1,5 +1,6 @@
-"""Pipeline 工具函数"""
 from __future__ import annotations
+"""Pipeline 工具函数"""
+from typing import Optional, Union
 
 import logging
 import re
@@ -11,7 +12,7 @@ from media_tools.db.core import get_db_connection
 logger = logging.getLogger(__name__)
 
 
-def _clean_title_for_export(raw_title: str) -> str | None:
+def _clean_title_for_export(raw_title: str) -> Optional[str]:
     """清洗标题用于导出文件名：去掉换行和 #话题标签"""
     main_part = raw_title.replace('<br>', '\n').split('\n')[0]
     if '#' in main_part:
@@ -24,7 +25,7 @@ def _clean_title_for_export(raw_title: str) -> str | None:
     return clean if len(clean) > 2 else None
 
 
-def _lookup_video_title(video_path: Path) -> str | None:
+def _lookup_video_title(video_path: Path) -> Optional[str]:
     """从数据库查询视频标题（通过文件名中的 aweme_id）"""
     aweme_matches = re.findall(r'\d{15,}', video_path.name)
     if not aweme_matches:
@@ -47,7 +48,7 @@ def _lookup_video_title(video_path: Path) -> str | None:
     return None
 
 
-def _lookup_creator_folder(video_path: Path) -> str | None:
+def _lookup_creator_folder(video_path: Path) -> Optional[str]:
     """从视频所在目录或数据库查询视频所属创作者昵称（用作转写子目录名）"""
 
     # 方法1：从视频所在目录获取（视频在 downloads/创作者名/ 下）

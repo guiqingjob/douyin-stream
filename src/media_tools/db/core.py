@@ -3,7 +3,7 @@ import sqlite3
 import os
 import threading
 from pathlib import Path
-from typing import Generator
+from typing import Generator, Optional, Union
 from media_tools.logger import get_logger
 
 logger = get_logger('db')
@@ -60,7 +60,7 @@ def get_table_columns(conn: sqlite3.Connection, table: str) -> set[str]:
 
 
 # --- Resolved DB path (set once at init, reused everywhere) ---
-_db_path: str | None = None
+_db_path: Optional[str] = None
 
 
 def get_db_path() -> str:
@@ -268,7 +268,7 @@ def _ensure_fts_table(conn: sqlite3.Connection) -> None:
     from .fts import _ensure_fts_table as _ensure
     _ensure(conn)
 
-def init_db(db_path: str | Path):
+def init_db(db_path: Union[str, Path]):
     """
     初始化所有数据表（启动时调用一次）
 
