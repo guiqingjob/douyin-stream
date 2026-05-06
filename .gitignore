@@ -239,6 +239,7 @@ tests/*
 !tests/test_exceptions.py
 !tests/test_structured_downloader.py
 !tests/test_pipeline_steps.py
+!tests/test_task_service.py
 tests/bilibili/**/__pycache__/
 tests/regression/**/__pycache__/
 tests/api/**/__pycache__/
