@@ -323,7 +323,7 @@ class AppConfig:
     @property
     def pipeline_keep_original(self) -> bool:
         """是否保留原始文件"""
-        return _get_env_bool("PIPELINE_KEEP_ORIGINAL", True)
+        return _get_env_bool("PIPELINE_KEEP_ORIGINAL", False)
 
     # === Derived properties ===
     
