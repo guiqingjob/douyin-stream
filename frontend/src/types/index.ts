@@ -94,17 +94,21 @@ export interface TranscribeStageProgress {
 
 export interface TaskProgress {
   stage: TaskStage;
+  stage_label: string;
+  stage_icon: string;
   overall_percent: number;
   download_progress: DownloadStageProgress | null;
   transcribe_progress: TranscribeStageProgress | null;
   error_count: number;
   errors: Array<{
-    title: string;
-    status?: string;
-    error?: string;
-    time: number;
+    code: string;
+    message: string;
+    suggestion: string;
+    timestamp: string;
   }>;
   start_time: string | null;
+  estimated_time_remaining: string | null;
+  message: string;
 }
 
 export interface PipelineProgressCounter {
@@ -148,49 +152,3 @@ export interface ScannedFile {
 
 export interface DouyinVideoMeta {
   aweme_id: string;
-  desc: string;
-  create_time: number;
-  video_url: string;
-  cover_url: string;
-}
-
-export interface DouyinCreatorMeta {
-  uid: string;
-  nickname: string;
-  avatar: string;
-}
-
-export interface DouyinMetadataResponse {
-  creator: DouyinCreatorMeta;
-  videos: DouyinVideoMeta[];
-}
-
-export interface QwenStatusAccount {
-  accountId: string;
-  accountLabel?: string;
-  remaining_hours: number;
-  status: string;
-}
-
-export interface QwenStatusResponse {
-  status: string;
-  accounts: QwenStatusAccount[];
-  message?: string;
-}
-
-export type QwenAccountValidationStatus = 'ok' | 'network_error' | 'auth_invalid';
-
-export interface QwenAccountValidationResult {
-  ok?: boolean;
-  status?: QwenAccountValidationStatus;
-  error_type?: string;
-  message?: string;
-  remaining_hours?: number;
-}
-
-export interface AddQwenAccountResponse {
-  status: string;
-  account_id?: string;
-  validation?: QwenAccountValidationResult | QwenAccountValidationStatus;
-  message?: string;
-}
