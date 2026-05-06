@@ -11,6 +11,12 @@
 
 ### 🎉 新增
 
+- **领域驱动架构（DDD）**：引入完整的领域驱动设计架构
+  - **领域层** (`domain/`)：富领域实体（Asset、Creator、Task、Transcript）、仓储接口、领域服务
+  - **基础设施层** (`infrastructure/db/`)：SQLite 仓储实现（工厂函数模式）
+  - **应用层** (`application/pipelines/`)：业务管道编排（VideoDownloadPipeline、TranscribePipeline、ExportPipeline）
+  - **表示层** (`presentation/api/v2/`)：REST API v2 路由、WebSocket 实时推送
+  - **迁移适配层** (`migration/`)：旧服务到新架构的桥接，保持向后兼容
 - **Ghost transcripts 清理**：`reconcile_transcripts()` 新增 prune 逻辑，清理 DB 中已完成但文件已不存在的"幽灵"记录
 - **健康检查脚本**：`scripts/health_check.py` 检查 4 类一致性问题（DB与文件系统同步）
 - **失败原因聚合视图**：API + Settings 页表格展示最近 N 天 Top 错误类型
@@ -26,7 +32,7 @@
   - **Phase 1 - 基础架构优化**：统一配置系统（AppConfig）、统一错误处理（异常类型 + 中间件）、日志标准化
   - **Phase 2 - 核心模块重构**：下载器职责分离（接口 + 实现）、管道流程重构（PipelineStep + 步骤实现）、任务系统优化（TaskService）
   - **Phase 3 - API层优化**：提取 AssetService、CreatorService，实现路由层与服务层分离
-  - **Phase 4 - 测试完善**：新增 6 个测试文件，共 69 个测试用例
+  - **Phase 4 - DDD架构落地**：领域驱动架构完整实现，33个单元测试全部通过
 - **命名标准化**：移除版本号命名（orchestrator_v2.py → orchestrator.py）
 - **WebSocket 错误日志防抖**：添加 `_lastWsErrorLog` 状态，避免 `onerror` 每秒多次触发
 - **路径遍历检测优化**：移除过于宽泛的 `..` 字符串检查（文件名可能包含 `....`），改用 `os.path.commonpath()` 做准确检测

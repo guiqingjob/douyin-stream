@@ -1,1 +1,255 @@
-# CLAUDE
+# CLAUDE.md
+
+This file provides guidance to Claude Code (claude.ai/code) when working with code in this repository.
+
+## 项目性质
+
+单机本地 Web 工作站：抖音/B站批量下载 → 通义千问云端转写 → 本地阅读管理。**没有部署、没有团队、没有 SLA** —— 不要套用"生产服务"的工程标准（CI/CD、Docker、覆盖率门槛在这里都是负收益）。优先级永远是**业务可靠性 > 工程规范**。
+
+## 常用命令
+
+```bash
+./run.sh                # 同时启动后端 (8000) 和前端 (5173)
+./run.sh backend        # 只启后端
+./run.sh frontend       # 只启前端
+./run.sh build          # 前端生产构建到 frontend/dist/
+```
+
+> README/CONTRIBUTING 里写的 `./run.sh setup` 和 `./run.sh test` **并不存在**，是文档残留。下面是真命令。
+
+```bash
+# 测试（pyproject.toml 已配 pythonpath=src, testpaths=tests）
+pytest                                              # 全量
+pytest tests/test_flow_resume.py                    # 单文件
+pytest tests/test_flow_resume.py::test_xxx          # 单用例
+pytest -k "transcribe and resume"                   # 关键字过滤
+pytest -x --ff                                      # 失败立刻停 + 上次失败的先跑
+
+# Lint（无 CI，但 ruff 已在 .ruff_cache 中用过）
+ruff check src/
+ruff format src/
+
+# 前端
+cd frontend && npm run dev
+cd frontend && npm run build
+cd frontend && npm run lint
+cd frontend && npx vitest                           # 前端测试（vitest.config.ts 已配）
+```
+
+后端入口：`PYTHONPATH=src python -m uvicorn media_tools.api.app:app --reload`。
+
+## 架构核心（必须先理解）
+
+### 真相源分层
+1. **业务真相源** = `media_tools.db`（SQLite, WAL）。`media_assets` 表的 `transcript_status` / `download_status` 才决定业务是否完成；任务（`task_queue`）只是"一次执行尝试"。
+2. **运行时配置真相源** = `SystemSettings` 表（KV）。`auto_transcribe`、`auto_delete`、`concurrency`、`api_key` 全在这里，**不要回去读 `config.yaml`**。`config.yaml` 只剩 `cookie` / `download_path` / `naming` 这种启动期常量。
+3. **转写阶段真相源** = `transcribe_runs` 表（2026-05 新加）。每行 = 某 asset 在某账号上的一次完整尝试，stage 推进序：`queued → uploaded → transcribing → exporting → downloading → saved`。
+
+### 重构脉络
+[docs/pipeline_reliability_refactor.md](docs/pipeline_reliability_refactor.md) 是 pipeline 改造的完整设计文档，**第一到第四阶段全部落地（2026-05-05）**：视频级状态治理 → 可恢复转写流水线 → 可观测性（失败聚合 / 健康检查 / PARTIAL_FAILED / 日志归档）。改 pipeline / orchestrator / transcribe 前必读，尤其是第 156-189 行的"Phase 3 已完成机制"——续传不变量在那里。
+
+### 续传 fast-path（重要不变量）
+`find_resumable(asset_id, account_id)` 命中条件：`gen_record_id` 已持久化，且 stage ∈ RESUMABLE_STAGES，**或** stage='failed' 但 `error_stage` ∈ RESUMABLE_STAGES。命中后：
+- 已有 `export_url` → 直接 download，**0 调用 Qwen**
+- 已有 `gen_record_id` → 跳过上传，从 `poll_until_done` 继续
+- **不支持跨账号续传**（Qwen 的 `genRecordId` 与账号绑定）
+- 续传任何异常 → stage 重置 `queued` → 完整 flow 接管（保险丝在 [orchestrator.py](src/media_tools/pipeline/orchestrator.py)）
+
+### 模块布局（big-picture）
+
+```
+api/app.py            FastAPI 入口：lifespan 里做 init_db / FTS 填充 / 启动 scheduler /
+                      cleanup_stale_tasks（重启后清掉孤儿 RUNNING 任务）/ WS 半开扫除
+api/routers/          7 个路由：creators assets tasks settings douyin scheduler metrics
+api/websocket_manager 任务进度推送 + 心跳保活 + stale_connection_sweeper
+
+pipeline/orchestrator.py  (871 行) 单创作者下载+转写主调度，账号池决策 + 重试 + 续传
+pipeline/worker.py            后台 worker
+pipeline/error_types.py       8 种错误分类 → 决定重试策略
+transcribe/flow.py            (594 行) Qwen 实际转写流程；现已支持 resume 分支
+transcribe/db_account_pool    Qwen 账号池（DB 持久化）
+
+repositories/         数据访问层（task / creator / asset / transcribe_run）
+services/             业务逻辑层；task_ops / cleanup / auto_retry / qwen_status / reconciler
+workers/              一次性后台任务（creator_sync / full_sync / local_transcribe ...）
+core/config.py        运行时配置 = SystemSettings；不要绕过
+core/background.py    后台 task registry（shutdown 时统一 cancel_all）
+core/exceptions.py    AppError / NotFoundError / ValidationError → 统一 JSON 响应
+db/core.py            连接（线程级缓存 + WAL）+ 标识符白名单（防 SQL 注入）
+                      _VALID_TABLES 白名单：新加表必须加进去
+```
+
+### 错误处理模式
+- 业务异常抛 `AppError` 子类（[core/exceptions.py](src/media_tools/core/exceptions.py)），由 `app_error_handler` 转 JSON。
+- 路由里**不要**写宽泛 `try/except Exception` —— `UnhandledApiErrorsMiddleware` 已统一兜底 `sqlite3.Error / OSError / RuntimeError`。
+- 之前一轮重构把宽泛捕获从 56 处砍到 9 处，**别再加回来**。捕获就要写具体异常类型。
+
+### 硬约束（被测试强制）
+- **不准用 `print`** —— [test_no_print_in_src.py](tests/test_no_print_in_src.py) 会全仓扫描，用 `media_tools.logger.get_logger`。
+- **不准引入 Playwright** —— [test_no_playwright_dependency.py](tests/test_no_playwright_dependency.py) 扫 `pyproject.toml` / `requirements.txt` / 全部 src import。Qwen 转写已迁移成纯 HTTP，不要回退。（README 里"Playwright 驱动通义千问 Web 端"是过时描述。）
+- 新增表必须加进 `db/core.py` 的 `_VALID_TABLES` 白名单。
+
+### 任务状态机要点
+- 任务 `RUNNING` ≠ 业务进行中。重启时所有内存 worker 丢失，但 DB 还残留 `RUNNING` —— `cleanup_stale_tasks` 在 startup 把它们标 FAILED。
+- 子任务（subtasks）才是业务真相，任务状态由子任务聚合。`PARTIAL_FAILED` **已显式支持**（2026-05-05），区分"全失败" vs "部分失败"，**不**触发 auto_retry 整任务（避免重跑成功子任务）；前端在 PARTIAL 任务上显示"重试失败子任务"按钮、隐藏"重试整任务"按钮。
+
+## 协作约定
+
+- 中文注释、中文 commit message（仓库现有风格：`feat(transcribe): ...`、`fix(pipeline): ...`）。
+- 注释只解释 **WHY**，不解释 WHAT。
+- 别为还没出现的需求做抽象。三行重复优于过早抽象。
+- 改 pipeline / orchestrator / transcribe 前先看 [docs/pipeline_reliability_refactor.md](docs/pipeline_reliability_refactor.md) 第 156-189 行的"已完成机制"，确认你的改动不破坏续传不变量。
+- [docs/STATUS.md](docs/STATUS.md) 已同步到 2026-05-05（含 Phase 3/4 细节）；任何文档都可能再次漂移，涉及当前进度的判断以代码 + `git log` 为准。
+
+## 领域驱动架构（2026-05 新增）
+
+### 架构分层
+
+| 层级 | 职责 | 特点 |
+|------|------|------|
+| **core** | 核心基础设施 | 配置、日志、异常处理；无外部依赖 |
+| **domain** | 领域层 | 实体、仓储接口、领域服务；仅依赖 core |
+| **infrastructure** | 基础设施层 | 数据库实现、外部 API 集成；依赖 domain + core |
+| **application** | 应用层 | 业务管道、工作流编排；依赖 domain + core |
+| **presentation** | 表示层 | REST API、WebSocket；依赖 application + domain |
+
+### 核心优势
+
+- **职责分离**：实体、仓储、服务明确分离，单一职责原则
+- **依赖倒置**：高层模块不依赖低层模块，两者都依赖抽象接口
+- **可测试性**：依赖注入设计，易于 Mock 测试
+- **可扩展性**：插件化架构，易于添加新功能和替换实现
+- **向后兼容**：通过迁移适配层实现平滑过渡
+
+### 领域层结构
+
+```
+domain/
+├── entities/           # 领域实体（富领域模型）
+│   ├── Asset          # 素材实体（含业务方法）
+│   ├── Creator        # 创作者实体
+│   ├── Task           # 任务实体
+│   └── Transcript     # 转写实体
+├── repositories/       # 仓储接口（抽象数据访问）
+│   ├── AssetRepository
+│   ├── CreatorRepository
+│   ├── TaskRepository
+│   └── TranscriptRepository
+└── services/           # 领域服务（封装业务逻辑）
+    ├── AssetDomainService
+    ├── CreatorDomainService
+    └── TaskDomainService
+```
+
+### 领域实体
+
+**Asset（素材实体）** - 核心业务模型：
+- `mark_downloaded()` - 标记下载完成
+- `mark_transcribed()` - 标记转写完成
+- `mark_failed()` - 标记失败状态
+
+**Creator（创作者实体）** - 创作者信息：
+- `increment_downloaded()` - 增加下载计数
+- `increment_transcript()` - 增加转写计数
+
+**Task（任务实体）** - 任务管理：
+- `start()` / `complete()` / `fail()` / `cancel()` - 状态转换
+- `update_progress()` - 更新任务进度
+
+### 仓储接口
+
+定义数据访问抽象，不依赖具体实现：
+
+```python
+class AssetRepository(ABC):
+    def save(self, asset: Asset) -> None: ...
+    def find_by_id(self, asset_id: str) -> Optional[Asset]: ...
+    def find_by_creator(self, creator_uid: str) -> List[Asset]: ...
+    def delete(self, asset_id: str) -> None: ...
+```
+
+### 领域服务
+
+封装跨实体的业务逻辑，不包含基础设施细节：
+
+```python
+class AssetDomainService:
+    def __init__(self, asset_repo: AssetRepository, creator_repo: CreatorRepository): ...
+    def create_asset(self, creator_uid: str, title: str) -> Asset: ...
+    def mark_downloaded(self, asset_id: str, video_path: Path) -> None: ...
+    def mark_transcribed(self, asset_id: str, transcript_path: Path, preview: str) -> None: ...
+```
+
+### 基础设施层
+
+```
+infrastructure/
+└── db/                 # SQLite 仓储实现
+    ├── create_asset_repository()
+    ├── create_creator_repository()
+    ├── create_task_repository()
+    └── create_transcript_repository()
+```
+
+### 应用层
+
+```
+application/
+└── pipelines/          # 业务管道
+    ├── VideoDownloadPipeline
+    ├── TranscribePipeline
+    └── ExportPipeline
+```
+
+### 表示层
+
+```
+presentation/
+├── api/
+│   └── v2/             # v2 API 路由
+│       ├── assets.py
+│       ├── creators.py
+│       └── tasks.py
+└── websocket/          # WebSocket 管理
+    └── manager.py
+```
+
+### 迁移适配层
+
+`migration/__init__.py` 提供旧服务到新架构的桥接，保持向后兼容：
+
+```python
+# 旧服务调用新架构的适配层
+from media_tools.migration import migrate_asset_service
+asset_service = migrate_asset_service()  # 返回适配后的服务
+```
+
+### 迁移策略
+
+旧服务层（`services/task_service.py`、`services/creator_service.py`、`services/asset_service.py`）已通过迁移适配层调用新架构，保持向后兼容。新代码应直接使用领域服务：
+
+```python
+# 新代码使用方式
+from media_tools.domain.services import AssetDomainService
+from media_tools.infrastructure.db import create_asset_repository, create_creator_repository
+
+asset_service = AssetDomainService(
+    create_asset_repository(),
+    create_creator_repository(),
+)
+asset = asset_service.get_asset(asset_id)
+```
+
+### v2 API
+
+新的 v2 API 路由已注册到主应用，路径前缀 `/api/v2/`，包括：
+- `/api/v2/assets` - 素材管理
+- `/api/v2/creators` - 创作者管理  
+- `/api/v2/tasks` - 任务管理
+
+### 新代码开发规范
+
+1. **新功能**：直接使用 `domain/services` + `infrastructure/db`
+2. **修改旧功能**：优先迁移到新架构，保持适配层兼容
+3. **测试**：对领域服务进行单元测试，Mock 仓储接口
+4. **依赖注入**：通过工厂函数创建仓储实例，避免硬编码
