@@ -190,6 +190,8 @@ docs/*
 !docs/references/**
 !docs/ui/
 !docs/ui/**
+!docs/refactor/
+!docs/refactor/**
 
 !scripts/
 scripts/*
