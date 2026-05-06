@@ -203,6 +203,10 @@ def get_db_connection(keep_open: bool = False) -> DBConnection:
             cached.execute("SELECT 1")
             return DBConnection._reuse_thread_local()
         except (sqlite3.Error, Exception):
+            try:
+                cached.close()
+            except Exception:
+                pass
             _thread_local.conn = None
 
     # 创建新连接并缓存（不拥有物理生命周期，__exit__ 时不关闭，由 shutdown/线程退出回收）
