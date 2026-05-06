@@ -8,6 +8,7 @@ from media_tools.api.routers import creators, assets, tasks, settings, douyin, s
 from media_tools.api.websocket_manager import stale_connection_sweeper
 from media_tools.core import background
 from media_tools.core.exceptions import AppError
+from media_tools.presentation.api.v2 import router as v2_router
 import asyncio
 import sqlite3
 import uvicorn
@@ -222,6 +223,7 @@ app.include_router(settings.router)
 app.include_router(douyin.router)
 app.include_router(scheduler.router)
 app.include_router(metrics.router)
+app.include_router(v2_router)
 
 import shutil
 import sqlite3
