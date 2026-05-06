@@ -205,8 +205,14 @@ tests/*
 !tests/bilibili/**
 !tests/api/
 !tests/api/**
+!tests/domain/
+!tests/domain/**
 !tests/services/
+!tests/domain/
+!tests/domain/**
 !tests/services/test_media_asset_service.py
+!tests/domain/
+!tests/domain/**
 !tests/services/test_transcribe_run_repository.py
 !tests/test_local_media_extensions.py
 !tests/test_task_payload_retry.py
