@@ -8,12 +8,13 @@
 - 彩色终端输出
 - 文件持久化
 - 日志轮转（自动清理旧日志）
-- 结构化 JSON 日志（MEDIA_TOOLS_LOG_FORMAT=json）
+- 结构化 JSON 日志（通过配置系统启用）
 - 性能追踪
+- 日志上下文注入（request_id/task_id/creator_uid）
 
-环境变量：
-- MEDIA_TOOLS_LOG_FORMAT=json  → 所有 handler 切换为 JSON 行格式
-- MEDIA_TOOLS_JSON_LOGS=1      → 额外输出一份 .jsonl 文件（与人类可读日志并存）
+配置来源：
+- AppConfig.log_level: 日志级别
+- AppConfig.log_json_format: 是否使用 JSON 格式
 """
 
 import json
@@ -294,13 +295,13 @@ def get_logger(name: str = "media_tools") -> logging.Logger:
 
 def init_logging(
     level: str | None = None,
-    log_dir: Path = Path("logs"),
+    log_dir: Path | None = None,
 ) -> MediaLogger:
     """初始化日志系统
 
     Args:
-        level: 日志级别 (DEBUG/INFO/WARNING/ERROR)，未设置时读取 MEDIA_TOOLS_LOG_LEVEL 环境变量，默认 INFO
-        log_dir: 日志目录
+        level: 日志级别 (DEBUG/INFO/WARNING/ERROR)，未设置时读取配置系统，默认 INFO
+        log_dir: 日志目录，未设置时读取配置系统
 
     Returns:
         MediaLogger实例
@@ -310,8 +311,23 @@ def init_logging(
     """
     global _logger
 
-    if level is None:
-        level = os.environ.get("MEDIA_TOOLS_LOG_LEVEL", "INFO")
+    # 优先使用参数，其次从配置系统读取
+    try:
+        from media_tools.core.config import get_app_config
+        config = get_app_config()
+        
+        if level is None:
+            level = config.log_level
+        
+        if log_dir is None:
+            log_dir = config.project_root / "logs"
+    except ImportError:
+        # 配置系统尚未初始化时使用环境变量
+        if level is None:
+            level = os.environ.get("LOG_LEVEL", os.environ.get("MEDIA_TOOLS_LOG_LEVEL", "INFO"))
+        
+        if log_dir is None:
+            log_dir = Path("logs")
 
     level_map = {
         "DEBUG": logging.DEBUG,
@@ -321,7 +337,7 @@ def init_logging(
     }
 
     json_logs = os.environ.get("MEDIA_TOOLS_JSON_LOGS", "1").lower() in ("1", "true", "yes")
-    structured = _should_use_structured_logging()
+    structured = _should_use_structured_logging(level)
 
     _logger = MediaLogger(
         name="media_tools",
@@ -330,7 +346,7 @@ def init_logging(
         json_logs=json_logs,
     )
 
-    # MEDIA_TOOLS_LOG_FORMAT=json → 所有 handler 切换为结构化 JSON 输出
+    # 结构化日志模式 → 所有 handler 切换为结构化 JSON 输出
     if structured:
         setup_structured_logging(level)
 
@@ -363,9 +379,19 @@ def setup_structured_logging(level: str = "INFO") -> None:
         handler.setFormatter(formatter)
 
 
-def _should_use_structured_logging() -> bool:
-    """检查环境变量是否启用结构化 JSON 日志。"""
-    return os.environ.get("MEDIA_TOOLS_LOG_FORMAT", "").lower() == "json"
+def _should_use_structured_logging(level: str = "INFO") -> bool:
+    """检查是否启用结构化 JSON 日志。
+
+    优先级：配置系统 > 环境变量
+    """
+    # 优先从配置系统读取
+    try:
+        from media_tools.core.config import get_app_config
+        config = get_app_config()
+        return config.log_json_format
+    except ImportError:
+        # 配置系统尚未初始化时使用环境变量
+        return os.environ.get("MEDIA_TOOLS_LOG_FORMAT", "").lower() == "json"
 
 
 def main():
