@@ -1,9 +1,17 @@
-"""统一配置系统 — 数据库 SystemSettings 是运行时配置的唯一事实源。
+"""统一配置系统 — AppConfig 是运行时配置的唯一事实源。
 
 配置项归属：
-- SystemSettings 表：auto_transcribe, auto_delete, concurrency, api_key（运行时用户可修改）
-- config/config.yaml：cookie, download_path, naming（启动时确定，cookie 暂不迁移到数据库）
-- 环境变量：PIPELINE_* 系列（启动参数）
+- SystemSettings 表：concurrency, auto_transcribe, auto_delete, api_key（运行时用户可修改）
+- config/config.yaml：cookie, download_path, naming（启动时确定）
+- 环境变量：DEBUG, LOG_LEVEL, PIPELINE_* 系列（启动参数）
+
+使用方式：
+    from media_tools.core.config import get_app_config
+    
+    config = get_app_config()
+    print(config.concurrency)
+    print(config.download_path)
+    print(config.debug_mode)
 """
 from __future__ import annotations
 
@@ -11,7 +19,7 @@ import logging
 import os
 import sqlite3
 from pathlib import Path
-from typing import Any
+from typing import Any, Callable, Optional
 
 logger = logging.getLogger(__name__)
 
@@ -145,51 +153,229 @@ def get_db_path() -> Path:
     return _get_config_mgr().get_db_path()
 
 
-# --- Unified convenience API ---
+# --- Environment variable helpers ---
+
+def _get_env_bool(key: str, default: bool = False) -> bool:
+    """从环境变量读取布尔值。"""
+    value = os.environ.get(key, "").strip().lower()
+    if value == "":
+        return default
+    return value in ("true", "1", "yes", "on")
+
+
+def _get_env_int(key: str, default: int = 0) -> int:
+    """从环境变量读取整数值。"""
+    value = os.environ.get(key, "").strip()
+    if value == "":
+        return default
+    try:
+        return int(value)
+    except ValueError:
+        return default
+
+
+def _get_env_str(key: str, default: str = "") -> str:
+    """从环境变量读取字符串值。"""
+    return os.environ.get(key, default).strip()
+
+
+# --- Unified AppConfig ---
 
 class AppConfig:
-    """统一应用配置接口 — 所有配置项的唯一入口。"""
+    """统一应用配置接口 — 所有配置项的唯一入口。
+    
+    配置来源优先级（从高到低）：
+    1. 环境变量
+    2. SystemSettings 数据库表
+    3. config.yaml
+    4. 默认值
+    """
 
-    # Runtime settings (SystemSettings)
+    # === Runtime settings (SystemSettings) ===
+    
     @property
     def concurrency(self) -> int:
+        """并发数（同时处理的任务数量）"""
         return get_runtime_setting_int("concurrency", 10)
 
     @property
     def auto_transcribe(self) -> bool:
+        """是否自动转写下载的视频"""
         return get_runtime_setting_bool("auto_transcribe", False)
 
     @property
     def auto_delete(self) -> bool:
+        """转写完成后是否自动删除源视频文件"""
         return get_runtime_setting_bool("auto_delete", True)
 
     @property
     def api_key(self) -> str:
+        """API 密钥（用于认证）"""
         return get_runtime_setting("api_key", "")
 
-    # Static settings (config.yaml)
+    # === Static settings (config.yaml) ===
+    
     @property
     def cookie(self) -> str:
+        """抖音 Cookie（敏感信息）"""
         return get_cookie()
 
     @property
+    def has_cookie(self) -> bool:
+        """检查是否配置了 Cookie"""
+        return has_cookie()
+
+    @property
     def download_path(self) -> Path:
+        """视频下载路径"""
         return get_download_path()
 
     @property
     def naming_format(self) -> str:
+        """文件命名格式"""
         return get_naming_format()
 
     @property
     def project_root(self) -> Path:
+        """项目根目录"""
         return get_project_root()
 
     @property
     def db_path(self) -> Path:
+        """数据库文件路径"""
         return get_db_path()
 
+    # === Environment settings ===
+    
+    @property
+    def debug_mode(self) -> bool:
+        """调试模式"""
+        return _get_env_bool("DEBUG", False)
 
-# 全局 AppConfig 实例（轻量，无状态缓存）
+    @property
+    def log_level(self) -> str:
+        """日志级别 (DEBUG, INFO, WARNING, ERROR)"""
+        return _get_env_str("LOG_LEVEL", "INFO").upper()
+
+    @property
+    def log_json_format(self) -> bool:
+        """是否使用 JSON 格式日志"""
+        return _get_env_bool("LOG_JSON_FORMAT", True)
+
+    @property
+    def pipeline_export_format(self) -> str:
+        """Pipeline 导出格式 (md, docx)"""
+        return _get_env_str("PIPELINE_EXPORT_FORMAT", "md").lower()
+
+    @property
+    def pipeline_output_dir(self) -> str:
+        """Pipeline 输出目录"""
+        return _get_env_str("PIPELINE_OUTPUT_DIR", str(self.project_root / "transcripts"))
+
+    @property
+    def pipeline_delete_after_export(self) -> bool:
+        """导出后是否删除源文件"""
+        return _get_env_bool("PIPELINE_DELETE_AFTER_EXPORT", True)
+
+    @property
+    def pipeline_account_id(self) -> str:
+        """Pipeline 默认账号 ID"""
+        return _get_env_str("PIPELINE_ACCOUNT_ID", "")
+
+    @property
+    def pipeline_remove_video(self) -> bool:
+        """是否删除视频文件"""
+        return _get_env_bool("PIPELINE_REMOVE_VIDEO", False)
+
+    @property
+    def pipeline_keep_original(self) -> bool:
+        """是否保留原始文件"""
+        return _get_env_bool("PIPELINE_KEEP_ORIGINAL", True)
+
+    # === Derived properties ===
+    
+    @property
+    def output_path(self) -> Path:
+        """Pipeline 输出路径（解析后的绝对路径）"""
+        return Path(self.pipeline_output_dir).resolve()
+
+    # === Configuration validation ===
+    
+    def validate(self) -> list[str]:
+        """验证所有配置项，返回错误列表"""
+        errors = []
+        
+        if self.concurrency < 1:
+            errors.append("concurrency 必须大于 0")
+        
+        if self.concurrency > 100:
+            errors.append("concurrency 建议不超过 100")
+        
+        if not self.db_path.parent.exists():
+            errors.append(f"数据库目录不存在: {self.db_path.parent}")
+        
+        if not self.download_path.exists():
+            errors.append(f"下载目录不存在: {self.download_path}")
+        
+        return errors
+
+    # === Configuration description ===
+    
+    def describe(self) -> dict[str, Any]:
+        """返回配置项描述字典（不包含敏感信息）"""
+        return {
+            "runtime": {
+                "concurrency": self.concurrency,
+                "auto_transcribe": self.auto_transcribe,
+                "auto_delete": self.auto_delete,
+                "api_key_set": bool(self.api_key),
+            },
+            "static": {
+                "download_path": str(self.download_path),
+                "naming_format": self.naming_format,
+                "project_root": str(self.project_root),
+                "db_path": str(self.db_path),
+                "cookie_set": self.has_cookie,
+            },
+            "environment": {
+                "debug_mode": self.debug_mode,
+                "log_level": self.log_level,
+                "log_json_format": self.log_json_format,
+                "pipeline_export_format": self.pipeline_export_format,
+                "pipeline_output_dir": self.pipeline_output_dir,
+                "pipeline_delete_after_export": self.pipeline_delete_after_export,
+                "pipeline_account_id_set": bool(self.pipeline_account_id),
+                "pipeline_remove_video": self.pipeline_remove_video,
+                "pipeline_keep_original": self.pipeline_keep_original,
+            },
+        }
+
+
+# --- Configuration change listeners ---
+
+_config_listeners: list[Callable[[str, Any, Any], None]] = []
+
+
+def add_config_listener(listener: Callable[[str, Any, Any], None]) -> None:
+    """添加配置变更监听器。
+    
+    Args:
+        listener: 回调函数，接收 (key, old_value, new_value) 参数
+    """
+    _config_listeners.append(listener)
+
+
+def notify_config_change(key: str, old_value: Any, new_value: Any) -> None:
+    """通知所有监听器配置变更。"""
+    for listener in _config_listeners:
+        try:
+            listener(key, old_value, new_value)
+        except Exception as e:
+            logger.error(f"配置变更监听器执行失败: {e}")
+
+
+# --- Global instances ---
+
 _app_config = AppConfig()
 
 
@@ -198,18 +384,13 @@ def get_app_config() -> AppConfig:
     return _app_config
 
 
-# --- Pipeline config from env vars (unchanged, startup params) ---
-
-
-def _safe_int_env(key: str, default: int) -> int:
-    try:
-        return int(os.environ.get(key, str(default)))
-    except (TypeError, ValueError):
-        return default
-
+# --- Pipeline config (for backward compatibility) ---
 
 class PipelineConfig:
-    """Pipeline 配置 — 从环境变量读取（启动参数），支持实例化覆盖。"""
+    """Pipeline 配置 — 从环境变量读取（启动参数），支持实例化覆盖。
+    
+    保留此类以保持向后兼容，新代码建议使用 AppConfig。
+    """
 
     def __init__(
         self,
@@ -233,55 +414,49 @@ class PipelineConfig:
     def export_format(self) -> str:
         if self._export_format:
             return self._export_format
-        return os.environ.get("PIPELINE_EXPORT_FORMAT", "md").strip().lower()
+        return get_app_config().pipeline_export_format
 
     @property
     def output_dir(self) -> str:
         if self._output_dir:
             return self._output_dir
-        return os.environ.get("PIPELINE_OUTPUT_DIR", str(get_project_root() / "transcripts")).strip()
+        return get_app_config().pipeline_output_dir
 
     @property
     def output_path(self) -> Path:
         if self._output_dir:
             return Path(self._output_dir).resolve()
-        return Path(self.output_dir).resolve()
+        return get_app_config().output_path
 
     @property
     def delete_after_export(self) -> bool:
         if self._delete_after_export is not None:
             return self._delete_after_export
-        return os.environ.get("PIPELINE_DELETE_AFTER_EXPORT", "true").lower() == "true"
+        return get_app_config().pipeline_delete_after_export
 
     @property
     def account_id(self) -> str:
         if self._account_id:
             return self._account_id
-        return os.environ.get("PIPELINE_ACCOUNT_ID", "").strip()
+        return get_app_config().pipeline_account_id
 
     @property
     def remove_video(self) -> bool:
         if self._remove_video is not None:
             return self._remove_video
-        return os.environ.get("PIPELINE_REMOVE_VIDEO", "false").lower() == "true"
+        return get_app_config().pipeline_remove_video
 
     @property
     def keep_original(self) -> bool:
         if self._keep_original is not None:
             return self._keep_original
-        return os.environ.get("PIPELINE_KEEP_ORIGINAL", "true").lower() == "true"
+        return get_app_config().pipeline_keep_original
 
     @property
     def concurrency(self) -> int:
         if self._concurrency is not None:
             return self._concurrency
-        env_value = os.environ.get("PIPELINE_CONCURRENCY", "").strip()
-        if env_value:
-            try:
-                return int(env_value)
-            except ValueError:
-                pass
-        return get_runtime_setting_int("concurrency", 10)
+        return get_app_config().concurrency
 
 
 _pipeline_config = PipelineConfig()
