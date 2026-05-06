@@ -59,9 +59,9 @@ async def _background_full_sync_worker(task_id: str, mode: str = "incremental", 
                             await asyncio.sleep(5)
                             info = get_download_progress(task_id)
                             if info:
-                                d = info.get("downloaded", 0)
-                                s = info.get("skipped", 0)
-                                details = info.get("details", [])
+                                d = info.get("download_progress", {}).get("downloaded", 0)
+                                s = info.get("download_progress", {}).get("skipped", 0)
+                                details = info.get("errors", [])
                                 subtasks = [
                                     {"title": d_.get("title", "未知")[:60], "status": d_.get("status", "unknown")}
                                     for d_ in details[-50:]
