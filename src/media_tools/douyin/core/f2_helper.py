@@ -166,3 +166,25 @@ def get_f2_kwargs() -> dict:
         }
 
     return kwargs
+
+
+def _disable_f2_live_output() -> None:
+    """禁用 F2 的 rich.live 实时输出。"""
+    try:
+        from rich import live
+        
+        def noop(*args, **kwargs):
+            pass
+        
+        live.Live.__init__ = lambda self, *args, **kwargs: None
+        live.Live.update = noop
+        live.Live.start = noop
+        live.Live.stop = noop
+        live.Live.__enter__ = lambda self: self
+        live.Live.__exit__ = noop
+        
+    except Exception as e:
+        logger.debug(f"Failed to disable F2 live output: {e}")
+
+
+_disable_f2_live_output()
