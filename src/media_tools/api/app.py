@@ -177,15 +177,9 @@ app.add_middleware(
 @app.exception_handler(AppError)
 async def app_error_handler(request: Request, exc: AppError):
     """处理应用自定义异常 - 返回结构化错误"""
-    from media_tools.core.exceptions import NotFoundError, ValidationError, ConfigurationError
-    status_code = 400
-    if isinstance(exc, NotFoundError):
-        status_code = 404
-    elif isinstance(exc, ConfigurationError):
-        status_code = 500
     logger.warning(f"AppError: {exc.code} - {exc.message}")
     return JSONResponse(
-        status_code=status_code,
+        status_code=exc.status_code,
         content={
             "code": exc.code,
             "message": exc.message,

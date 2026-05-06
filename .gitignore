@@ -236,6 +236,7 @@ tests/*
 !tests/api/test_fts_populated_on_startup.py
 !tests/api/test_assets_search_does_not_call_ensure_fts_populated.py
 !tests/test_app_config.py
+!tests/test_exceptions.py
 tests/bilibili/**/__pycache__/
 tests/regression/**/__pycache__/
 tests/api/**/__pycache__/
