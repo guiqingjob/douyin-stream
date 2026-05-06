@@ -121,29 +121,29 @@ export function TaskMonitorPanel() {
           </div>
         </div>
 
-        <div className="shrink-0 grid grid-cols-4 gap-3 border-b border-border/60 px-6 py-4">
+        <div className="shrink-0 grid grid-cols-4 gap-4 px-6 py-4">
           {[
             { label: '进行中', value: activeTasks.length, tone: 'text-primary' },
             { label: '成功', value: allTasks.filter((t) => getTaskDisplayState(t) === 'success').length, tone: 'text-success' },
             { label: '失败', value: failedTasks.length, tone: 'text-destructive' },
             { label: '总计', value: allTasks.length, tone: 'text-foreground' },
           ].map((item) => (
-            <div key={item.label} className="rounded-[var(--radius-card)] border border-border/60 bg-card p-3">
-              <div className="text-xs text-muted-foreground">{item.label}</div>
-              <div className={cn('mt-1 text-lg font-semibold', item.tone)}>{item.value}</div>
+            <div key={item.label} className="rounded-[var(--radius-card)] border border-border/60 bg-card p-4">
+              <div className="text-caption text-muted-foreground">{item.label}</div>
+              <div className={cn('mt-2 text-xl font-semibold', item.tone)}>{item.value}</div>
             </div>
           ))}
         </div>
 
         {/* Filter tabs */}
-        <div className="shrink-0 border-b border-border/60 px-6 py-3">
+        <div className="shrink-0 px-6 pt-4 pb-2">
           <div className="inline-flex rounded-[var(--radius-card)] border border-border/60 bg-muted p-1">
             {FILTER_TABS.map((tab) => (
               <button
                 key={tab.key}
                 onClick={() => setFilter(tab.key)}
                 className={cn(
-                  'h-8 rounded-md px-3 text-xs font-medium transition-all duration-200',
+                  'h-9 rounded-md px-4 text-sm font-medium transition-all duration-200',
                   filter === tab.key
                     ? 'bg-background text-foreground shadow-[0_1px_2px_rgba(0,0,0,0.06)]'
                     : 'text-muted-foreground hover:text-foreground'
@@ -155,7 +155,7 @@ export function TaskMonitorPanel() {
           </div>
         </div>
 
-        <div className="min-h-0 flex-1 overflow-y-auto p-6">
+        <div className="min-h-0 flex-1 overflow-y-auto px-6 pt-4 pb-6">
           {filteredTasks.length === 0 ? (
             <div className="flex flex-col items-center justify-center py-12 text-center">
               <div className="flex size-12 items-center justify-center rounded-[var(--radius-card)] bg-muted">
