@@ -40,21 +40,51 @@ _RUNTIME_DEFAULTS: dict[str, str] = {
 }
 
 
+# --- Cache for system settings ---
+import time
+
+_settings_cache: dict[str, tuple[str, float]] = {}  # key -> (value, expire_time)
+_settings_cache_ttl: int = 300  # 5分钟缓存过期时间
+
+
 def _get_system_setting(key: str) -> str | None:
-    """从 SystemSettings 表读取单个配置值。"""
+    """从 SystemSettings 表读取单个配置值（带缓存）。"""
+    now = time.time()
+    
+    # 先检查缓存
+    if key in _settings_cache:
+        value, expire_time = _settings_cache[key]
+        if now < expire_time:
+            return value
+    
+    # 缓存未命中或已过期，从数据库读取
     try:
         with get_db_connection() as conn:
             row = conn.execute(
                 "SELECT value FROM SystemSettings WHERE key = ?", (key,)
             ).fetchone()
-            return row[0] if row else None
+            value = row[0] if row else None
+            
+            # 更新缓存
+            if value is not None:
+                _settings_cache[key] = (value, now + _settings_cache_ttl)
+            
+            return value
     except (sqlite3.Error, OSError) as e:
         logger.warning(f"读取系统设置失败: {e}")
         return None
 
 
+def _invalidate_settings_cache(key: str | None = None) -> None:
+    """清除设置缓存。"""
+    if key is None:
+        _settings_cache.clear()
+    elif key in _settings_cache:
+        del _settings_cache[key]
+
+
 def _set_system_setting(key: str, value: str) -> None:
-    """写入 SystemSettings 表。"""
+    """写入 SystemSettings 表（写入后清除相关缓存）。"""
     try:
         with get_db_connection() as conn:
             conn.execute(
@@ -62,6 +92,9 @@ def _set_system_setting(key: str, value: str) -> None:
                 (key, value),
             )
             conn.commit()
+        
+        # 清除相关缓存，确保下次读取时获取最新值
+        _invalidate_settings_cache(key)
     except (sqlite3.Error, OSError) as e:
         raise ConfigError(f"无法保存配置 {key}: {e}") from e
 

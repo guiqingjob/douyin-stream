@@ -24,26 +24,31 @@ function SidebarItem({
       to={href}
       className={({ isActive }) =>
         cn(
-          'flex items-center gap-3 h-8 px-3 rounded-md cursor-pointer select-none transition-colors duration-200',
+          "group relative flex items-center gap-3 h-10 px-3 rounded-[8px] cursor-pointer select-none",
+          "transition-all duration-200 spring-ease-subtle",
           isActive
-            ? 'bg-primary/10 text-primary font-medium'
-            : 'hover:bg-foreground/[0.03] text-foreground font-medium'
+            ? "bg-primary/12 text-primary font-semibold"
+            : "hover:bg-secondary text-foreground font-medium",
+          "focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/40"
         )
       }
     >
       {({ isActive }) => (
         <>
-          <Icon
-            className={cn(
-              'size-5 shrink-0',
-              isActive ? 'text-primary' : 'text-muted-foreground'
-            )}
-          />
-          <span className="text-[14px]">
-            {label}
-          </span>
+          <div className={cn(
+            "relative",
+            isActive && "apple-active-glow"
+          )}>
+            <Icon
+              className={cn(
+                "size-5 shrink-0 transition-colors duration-200",
+                isActive ? "text-primary" : "text-muted-foreground group-hover:text-foreground"
+              )}
+            />
+          </div>
+          <span className="text-body">{label}</span>
           {badge != null && badge > 0 && (
-            <span className="ml-auto size-4 min-w-4 rounded-md bg-destructive text-destructive-foreground text-[10px] font-bold flex items-center justify-center">
+            <span className="ml-auto min-w-[18px] h-[18px] rounded-[9px] bg-destructive text-destructive-foreground text-[11px] font-semibold flex items-center justify-center px-1.5">
               {badge > 99 ? '99+' : badge}
             </span>
           )}
@@ -60,11 +65,11 @@ function ThemeToggle() {
   return (
     <button
       onClick={toggle}
-      className="flex items-center gap-3 h-8 px-3 rounded-md cursor-pointer select-none transition-colors duration-200 hover:bg-foreground/[0.03] text-foreground font-medium w-full"
+      className="group flex items-center gap-3 h-10 px-3 rounded-[8px] cursor-pointer select-none transition-all duration-200 spring-ease-subtle hover:bg-secondary text-foreground font-medium w-full"
       aria-label={`当前主题: ${isDark ? '深色' : '浅色'}，点击切换`}
     >
-      {isDark ? <Moon className="size-4" /> : <Sun className="size-4" />}
-      <span className="text-[14px]">主题 · {isDark ? '深色' : '浅色'}</span>
+      {isDark ? <Moon className="size-5 text-muted-foreground group-hover:text-foreground" /> : <Sun className="size-5 text-muted-foreground group-hover:text-foreground" />}
+      <span className="text-body">主题 · {isDark ? '深色' : '浅色'}</span>
     </button>
   );
 }
@@ -73,33 +78,36 @@ export default function Sidebar({ listContent }: SidebarProps) {
   return (
     <aside className="w-[260px] h-full overflow-y-auto flex-shrink-0 flex flex-col apple-glass-sidebar border-r border-sidebar-border">
       {/* Header */}
-      <div className="shrink-0 h-12 px-4 flex items-center">
-        <h1 className="text-[17px] font-semibold text-sidebar-foreground tracking-tight">Media Tools</h1>
+      <div className="shrink-0 h-14 px-5 flex items-center">
+        <div className="w-8 h-8 rounded-[10px] bg-gradient-to-br from-primary to-primary/70 flex items-center justify-center">
+          <span className="text-white font-bold text-sm">M</span>
+        </div>
+        <h1 className="ml-3 text-title-3 font-semibold text-sidebar-foreground tracking-tight">Media Tools</h1>
       </div>
 
       {/* Primary Nav */}
-      <nav className="px-3 py-1 space-y-1">
+      <nav className="px-3 py-2 space-y-0.5">
         <SidebarItem icon={Compass} label="发现" href="/discover" />
         <SidebarItem icon={Users} label="创作者" href="/creators" />
         <SidebarItem icon={Settings} label="设置" href="/settings" />
       </nav>
 
       {/* Divider */}
-      <div className="mx-3 my-2 h-px bg-sidebar-border" />
+      <div className="mx-3 my-3 h-px bg-sidebar-border" />
 
       {/* Theme Toggle */}
-      <div className="px-3 py-1">
+      <div className="px-3">
         <ThemeToggle />
       </div>
 
       {/* Divider */}
-      <div className="mx-3 my-2 h-px bg-sidebar-border" />
+      <div className="mx-3 my-3 h-px bg-sidebar-border" />
 
       {/* Contextual List */}
-      <div className="px-3 py-1 space-y-1">
+      <div className="px-3 py-1 space-y-1 flex-1">
         <TaskMonitorPanel />
         {listContent && (
-          <div className="px-3 mb-2 text-[11px] font-semibold text-muted-foreground uppercase tracking-wide">
+          <div className="px-3 mt-4 mb-2 text-small font-semibold text-muted-foreground uppercase tracking-wide">
             关注创作者
           </div>
         )}

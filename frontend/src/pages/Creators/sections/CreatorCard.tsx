@@ -1,7 +1,8 @@
-import { ExternalLink, Download, HardDriveDownload, Loader2, RefreshCcw, Trash2, FileText, AlertTriangle } from 'lucide-react';
+import { ExternalLink, Download, HardDriveDownload, Loader2, RefreshCcw, Trash2, FileText, AlertTriangle, Clock, Folder, FileCheck, AlertCircle } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
+import { Card, CardContent } from '@/components/ui/card';
 import { formatRelativeTime, getTaskDisplayState, getTaskError, getTaskMessage } from '@/lib/task-utils';
 import type { Creator, Task } from '@/lib/api';
 
@@ -86,152 +87,175 @@ export function CreatorCard({
             : { label: '待首次同步', tone: 'default' as const };
 
   return (
-    <div className={cn('rounded-[var(--radius-card)] border border-border/60 bg-card p-5 apple-shadow-md transition-all duration-200 hover:-translate-y-[1px]', isDeleting && 'opacity-0 scale-95')}>
-      {/* Header */}
-      <div className="flex items-start gap-3">
-        <div className="flex size-16 shrink-0 items-center justify-center rounded-[var(--radius-card)] bg-secondary text-xl font-semibold text-foreground">
-          {(creator.nickname || creator.uid).charAt(0).toUpperCase()}
-        </div>
-        <div className="min-w-0 flex-1">
-          <div className="flex flex-wrap items-center gap-2">
-            <span className="text-[15px] font-semibold text-foreground line-clamp-1">
-              {creator.nickname || creator.uid}
-            </span>
-            {creator.homepage_url && (
-              <a
-                href={creator.homepage_url}
-                target="_blank"
-                rel="noopener noreferrer"
-                onClick={(e) => e.stopPropagation()}
-                className="rounded-md p-1 text-muted-foreground transition-colors hover:bg-primary/10 hover:text-primary"
-                title="打开主页"
-              >
-                <ExternalLink className="size-3.5" />
-              </a>
-            )}
-            <Badge tone={statusBadge.tone}>{statusBadge.label}</Badge>
+    <Card 
+      size="default" 
+      className={cn(
+        "group",
+        isDeleting && "opacity-0 scale-95 transition-all duration-300"
+      )}
+    >
+      <CardContent className="space-y-4">
+        {/* Header */}
+        <div className="flex items-start gap-4">
+          <div className="flex size-14 shrink-0 items-center justify-center rounded-[12px] bg-gradient-to-br from-primary/15 to-primary/5 text-lg font-semibold text-foreground">
+            {(creator.nickname || creator.uid).charAt(0).toUpperCase()}
           </div>
-          <div className="flex flex-wrap items-center gap-x-4 gap-y-1 mt-2 text-xs">
-            <span className="text-muted-foreground">
-              素材 <strong className="text-foreground font-medium tabular-nums">{creator.disk_asset_count ?? 0}</strong>
-            </span>
-            <span className="text-muted-foreground">
-              已转写 <strong className="text-foreground font-medium tabular-nums">{creator.disk_transcript_completed_count ?? 0}</strong>
-            </span>
-            <span className="text-muted-foreground">
-              待处理 <strong className="text-foreground font-medium tabular-nums">{creator.disk_transcript_pending_count ?? 0}</strong>
-            </span>
+          <div className="min-w-0 flex-1">
+            <div className="flex flex-wrap items-center gap-2">
+              <h3 className="text-title-3 font-semibold text-foreground line-clamp-1">
+                {creator.nickname || creator.uid}
+              </h3>
+              {creator.homepage_url && (
+                <a
+                  href={creator.homepage_url}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  onClick={(e) => e.stopPropagation()}
+                  className="size-7 rounded-[8px] flex items-center justify-center text-muted-foreground transition-all duration-200 hover:bg-primary/10 hover:text-primary"
+                  title="打开主页"
+                >
+                  <ExternalLink className="size-4" />
+                </a>
+              )}
+              <Badge tone={statusBadge.tone}>{statusBadge.label}</Badge>
+            </div>
+            
+            {/* Stats */}
+            <div className="grid grid-cols-3 gap-2 mt-3">
+              <div className="flex items-center gap-1.5">
+                <Folder className="size-3.5 text-muted-foreground" />
+                <span className="text-caption text-muted-foreground">
+                  <strong className="text-foreground font-semibold">{creator.disk_asset_count ?? 0}</strong>
+                </span>
+              </div>
+              <div className="flex items-center gap-1.5">
+                <FileCheck className="size-3.5 text-muted-foreground" />
+                <span className="text-caption text-muted-foreground">
+                  <strong className="text-foreground font-semibold">{creator.disk_transcript_completed_count ?? 0}</strong>
+                </span>
+              </div>
+              <div className="flex items-center gap-1.5">
+                <Clock className="size-3.5 text-muted-foreground" />
+                <span className="text-caption text-muted-foreground">
+                  <strong className="text-foreground font-semibold">{creator.disk_transcript_pending_count ?? 0}</strong>
+                </span>
+              </div>
+            </div>
+            
             {(creator.transcript_failed_count ?? 0) > 0 && (
-              <span
-                className="inline-flex items-center gap-1 text-destructive"
-                title="转写失败的视频数；点击下方「重试失败」可仅重新派发这些视频"
-              >
-                <AlertTriangle className="size-3" />
-                失败 <strong className="font-medium tabular-nums">{creator.transcript_failed_count}</strong>
-              </span>
+              <div className="mt-1.5 flex items-center gap-1.5 text-destructive">
+                <AlertCircle className="size-3.5" />
+                <span className="text-caption">
+                  <strong className="font-semibold">{creator.transcript_failed_count}</strong> 个转写失败
+                </span>
+              </div>
             )}
           </div>
         </div>
-      </div>
 
-      {/* Task info */}
-      <div className="mt-4">
-        <div className="h-[52px] flex items-center justify-between px-3 rounded-lg transition-colors duration-200 hover:bg-muted/40">
-          <span className="text-sm text-muted-foreground">上次同步</span>
-          <span className="text-sm text-foreground/75 tabular-nums">{formatRelativeTime(creator.last_fetch_time)}</span>
+        {/* Last sync info */}
+        <div className="apple-list-item rounded-[10px] px-4 py-3">
+          <div className="flex items-center justify-between">
+            <span className="text-caption text-muted-foreground">上次同步</span>
+            <span className="text-caption font-medium text-foreground tabular-nums">
+              {formatRelativeTime(creator.last_fetch_time)}
+            </span>
+          </div>
         </div>
-      </div>
-      {taskMessage && taskMessage !== '暂无详细信息' && (
-        <div className="text-sm leading-6 text-foreground/75 mt-1">{taskMessage}</div>
-      )}
-      {taskError && (
-        <div className="rounded-[var(--radius-card)] border border-destructive/20 bg-destructive/10 p-3 text-xs leading-6 text-destructive mt-2">
-          {taskError}
-        </div>
-      )}
 
-      {/* 操作按钮 */}
-      <div className="flex gap-2 mt-4">
-        <Button
-          variant="secondary"
-          size="sm"
-          onClick={() => onDownload(creator.uid, creator.nickname, 'incremental')}
-          disabled={!creatorReady || isBusy || platform === 'local'}
-          className="flex-1"
-        >
-          {downloadingCreators[creator.uid] === 'incremental' ? <Loader2 className="size-4 animate-spin" /> : <Download className="size-4" />}
-          增量
-        </Button>
-        <Button
-          variant="secondary"
-          size="sm"
-          onClick={() => onDownload(creator.uid, creator.nickname, 'full')}
-          disabled={!creatorReady || isBusy || platform === 'local'}
-          className="flex-1"
-        >
-          {downloadingCreators[creator.uid] === 'full' ? <Loader2 className="size-4 animate-spin" /> : <HardDriveDownload className="size-4" />}
-          全量
-        </Button>
-        {(creator.disk_transcript_pending_count ?? 0) > 0 && (
+        {/* Task message */}
+        {taskMessage && taskMessage !== '暂无详细信息' && (
+          <div className="text-caption text-muted-foreground">{taskMessage}</div>
+        )}
+        
+        {/* Task error */}
+        {taskError && (
+          <div className="rounded-[10px] border border-destructive/20 bg-destructive/10 p-3 text-caption text-destructive">
+            {taskError}
+          </div>
+        )}
+
+        {/* Action buttons */}
+        <div className="grid grid-cols-3 gap-2">
           <Button
             variant="secondary"
             size="sm"
-            onClick={() => onTranscribe(creator.uid, creator.nickname)}
-            disabled={transcribingUids.has(creator.uid)}
-            className="flex-1"
+            onClick={() => onDownload(creator.uid, creator.nickname, 'incremental')}
+            disabled={!creatorReady || isBusy || platform === 'local'}
           >
-            {transcribingUids.has(creator.uid) ? <Loader2 className="size-4 animate-spin" /> : <FileText className="size-4" />}
-            转写
+            {downloadingCreators[creator.uid] === 'incremental' ? <Loader2 className="size-3.5 animate-spin" /> : <Download className="size-3.5" />}
+            <span className="text-[13px]">增量</span>
           </Button>
-        )}
-      </div>
-
-      {(creator.transcript_failed_count ?? 0) > 0 && (
-        <div className="flex gap-2 mt-2">
           <Button
             variant="secondary"
+            size="sm"
+            onClick={() => onDownload(creator.uid, creator.nickname, 'full')}
+            disabled={!creatorReady || isBusy || platform === 'local'}
+          >
+            {downloadingCreators[creator.uid] === 'full' ? <Loader2 className="size-3.5 animate-spin" /> : <HardDriveDownload className="size-3.5" />}
+            <span className="text-[13px]">全量</span>
+          </Button>
+          {(creator.disk_transcript_pending_count ?? 0) > 0 && (
+            <Button
+              variant="primary"
+              size="sm"
+              onClick={() => onTranscribe(creator.uid, creator.nickname)}
+              disabled={transcribingUids.has(creator.uid)}
+            >
+              {transcribingUids.has(creator.uid) ? <Loader2 className="size-3.5 animate-spin" /> : <FileText className="size-3.5" />}
+              <span className="text-[13px]">转写</span>
+            </Button>
+          )}
+        </div>
+
+        {/* Retry failed button */}
+        {(creator.transcript_failed_count ?? 0) > 0 && (
+          <Button
+            variant="ghostDestructive"
             size="sm"
             onClick={() => onRetryFailed(creator.uid, creator.nickname)}
             disabled={retryingFailedUids.has(creator.uid)}
-            className="flex-1 text-destructive hover:text-destructive"
-            title={`重新派发该创作者下 ${creator.transcript_failed_count} 个失败的转写`}
+            className="w-full"
           >
             {retryingFailedUids.has(creator.uid)
-              ? <Loader2 className="size-4 animate-spin" />
-              : <AlertTriangle className="size-4" />}
-            重试失败 ({creator.transcript_failed_count})
+              ? <Loader2 className="size-3.5 animate-spin" />
+              : <AlertTriangle className="size-3.5" />}
+            <span className="text-[13px]">重试失败 ({creator.transcript_failed_count})</span>
           </Button>
-        </div>
-      )}
+        )}
 
-      {/* Footer */}
-      <div className="h-[52px] mt-3 flex items-center justify-between px-3 rounded-lg text-xs text-muted-foreground transition-colors duration-200 hover:bg-muted/40">
-        <div className="flex items-center gap-1.5">
-          <RefreshCcw className="size-3.5" />
-          {platform === 'local'
-            ? '本地导入素材不支持远程同步'
-            : !creatorReady
-              ? platform === 'bilibili'
-                ? '请先配置B站账号'
-                : '请先配置抖音账号'
-              : platform === 'bilibili'
-                ? `使用B站账号池 (${settings?.status_summary?.bilibili_accounts_count ?? 0})`
-                : douyinPrimaryConfigured
-                  ? '使用主 Cookie'
-                  : douyinCookieSource === 'pool'
-                    ? '使用账号池 Cookie'
-                    : '使用可用配置'}
+        {/* Footer */}
+        <div className="apple-list-item rounded-[10px] px-4 py-3 mt-2">
+          <div className="flex items-center justify-between">
+            <div className="flex items-center gap-2">
+              <RefreshCcw className="size-3.5 text-muted-foreground" />
+              <span className="text-caption text-muted-foreground">
+                {platform === 'local'
+                  ? '本地导入素材不支持远程同步'
+                  : !creatorReady
+                    ? platform === 'bilibili'
+                      ? '请先配置B站账号'
+                      : '请先配置抖音账号'
+                    : platform === 'bilibili'
+                      ? `使用B站账号池 (${settings?.status_summary?.bilibili_accounts_count ?? 0})`
+                      : douyinPrimaryConfigured
+                        ? '使用主 Cookie'
+                        : douyinCookieSource === 'pool'
+                          ? '使用账号池 Cookie'
+                          : '使用可用配置'}
+              </span>
+            </div>
+            <Button
+              variant="ghostDestructive"
+              size="iconSm"
+              onClick={() => onDelete(creator.uid)}
+              className="h-7"
+            >
+              <Trash2 className="size-3.5" />
+            </Button>
+          </div>
         </div>
-        <Button
-          variant="destructive"
-          size="sm"
-          onClick={() => onDelete(creator.uid)}
-          className="h-7 px-2 text-xs"
-        >
-          <Trash2 className="size-3.5" />
-          删除
-        </Button>
-      </div>
-    </div>
+      </CardContent>
+    </Card>
   );
 }

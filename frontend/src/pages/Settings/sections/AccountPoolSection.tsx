@@ -1,6 +1,7 @@
-import { Loader2, Pencil, Trash2 } from 'lucide-react';
+import { Loader2, Pencil, Trash2, User } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
+import { Card, CardContent } from '@/components/ui/card';
 import { cn } from '@/lib/utils';
 
 interface Account {
@@ -66,21 +67,26 @@ export function AccountPoolSection({
   extraInfo,
 }: AccountPoolSectionProps) {
   return (
-    <div className="rounded-[var(--radius-card)] border border-border/60 bg-card p-1">
-      <div className="h-12 px-4 flex items-center gap-3 border-b border-border/60">
-        <div className="size-5 rounded-sm bg-foreground flex items-center justify-center">
-          {icon}
+    <Card size="default">
+      <CardContent className="space-y-4">
+        {/* Header */}
+        <div className="flex items-center gap-3">
+          <div className="size-9 rounded-[10px] bg-gradient-to-br from-primary/15 to-primary/5 flex items-center justify-center">
+            {icon}
+          </div>
+          <div>
+            <h3 className="text-title-3 font-semibold text-foreground">{title}</h3>
+            <p className="text-caption text-muted-foreground">{description}</p>
+          </div>
         </div>
-        <h3 className="text-[17px] font-semibold text-foreground">{title}</h3>
-      </div>
-      <div className="px-4 py-3 space-y-3">
-        <div className="text-[13px] text-muted-foreground">{description}</div>
+
+        {/* Input Area */}
         <div className="flex gap-2">
           <Input
             placeholder={placeholder}
             value={cookie}
             onChange={(e) => { setCookie(e.target.value); setCookieError(''); }}
-            className={cookieError ? 'border-destructive' : ''}
+            className={cn(cookieError && 'border-destructive')}
           />
           <Input
             placeholder="备注"
@@ -97,72 +103,95 @@ export function AccountPoolSection({
             {isAdding ? <Loader2 className="size-4 animate-spin" /> : '添加'}
           </Button>
         </div>
+
+        {/* Cookie Error */}
+        {cookieError && (
+          <div className="text-caption text-destructive">{cookieError}</div>
+        )}
+
+        {/* Account List */}
         <div className="space-y-1">
           {accounts.length === 0 ? (
-            <div className="text-sm text-muted-foreground py-2">
+            <div className="text-caption text-muted-foreground py-2">
               {extraInfo ?? '还没有账号。'}
             </div>
           ) : (
             accounts.map((account, index) => (
-              <div key={account.id} className="h-[52px] px-3 flex items-center justify-between rounded-[var(--radius-card)] hover:bg-muted/40 transition-colors duration-150">
-                <div className="min-w-0 flex-1">
-                  {editingRemarkId === account.id ? (
-                    <Input
-                      className="h-7 px-2 py-0 text-[13px]"
-                      value={editingRemarkValue}
-                      onChange={(e) => setEditingRemarkValue(e.target.value)}
-                      onBlur={() => onSaveRemark(account.id, editingRemarkValue)}
-                      onKeyDown={(e) => {
-                        if (e.key === 'Enter') onSaveRemark(account.id, editingRemarkValue);
-                        if (e.key === 'Escape') setEditingRemarkId(null);
-                      }}
-                    />
-                  ) : (
-                    <div className="flex items-center gap-1.5">
-                      <span className="text-[13px] font-medium text-foreground">
-                        {account.remark || `账号 ${index + 1}`}
-                      </span>
-                      <Button
-                        variant="ghost"
-                        size="icon-sm"
-                        onClick={() => {
-                          setEditingRemarkId(account.id);
-                          setEditingRemarkValue(account.remark || '');
+              <div 
+                key={account.id} 
+                className="apple-list-item rounded-[10px] px-4 py-3"
+              >
+                <div className="flex items-center justify-between">
+                  <div className="min-w-0 flex-1">
+                    {editingRemarkId === account.id ? (
+                      <Input
+                        className="h-7 px-2 py-0 text-[13px]"
+                        value={editingRemarkValue}
+                        onChange={(e) => setEditingRemarkValue(e.target.value)}
+                        onBlur={() => onSaveRemark(account.id, editingRemarkValue)}
+                        onKeyDown={(e) => {
+                          if (e.key === 'Enter') onSaveRemark(account.id, editingRemarkValue);
+                          if (e.key === 'Escape') setEditingRemarkId(null);
                         }}
-                        className="size-6 text-muted-foreground hover:bg-muted hover:text-foreground"
-                      >
-                        <Pencil className="size-3" />
-                      </Button>
+                      />
+                    ) : (
+                      <div className="flex items-center gap-2">
+                        <User className="size-4 text-muted-foreground" />
+                        <span className="text-body font-medium text-foreground">
+                          {account.remark || `账号 ${index + 1}`}
+                        </span>
+                        <Button
+                          variant="ghost"
+                          size="iconSm"
+                          onClick={() => {
+                            setEditingRemarkId(account.id);
+                            setEditingRemarkValue(account.remark || '');
+                          }}
+                          className="text-muted-foreground hover:text-foreground"
+                        >
+                          <Pencil className="size-3" />
+                        </Button>
+                      </div>
+                    )}
+                    <div className="mt-1 flex items-center gap-2 text-caption text-muted-foreground">
+                      <span className="font-mono">{account.id.slice(0, 8)}</span>
+                      {account.last_used ? (
+                        <span>· 上次使用: {new Date(account.last_used).toLocaleString('zh-CN', { month: '2-digit', day: '2-digit', hour: '2-digit', minute: '2-digit' })}</span>
+                      ) : account.create_time ? (
+                        <span>· 创建于: {new Date(account.create_time).toLocaleString('zh-CN', { month: '2-digit', day: '2-digit', hour: '2-digit', minute: '2-digit' })}</span>
+                      ) : null}
                     </div>
-                  )}
-                  <div className="mt-1 flex items-center gap-2 text-xs text-muted-foreground">
-                    <span className="font-mono">{account.id.slice(0, 8)}</span>
-                    {account.last_used ? (
-                      <span>· {new Date(account.last_used).toLocaleString('zh-CN', { month: '2-digit', day: '2-digit', hour: '2-digit', minute: '2-digit' })}</span>
-                    ) : account.create_time ? (
-                      <span>· {new Date(account.create_time).toLocaleString('zh-CN', { month: '2-digit', day: '2-digit', hour: '2-digit', minute: '2-digit' })}</span>
-                    ) : null}
                   </div>
-                </div>
-                <div className="flex items-center gap-2">
-                  <span className={cn('text-[11px] font-medium', account.status === 'active' ? 'text-success' : 'text-warning')}>
-                    {STATUS_LABELS[account.status] ?? account.status}
-                  </span>
-                  <Button
-                    variant="destructive"
-                    size="icon-sm"
-                    onClick={() => onDelete(account.id)}
-                    className="size-8"
-                  >
-                    <Trash2 className="size-4" />
-                  </Button>
+                  <div className="flex items-center gap-3">
+                    <span className={cn(
+                      "text-small font-semibold px-2 py-1 rounded-[6px]",
+                      account.status === 'active' 
+                        ? 'bg-success/12 text-success' 
+                        : 'bg-warning/14 text-warning'
+                    )}>
+                      {STATUS_LABELS[account.status] ?? account.status}
+                    </span>
+                    <Button
+                      variant="ghostDestructive"
+                      size="iconSm"
+                      onClick={() => onDelete(account.id)}
+                    >
+                      <Trash2 className="size-3.5" />
+                    </Button>
+                  </div>
                 </div>
               </div>
             ))
           )}
         </div>
-        {extraFooter}
-      </div>
-    </div>
+
+        {/* Extra Footer */}
+        {extraFooter && (
+          <div className="pt-2 border-t border-border/40">
+            {extraFooter}
+          </div>
+        )}
+      </CardContent>
+    </Card>
   );
 }

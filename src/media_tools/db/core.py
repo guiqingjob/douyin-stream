@@ -533,6 +533,82 @@ def init_db(db_path: str | Path):
 from .path_utils import resolve_safe_path, resolve_query_value, local_asset_id  # noqa: F401
 
 
+# --- 数据库优化工具 ---
+
+def vacuum_db() -> None:
+    """执行数据库 VACUUM 操作，回收空间并优化索引。
+    
+    建议在以下时机调用：
+    1. 系统启动时（可选，会增加启动时间）
+    2. 定期任务清理后
+    3. 大规模数据删除后
+    
+    SQLite 的 VACUUM 命令会重建数据库文件，消除碎片，
+    并优化数据库结构，提升后续读写性能。
+    """
+    import time
+    start_time = time.time()
+    with get_db_connection() as conn:
+        conn.execute("VACUUM")
+    elapsed = time.time() - start_time
+    logger.info(f"Database VACUUM completed in {elapsed:.2f} seconds")
+
+
+# --- 状态枚举化支持 ---
+
+VIDEO_STATUS_MAP = {
+    'pending': 0,
+    'downloading': 1,
+    'downloaded': 2,
+    'failed': 3,
+}
+
+TRANSCRIPT_STATUS_MAP = {
+    'none': 0,
+    'transcribing': 1,
+    'completed': 2,
+    'failed': 3,
+}
+
+TASK_STATUS_MAP = {
+    'PENDING': 0,
+    'RUNNING': 1,
+    'COMPLETED': 2,
+    'FAILED': 3,
+    'CANCELLED': 4,
+}
+
+
+def video_status_to_code(status: str) -> int:
+    """将视频状态字符串转换为枚举码"""
+    return VIDEO_STATUS_MAP.get(status, 0)
+
+
+def video_status_from_code(code: int) -> str:
+    """将视频状态枚举码转换为字符串"""
+    return next((k for k, v in VIDEO_STATUS_MAP.items() if v == code), 'pending')
+
+
+def transcript_status_to_code(status: str) -> int:
+    """将转写状态字符串转换为枚举码"""
+    return TRANSCRIPT_STATUS_MAP.get(status, 0)
+
+
+def transcript_status_from_code(code: int) -> str:
+    """将转写状态枚举码转换为字符串"""
+    return next((k for k, v in TRANSCRIPT_STATUS_MAP.items() if v == code), 'none')
+
+
+def task_status_to_code(status: str) -> int:
+    """将任务状态字符串转换为枚举码"""
+    return TASK_STATUS_MAP.get(status, 0)
+
+
+def task_status_from_code(code: int) -> str:
+    """将任务状态枚举码转换为字符串"""
+    return next((k for k, v in TASK_STATUS_MAP.items() if v == code), 'PENDING')
+
+
 if __name__ == "__main__":
     db_path = "media_tools.db"
     init_db(db_path)

@@ -1,6 +1,7 @@
 import { useLocation } from 'react-router-dom';
 import { Outlet } from 'react-router-dom';
 import Sidebar from './Sidebar';
+import { cn } from '@/lib/utils';
 
 export default function AppLayout() {
   const location = useLocation();
@@ -16,13 +17,21 @@ export default function AppLayout() {
     <div className="flex h-full w-full overflow-hidden bg-background">
       <Sidebar />
       <main className="flex-1 flex flex-col h-full min-w-0 overflow-hidden">
-        <header className="h-12 flex-shrink-0 px-6 flex items-center border-b border-border/40 apple-glass-sidebar">
-          <div className="text-[15px] font-semibold text-foreground tracking-tight">{pageTitle}</div>
+        <header className="h-14 flex-shrink-0 px-6 flex items-center border-b border-border/40 apple-glass-bar">
+          <h2 className={cn(
+            "text-title-3 font-semibold text-foreground tracking-tight",
+            "apple-fade-in"
+          )}>
+            {pageTitle}
+          </h2>
         </header>
         <div className="flex-1 min-h-0 overflow-auto" data-scroll-container="main">
           <div
             key={`${location.pathname}${location.search}`}
-            className="h-full animate-in fade-in slide-in-from-right-2 duration-150 ease-out"
+            className={cn(
+              "h-full",
+              "apple-slide-in-right"
+            )}
           >
             <Outlet />
           </div>
