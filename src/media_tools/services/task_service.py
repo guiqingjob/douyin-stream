@@ -1,4 +1,8 @@
-"""TaskService - 任务管理服务层"""
+"""TaskService - 任务管理服务层（迁移过渡版本）
+
+本文件作为迁移过渡层，逐步将业务逻辑委托给新的领域驱动架构。
+最终目标是完全移除本文件，直接使用新架构。
+"""
 from __future__ import annotations
 
 import asyncio
@@ -54,6 +58,9 @@ from media_tools.workers.pipeline_worker import (
 from media_tools.workers.full_sync_worker import _background_full_sync_worker
 from media_tools.workers.local_transcribe_worker import _background_local_transcribe_worker
 
+# 新架构导入（迁移使用）
+from media_tools.migration import get_migration_service, get_task_service as get_new_task_service
+
 logger = logging.getLogger(__name__)
 
 
@@ -79,12 +86,15 @@ class TaskService:
     
     @staticmethod
     def get_active_tasks() -> List[Dict[str, Any]]:
-        """获取活跃任务列表"""
+        """获取活跃任务列表（使用新架构）"""
         try:
-            return TaskRepository.find_active()
-        except sqlite3.Error as e:
+            new_service = get_new_task_service()
+            tasks = new_service.list_active_tasks()
+            return [TaskService._task_entity_to_dict(task) for task in tasks]
+        except Exception as e:
             logger.exception(f"get_active_tasks failed: {e}")
-            raise
+            # 降级到旧实现
+            return TaskRepository.find_active()
     
     @staticmethod
     def get_task_history(limit: int = 200) -> List[Dict[str, Any]]:
@@ -114,21 +124,28 @@ class TaskService:
     
     @staticmethod
     def clear_task_history() -> Dict[str, str]:
-        """清空任务历史"""
+        """清空任务历史（使用新架构）"""
         try:
-            TaskRepository.clear_history()
+            new_service = get_new_task_service()
+            new_service.clear_task_history()
             return {"status": "ok"}
-        except sqlite3.Error as e:
+        except Exception as e:
             logger.exception(f"clear_task_history failed: {e}")
             raise
     
     @staticmethod
     async def cancel_task(task_id: str) -> Dict[str, str]:
-        """取消任务"""
+        """取消任务（使用新架构）"""
         try:
+            # 使用新架构取消任务
+            new_service = get_new_task_service()
+            new_service.cancel_task(task_id)
+            
+            # 同时清理旧架构的取消事件
             set_cancel_event(task_id)
             await _mark_task_cancelled(task_id)
             clear_download_progress(task_id)
+            
             return {"status": "cancelling"}
         except Exception as e:
             logger.exception(f"cancel_task failed for {task_id}: {e}")
@@ -136,43 +153,16 @@ class TaskService:
     
     @staticmethod
     def get_task_status(task_id: str) -> Dict[str, Any]:
-        """获取任务状态"""
+        """获取任务状态（使用新架构）"""
         try:
-            task = TaskRepository.find_by_id(task_id)
+            new_service = get_new_task_service()
+            task = new_service.get_task(task_id)
+            
             if not task:
                 return {"task_id": task_id, "status": "not_found"}
             
-            # 解析 payload
-            payload_raw = task.get("payload")
-            payload: Dict[str, Any] = {}
-            if isinstance(payload_raw, str) and payload_raw:
-                try:
-                    parsed = json.loads(payload_raw)
-                except (json.JSONDecodeError, TypeError, ValueError):
-                    parsed = {}
-                if isinstance(parsed, dict):
-                    payload = parsed
-            
-            # 解析 progress
-            progress_raw = task.get("progress")
-            progress: Dict[str, Any] = {}
-            if isinstance(progress_raw, str) and progress_raw:
-                try:
-                    progress = json.loads(progress_raw)
-                except (json.JSONDecodeError, TypeError, ValueError):
-                    pass
-            
-            status = task.get("status", "unknown")
-            
-            return {
-                "task_id": task_id,
-                "status": status,
-                "payload": payload,
-                "progress": progress,
-                "created_at": task.get("created_at"),
-                "updated_at": task.get("updated_at"),
-            }
-        except sqlite3.Error as e:
+            return TaskService._task_entity_to_dict(task)
+        except Exception as e:
             logger.exception(f"get_task_status failed for {task_id}: {e}")
             raise
     
@@ -193,7 +183,6 @@ class TaskService:
             new_task_id = str(uuid.uuid4())
             await _create_task(new_task_id, task.get("task_type", "pipeline"), payload)
             
-            # 根据任务类型启动对应的 worker
             task_type = task.get("task_type")
             if task_type == "pipeline":
                 req = PipelineRequest(**payload)
@@ -277,14 +266,28 @@ class TaskService:
         except Exception as e:
             logger.exception(f"select_folder_dialog failed: {e}")
             raise
+    
+    @staticmethod
+    def _task_entity_to_dict(task) -> Dict[str, Any]:
+        """将新架构的 Task 实体转换为字典格式（兼容旧 API）"""
+        return {
+            "task_id": task.task_id,
+            "task_type": task.task_type.value,
+            "status": task.status.value,
+            "payload": task.payload,
+            "progress": task.progress,
+            "error_message": task.error_message,
+            "created_at": task.created_at.isoformat(),
+            "updated_at": task.updated_at.isoformat(),
+        }
 
 
-# 全局实例
+# 全局实例（保持向后兼容）
 _task_service: Optional[TaskService] = None
 
 
 def get_task_service() -> TaskService:
-    """获取 TaskService 实例"""
+    """获取 TaskService 实例（保持向后兼容）"""
     global _task_service
     if _task_service is None:
         _task_service = TaskService()
