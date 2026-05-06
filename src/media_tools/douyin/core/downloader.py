@@ -18,6 +18,7 @@ import re
 from .f2_helper import get_f2_kwargs as _build_f2_kwargs
 from media_tools.logger import get_logger
 from media_tools.db.core import resolve_safe_path
+from media_tools.domain.entities.task import Stage
 from .file_ops import _clean_video_title, _reorganize_files, _update_last_fetch_time
 
 logger = get_logger('downloader')
@@ -566,6 +567,17 @@ async def _download_with_stats(
     from f2.apps.douyin.db import AsyncUserDB
     from f2.apps.douyin.handler import DouyinHandler
 
+    # 导入进度追踪函数
+    from .cancel_registry import (
+        init_download_progress,
+        update_stage,
+        update_current_video,
+        increment_downloaded,
+        increment_skipped,
+        add_download_error,
+        set_total_count,
+    )
+
     logger.info(f"开始下载: {url}")
     kwargs = _get_f2_kwargs()
     kwargs["url"] = url
@@ -591,6 +603,11 @@ async def _download_with_stats(
     # 创建元数据表
     _create_video_metadata_table()
 
+    # 初始化进度追踪
+    if task_id:
+        init_download_progress(task_id, total=max_counts or 0)
+        update_stage(task_id, Stage.FETCHING)
+
     # 初始化 Handler
     handler = DouyinHandler(kwargs)
 
@@ -602,11 +619,17 @@ async def _download_with_stats(
     except (RuntimeError, OSError, ValueError) as e:
         logger.error(f"解析 sec_user_id 失败: {e}")
         logger.info(error("[错误] 无法解析用户 ID"))
+        if task_id:
+            add_download_error(task_id, url, f"解析用户ID失败: {e}")
+            update_stage(task_id, Stage.FAILED)
         return False
 
     if not sec_user_id:
         logger.error("无法解析用户 ID")
         logger.info(error("[错误] 无法解析用户 ID"))
+        if task_id:
+            add_download_error(task_id, url, "无法解析用户ID")
+            update_stage(task_id, Stage.FAILED)
         return False
 
     logger.info(f"sec_user_id: {sec_user_id[:30]}...")
@@ -690,14 +713,7 @@ async def _download_with_stats(
     total_stats_saved = 0
     new_aweme_ids = []
     progress_details: list[dict] = []
-
-    if task_id:
-        from .cancel_registry import set_download_progress
-
-        set_download_progress(
-            task_id,
-            {"downloaded": 0, "skipped": 0, "details": []},
-        )
+    all_videos_count = 0
 
     logger.info(info("[下载] 正在获取视频列表..."))
     logger.info("正在获取视频列表...")
@@ -707,6 +723,7 @@ async def _download_with_stats(
             sec_user_id, max_counts=max_counts or float("inf")
         ):
             video_list = aweme_data_list._to_list()
+            all_videos_count += len(video_list)
 
             if video_list:
                 # 保存统计数据
@@ -720,37 +737,62 @@ async def _download_with_stats(
                         video_list, existing_videos, corrupt_files
                     )
                     total_skipped += skipped
+                    # 更新跳过的视频进度
+                    for video in video_list:
+                        if video not in new_videos:
+                            title = video.get('desc', '') if isinstance(video, dict) else getattr(video, 'desc', '')
+                            aweme_id = video.get('aweme_id', '') if isinstance(video, dict) else getattr(video, 'aweme_id', '')
+                            if task_id:
+                                increment_skipped(task_id, str(title or aweme_id or "未知"))
                 else:
                     new_videos = list(video_list)
 
                 if new_videos:
-                    # 只下载新视频
-                    await handler.downloader.create_download_tasks(
-                        kwargs, new_videos, user_path
-                    )
-                    total_downloaded += len(new_videos)
+                    # 更新状态为下载中
+                    if task_id:
+                        update_stage(task_id, Stage.DOWNLOADING)
+
+                    # 逐个下载视频，追踪进度
                     for video in new_videos:
                         aweme_id = video.get('aweme_id', '') if isinstance(video, dict) else getattr(video, 'aweme_id', '')
                         title = video.get('desc', '') if isinstance(video, dict) else getattr(video, 'desc', '')
-                        if aweme_id:
-                            new_aweme_ids.append(aweme_id)
-                        progress_details.append({"title": str(title or aweme_id or "未知"), "status": "downloaded"})
+                        video_title = str(title or aweme_id or "未知")
+
+                        # 更新当前下载的视频
+                        if task_id:
+                            update_current_video(task_id, video_title)
+
+                        logger.info(info(f"[下载] {video_title[:50]}..."))
+
+                        try:
+                            # 单视频下载
+                            await handler.downloader.create_download_tasks(
+                                kwargs, [video], user_path
+                            )
+
+                            if aweme_id:
+                                new_aweme_ids.append(aweme_id)
+                            total_downloaded += 1
+                            progress_details.append({"title": video_title, "status": "downloaded"})
+
+                            # 更新进度
+                            if task_id:
+                                increment_downloaded(task_id, video_title)
+
+                            logger.info(info(f"[成功] {video_title[:50]}..."))
+                        except Exception as e:
+                            logger.error(f"下载视频失败 {video_title}: {e}")
+                            logger.info(error(f"[失败] {video_title[:50]}..."))
+                            if task_id:
+                                add_download_error(task_id, video_title, str(e))
+
+                    page_skipped = len(video_list) - len(new_videos) if skip_existing else 0
                     if skip_existing:
-                        logger.info(info(f"[下载] 本页 {len(new_videos)} 个新视频（跳过 {len(video_list) - len(new_videos)} 个已有）"))
+                        logger.info(info(f"[下载] 本页 {len(new_videos)} 个新视频（跳过 {page_skipped} 个已有）"))
                     else:
                         logger.info(info(f"[下载] 本页 {len(new_videos)} 个视频（全量重拉）"))
                 else:
                     logger.info(info(f"[跳过] 本页 {len(video_list)} 个视频均为本地已有"))
-
-                if task_id:
-                    set_download_progress(
-                        task_id,
-                        {
-                            "downloaded": total_downloaded,
-                            "skipped": total_skipped,
-                            "details": progress_details[-50:],
-                        },
-                    )
 
                 # 如果指定了 max_counts，检查是否已达到上限
                 if max_counts and total_downloaded >= max_counts:
@@ -761,10 +803,20 @@ async def _download_with_stats(
     except (RuntimeError, OSError, ValueError) as e:
         logger.error(f"下载过程中出错: {e}")
         logger.info(error(f"下载过程中出错: {e}"))
+        if task_id:
+            add_download_error(task_id, url, str(e))
         # 继续处理已下载的视频
+
+    # 更新总数量
+    if task_id:
+        set_total_count(task_id, all_videos_count)
 
     logger.info(f"保存了 {total_stats_saved} 条视频元数据")
     logger.info(success(f"[统计] 新增 {total_downloaded} 个，跳过 {total_skipped} 个已有"))
+
+    # 更新状态为整理中
+    if task_id:
+        update_stage(task_id, Stage.AUDITING)
 
     # 整理文件
     logger.info(info("[整理] 重新组织文件..."))
@@ -783,6 +835,10 @@ async def _download_with_stats(
     # 更新 last_fetch_time
     if folder_name:
         _update_last_fetch_time(uid, nickname or folder_name)
+
+    # 更新状态为同步资产库
+    if task_id:
+        update_stage(task_id, Stage.TRANSCRIBING)
 
     # 同步 V2 资产库
     if folder_name:
@@ -804,6 +860,10 @@ async def _download_with_stats(
                             new_files.append(str(full_path))
         except (sqlite3.Error, OSError) as e:
             logger.error(f"查询新文件路径失败: {e}")
+
+    # 更新状态为完成
+    if task_id:
+        update_stage(task_id, Stage.COMPLETED)
 
     logger.info(f"下载完成: 共 {total_downloaded} 个视频")
     logger.info(success(f"\n[完成] 共下载 {total_downloaded} 个视频"))

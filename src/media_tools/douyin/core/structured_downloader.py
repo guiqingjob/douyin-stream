@@ -239,28 +239,60 @@ class StructuredDownloader(Downloader):
         task_id: Optional[str] = None,
     ) -> Tuple[int, int]:
         """根据 URL 下载视频"""
+        from .cancel_registry import (
+            init_download_progress,
+            update_stage,
+            update_current_video,
+            increment_downloaded,
+            increment_skipped,
+            add_download_error,
+        )
+        from media_tools.domain.entities.task import Stage
+
         try:
+            if task_id:
+                init_download_progress(task_id, total=1)
+                update_stage(task_id, Stage.FETCHING)
+
             video_info = await self._fetcher.fetch_video_by_url(url)
             
             if skip_existing and self._storage.exists(video_info.aweme_id, video_info.author_id):
                 logger.info(f"视频已存在，跳过: {video_info.aweme_id}")
+                if task_id:
+                    increment_skipped(task_id, video_info.title)
+                    update_stage(task_id, Stage.COMPLETED)
                 return (0, 1)
             
+            if task_id:
+                update_stage(task_id, Stage.DOWNLOADING)
+                update_current_video(task_id, video_info.title)
+
             author_path = self._storage.get_download_path(video_info.author_id, video_info.author)
             filename = f"{self._storage._clean_title(video_info.title)}_{video_info.aweme_id}.mp4"
             save_path = author_path / filename
             
+            logger.info(info(f"[下载] {video_info.title[:50]}..."))
             success = await self._fetcher.download_video(video_info, save_path)
             
             if success:
                 self._metadata_store.save_metadata(video_info, save_path)
                 self._metadata_store.update_download_time(video_info.author_id)
+                if task_id:
+                    increment_downloaded(task_id, video_info.title)
+                    update_stage(task_id, Stage.COMPLETED)
+                logger.info(info(f"[成功] {video_info.title[:50]}..."))
                 return (1, 0)
             else:
+                if task_id:
+                    add_download_error(task_id, video_info.title, "下载失败")
+                    update_stage(task_id, Stage.COMPLETED)
                 return (0, 1)
         
         except Exception as e:
             logger.error(f"下载失败 {url}: {e}")
+            if task_id:
+                add_download_error(task_id, url, str(e))
+                update_stage(task_id, Stage.FAILED)
             raise DownloadError(str(e), url=url) from e
     
     async def download_by_uid(
@@ -272,41 +304,80 @@ class StructuredDownloader(Downloader):
         interval: Optional[str] = None,
     ) -> Tuple[int, int]:
         """根据用户 ID 下载视频"""
+        from .cancel_registry import (
+            init_download_progress,
+            update_stage,
+            update_current_video,
+            increment_downloaded,
+            increment_skipped,
+            add_download_error,
+            set_total_count,
+        )
+        from media_tools.domain.entities.task import Stage
+
         try:
+            if task_id:
+                init_download_progress(task_id, total=max_counts)
+                update_stage(task_id, Stage.FETCHING)
+
             video_list = await self._fetcher.fetch_video_list(uid, max_counts, interval)
+
+            if task_id:
+                set_total_count(task_id, len(video_list))
             
             downloaded = 0
             skipped = 0
             
+            if task_id:
+                update_stage(task_id, Stage.DOWNLOADING)
+
             for video_info in video_list:
                 if skip_existing and self._storage.exists(video_info.aweme_id, video_info.author_id):
                     skipped += 1
+                    if task_id:
+                        increment_skipped(task_id, video_info.title)
                     continue
                 
+                if task_id:
+                    update_current_video(task_id, video_info.title)
+
                 author_path = self._storage.get_download_path(video_info.author_id, video_info.author)
                 filename = f"{self._storage._clean_title(video_info.title)}_{video_info.aweme_id}.mp4"
                 save_path = author_path / filename
                 
+                logger.info(info(f"[下载] {video_info.title[:50]}..."))
                 success = await self._fetcher.download_video(video_info, save_path)
                 
                 if success:
                     self._metadata_store.save_metadata(video_info, save_path)
                     downloaded += 1
+                    if task_id:
+                        increment_downloaded(task_id, video_info.title)
+                    logger.info(info(f"[成功] {video_info.title[:50]}..."))
                 else:
                     skipped += 1
+                    if task_id:
+                        add_download_error(task_id, video_info.title, "下载失败")
             
             if downloaded > 0:
                 self._metadata_store.update_download_time(uid)
+
+            if task_id:
+                update_stage(task_id, Stage.COMPLETED)
             
             return (downloaded, skipped)
         
         except Exception as e:
             logger.error(f"批量下载失败 uid={uid}: {e}")
+            if task_id:
+                add_download_error(task_id, f"uid={uid}", str(e))
+                update_stage(task_id, Stage.FAILED)
             raise DownloadError(str(e)) from e
     
     def get_progress(self, task_id: str) -> Optional[Dict[str, Any]]:
         """获取下载进度"""
-        return self._progress.get(task_id)
+        from .cancel_registry import get_download_progress
+        return get_download_progress(task_id)
 
 
 # 全局实例

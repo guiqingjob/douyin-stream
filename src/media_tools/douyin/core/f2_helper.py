@@ -25,21 +25,25 @@ def _disable_f2_bark_notifications() -> None:
 
 
 def _disable_f2_logging() -> None:
-    """禁用 F2 库的日志输出，避免产生大量 f2-trace-*.log 空文件。
+    """优化 F2 库的日志输出策略。
     
-    F2 库每次请求都会创建一个日志文件，但只有发生错误时才写入内容，
-    导致 logs/ 目录下产生大量空的 f2-trace-*.log 文件。
+    策略：
+    1. 保留 WARNING 及以上级别日志（用于记录异常和错误）
+    2. 移除 F2 默认的文件 handler（避免产生大量空的 f2-trace-*.log 文件）
+    3. 允许日志向上传播到根日志器（便于统一管理和输出）
     """
-    # 禁用 f2 库的根日志器
     f2_logger = logging.getLogger('f2')
+    # 设置为 WARNING 级别，只记录异常和错误，不记录调试和信息日志
     f2_logger.setLevel(logging.WARNING)
     
-    # 移除所有 handler，防止 F2 自己添加的 handler 输出日志
+    # 移除 F2 默认添加的文件 handler（这些会产生大量空的 f2-trace-*.log 文件）
     for handler in list(f2_logger.handlers):
-        f2_logger.removeHandler(handler)
+        # 只移除文件 handler，保留其他类型的 handler
+        if isinstance(handler, logging.FileHandler):
+            f2_logger.removeHandler(handler)
     
-    # 设置 propagate 为 False，避免日志传播到父日志器
-    f2_logger.propagate = False
+    # 允许日志向上传播到父日志器，这样可以统一管理日志输出
+    f2_logger.propagate = True
 
 
 _disable_f2_bark_notifications()

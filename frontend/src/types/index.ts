@@ -63,6 +63,50 @@ export type PipelineProgressStage =
   | 'failed'
   | string;
 
+export type TaskStage =
+  | 'created'
+  | 'fetching'
+  | 'auditing'
+  | 'downloading'
+  | 'transcribing'
+  | 'exporting'
+  | 'completed'
+  | 'failed'
+  | 'cancelled';
+
+export interface DownloadStageProgress {
+  downloaded: number;
+  skipped: number;
+  failed: number;
+  total: number;
+  current_video: string;
+  current_index: number;
+}
+
+export interface TranscribeStageProgress {
+  done: number;
+  skipped: number;
+  failed: number;
+  total: number;
+  current_video: string;
+  current_account: string;
+}
+
+export interface TaskProgress {
+  stage: TaskStage;
+  overall_percent: number;
+  download_progress: DownloadStageProgress | null;
+  transcribe_progress: TranscribeStageProgress | null;
+  error_count: number;
+  errors: Array<{
+    title: string;
+    status?: string;
+    error?: string;
+    time: number;
+  }>;
+  start_time: string | null;
+}
+
 export interface PipelineProgressCounter {
   done: number;
   total: number;

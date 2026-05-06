@@ -14,7 +14,13 @@ import {
 import { cancelTask, rerunTask, retryFailedSubtasks, setAutoRetry, deleteTask, recoverAwemeAndTranscribe, retryCreatorTranscribeCleanup } from '@/lib/api';
 import { Badge } from '@/components/ui/badge';
 import type { Task } from '@/lib/api';
-import type { PipelineProgress } from '@/types';
+import type { PipelineProgress, TaskStage, TaskProgress } from '@/types';
+import {
+  getStageInfo,
+  formatStageMessage,
+  getProgressPercent,
+  getProgressDetails,
+} from '@/lib/task-utils';
 
 type TaskSubtask = {
   title: string;
@@ -125,26 +131,8 @@ function buildTaskCenterProgressLine(task: Task, parsed: TaskPayload | null) {
 }
 
 function stageLabel(stage: string) {
-  switch (stage) {
-    case 'list':
-      return '获取列表';
-    case 'audit':
-      return '对账';
-    case 'download':
-      return '下载中';
-    case 'upload':
-      return '上传中';
-    case 'transcribe':
-      return '转写中';
-    case 'export':
-      return '导出中';
-    case 'done':
-      return '完成';
-    case 'failed':
-      return '失败';
-    default:
-      return stage || '';
-  }
+  const stageInfo = getStageInfo(stage as TaskStage);
+  return stageInfo.label || stage || '';
 }
 
 function exportStatusLabel(status: unknown) {
