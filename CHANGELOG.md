@@ -22,6 +22,12 @@
 
 ### 🔧 改进
 
+- **代码重构全面完成**：完成 4 个阶段的系统重构
+  - **Phase 1 - 基础架构优化**：统一配置系统（AppConfig）、统一错误处理（异常类型 + 中间件）、日志标准化
+  - **Phase 2 - 核心模块重构**：下载器职责分离（接口 + 实现）、管道流程重构（PipelineStep + 步骤实现）、任务系统优化（TaskService）
+  - **Phase 3 - API层优化**：提取 AssetService、CreatorService，实现路由层与服务层分离
+  - **Phase 4 - 测试完善**：新增 6 个测试文件，共 69 个测试用例
+- **命名标准化**：移除版本号命名（orchestrator_v2.py → orchestrator.py）
 - **WebSocket 错误日志防抖**：添加 `_lastWsErrorLog` 状态，避免 `onerror` 每秒多次触发
 - **路径遍历检测优化**：移除过于宽泛的 `..` 字符串检查（文件名可能包含 `....`），改用 `os.path.commonpath()` 做准确检测
 - **日志归档策略**：`logs/` 目录改为归档不删，便于事故回放分析
