@@ -105,7 +105,7 @@ export function TaskMonitorPanel() {
               </div>
               <span className="text-title-3 font-semibold">任务中心</span>
             </div>
-            <div className="flex items-center gap-2">
+            <div className="flex items-center gap-2 pr-10">
               {hasNonRunning && (
                 <Button
                   variant="ghost"
