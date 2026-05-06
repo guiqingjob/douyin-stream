@@ -19,6 +19,8 @@ export interface TaskSlice {
   tasks: Task[];
   setTasks: (tasks: Task[]) => void;
   updateTask: (taskUpdate: Partial<Task> & { task_id: string }) => void;
+  addTask: (task: Task) => void;
+  updateTaskPriority: (taskId: string, priority: number) => void;
   fetchInitialTasks: () => Promise<void>;
   lastCompletedTaskTime: number;
   lastCompletedTaskType: string | null;
@@ -107,6 +109,43 @@ export const createTaskSlice: StateCreator<StoreState, [], [], TaskSlice> = (set
           : {}),
       };
     });
+  },
+
+  addTask: (task) => {
+    set((state) => {
+      const existingIndex = state.tasks.findIndex((t) => t.task_id === task.task_id);
+      let updatedTasks = [...state.tasks];
+
+      if (existingIndex >= 0) {
+        updatedTasks[existingIndex] = task;
+      } else {
+        updatedTasks = [task, ...updatedTasks];
+      }
+
+      if (updatedTasks.length > MAX_TASKS) {
+        const terminal = updatedTasks.filter((t) =>
+          TERMINAL_STATUSES.includes(t.status as (typeof TERMINAL_STATUSES)[number]),
+        );
+        const active = updatedTasks.filter(
+          (t) => !TERMINAL_STATUSES.includes(t.status as (typeof TERMINAL_STATUSES)[number]),
+        );
+        const toEvict = Math.max(0, updatedTasks.length - MAX_TASKS);
+        if (toEvict > 0 && terminal.length > 0) {
+          terminal.sort((a, b) => (b.update_time || '').localeCompare(a.update_time || ''));
+          updatedTasks = [...active, ...terminal.slice(0, terminal.length - toEvict)];
+        }
+      }
+
+      return { tasks: updatedTasks };
+    });
+  },
+
+  updateTaskPriority: (taskId, priority) => {
+    set((state) => ({
+      tasks: state.tasks.map((t) =>
+        t.task_id === taskId ? { ...t, priority } : t
+      ),
+    }));
   },
 
   fetchInitialTasks: async () => {

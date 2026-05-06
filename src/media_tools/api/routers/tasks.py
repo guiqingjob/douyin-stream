@@ -29,7 +29,7 @@ from media_tools.repositories.task_repository import TaskRepository
 from media_tools.core.config import get_runtime_setting_bool
 
 # WebSocket
-from media_tools.api.websocket_manager import websocket_endpoint
+from media_tools.api.websocket_manager import websocket_endpoint, manager
 
 # Task operations
 from media_tools.services.task_ops import (
@@ -240,6 +240,25 @@ async def set_auto_retry(task_id: str, enabled: bool = True):
 @router.post("/{task_id}/pause")
 async def pause_task(task_id: str):
     raise HTTPException(status_code=501, detail="暂停/恢复功能已下线")
+
+
+@router.put("/{task_id}/priority")
+async def update_task_priority(task_id: str, priority: int):
+    try:
+        TaskRepository.update_priority(task_id, priority)
+        
+        await manager.broadcast({
+            "type": "task_priority_change",
+            "payload": {
+                "task_id": task_id,
+                "priority": priority,
+            },
+        })
+        
+        return {"status": "success", "message": "任务优先级已更新"}
+    except (sqlite3.Error, OSError, RuntimeError) as e:
+        logger.exception(f"update_task_priority failed for {task_id}")
+        raise HTTPException(status_code=500, detail=str(e))
 
 
 @router.post("/{task_id}/resume")

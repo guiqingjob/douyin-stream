@@ -1,5 +1,5 @@
-import { useState, useEffect, useMemo } from 'react';
-import { Activity, AlertTriangle, Clock3, Loader2, Trash2 } from 'lucide-react';
+import { useState, useEffect, useMemo, useCallback } from 'react';
+import { Activity, AlertTriangle, Clock3, Loader2, Trash2, ArrowUpDown } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { useStore } from '@/store/useStore';
 import {
@@ -9,11 +9,10 @@ import {
   type TaskFilterCategory,
 } from '@/lib/task-utils';
 import { useTaskActions } from '@/hooks/useTaskActions';
+import { useWebSocket } from '@/hooks/useWebSocket';
 import {
   Dialog,
   DialogContent,
-  DialogHeader,
-  DialogTitle,
   DialogTrigger,
 } from '@/components/ui/dialog';
 import { Button } from '@/components/ui/button';
@@ -29,36 +28,39 @@ const FILTER_TABS: { key: TaskFilterCategory; label: string }[] = [
 export function TaskMonitorPanel() {
   const [open, setOpen] = useState(false);
   const [filter, setFilter] = useState<TaskFilterCategory>('all');
-  const [, setTick] = useState(0);
+  const [sortBy, setSortBy] = useState<'time' | 'priority'>('time');
   const [expandedTasks, setExpandedTasks] = useState<Set<string>>(new Set());
   const rawTasks = useStore((state) => state.tasks);
   const fetchInitialTasks = useStore((state) => state.fetchInitialTasks);
-  const allTasks = useMemo(() => sortTasks(rawTasks), [rawTasks]);
+
+  useWebSocket();
+
   const { handleClearHistory, handleRetry } = useTaskActions();
 
-  // 打开对话框时，定时轮询 REST 接口作为 WebSocket 兜底
   useEffect(() => {
     if (!open) return;
-    // 立即拉取一次
     fetchInitialTasks();
-    // 每 5 秒轮询，确保和后端状态同步
-    const interval = setInterval(() => {
-      fetchInitialTasks();
-      setTick((t) => t + 1);
-    }, 5_000);
-    return () => clearInterval(interval);
   }, [open, fetchInitialTasks]);
 
-  const filteredTasks = useMemo(() => filterTasksByCategory(allTasks, filter), [allTasks, filter]);
+  const sortedTasks = useMemo(() => {
+    const tasks = [...rawTasks];
+    if (sortBy === 'priority') {
+      return tasks.sort((a, b) => (b.priority || 0) - (a.priority || 0));
+    }
+    return sortTasks(tasks);
+  }, [rawTasks, sortBy]);
 
-  const activeTasks = useMemo(() => allTasks.filter((task) => {
+  const filteredTasks = useMemo(() => filterTasksByCategory(sortedTasks, filter), [sortedTasks, filter]);
+
+  const activeTasks = useMemo(() => sortedTasks.filter((task) => {
     const state = getTaskDisplayState(task);
     return state === 'running' || state === 'paused';
-  }), [allTasks]);
-  const failedTasks = useMemo(() => allTasks.filter((task) => {
+  }), [sortedTasks]);
+
+  const failedTasks = useMemo(() => sortedTasks.filter((task) => {
     const state = getTaskDisplayState(task);
     return state === 'failed' || state === 'stale';
-  }), [allTasks]);
+  }), [sortedTasks]);
 
   const triggerCaption = useMemo(() =>
     activeTasks.length > 0
@@ -69,10 +71,19 @@ export function TaskMonitorPanel() {
     [activeTasks.length, failedTasks.length],
   );
 
-  const hasNonRunning = useMemo(() => allTasks.some((t) => {
+  const hasNonRunning = useMemo(() => sortedTasks.some((t) => {
     const state = getTaskDisplayState(t);
     return state !== 'running' && state !== 'paused';
-  }), [allTasks]);
+  }), [sortedTasks]);
+
+  const toggleExpand = useCallback((taskId: string) => {
+    setExpandedTasks((prev) => {
+      const next = new Set(prev);
+      if (next.has(taskId)) next.delete(taskId);
+      else next.add(taskId);
+      return next;
+    });
+  }, []);
 
   return (
     <Dialog open={open} onOpenChange={setOpen}>
@@ -106,6 +117,27 @@ export function TaskMonitorPanel() {
               <span className="text-title-3 font-semibold">任务中心</span>
             </div>
             <div className="flex items-center gap-2 pr-10">
+              <div className="flex items-center gap-1 rounded-md border border-border/60 px-2 py-1">
+                <button
+                  onClick={() => setSortBy('time')}
+                  className={cn(
+                    'px-2 py-0.5 text-xs transition-colors',
+                    sortBy === 'time' ? 'text-foreground font-medium' : 'text-muted-foreground hover:text-foreground'
+                  )}
+                >
+                  时间
+                </button>
+                <button
+                  onClick={() => setSortBy('priority')}
+                  className={cn(
+                    'flex items-center gap-1 px-2 py-0.5 text-xs transition-colors',
+                    sortBy === 'priority' ? 'text-foreground font-medium' : 'text-muted-foreground hover:text-foreground'
+                  )}
+                >
+                  <ArrowUpDown className="size-3" />
+                  优先级
+                </button>
+              </div>
               {hasNonRunning && (
                 <Button
                   variant="ghost"
@@ -124,9 +156,9 @@ export function TaskMonitorPanel() {
         <div className="shrink-0 grid grid-cols-4 gap-4 px-6 py-4">
           {[
             { label: '进行中', value: activeTasks.length, tone: 'text-primary' },
-            { label: '成功', value: allTasks.filter((t) => getTaskDisplayState(t) === 'success').length, tone: 'text-success' },
+            { label: '成功', value: sortedTasks.filter((t) => getTaskDisplayState(t) === 'success').length, tone: 'text-success' },
             { label: '失败', value: failedTasks.length, tone: 'text-destructive' },
-            { label: '总计', value: allTasks.length, tone: 'text-foreground' },
+            { label: '总计', value: sortedTasks.length, tone: 'text-foreground' },
           ].map((item) => (
             <div key={item.label} className="rounded-[var(--radius-card)] border border-border/60 bg-card p-4">
               <div className="text-caption text-muted-foreground">{item.label}</div>
@@ -135,7 +167,6 @@ export function TaskMonitorPanel() {
           ))}
         </div>
 
-        {/* Filter tabs */}
         <div className="shrink-0 px-6 pt-4 pb-2">
           <div className="inline-flex rounded-[var(--radius-card)] border border-border/60 bg-muted p-1">
             {FILTER_TABS.map((tab) => (
@@ -173,14 +204,7 @@ export function TaskMonitorPanel() {
                   task={task}
                   onRetry={handleRetry}
                   isExpanded={expandedTasks.has(task.task_id)}
-                  onToggleExpand={(taskId) => {
-                    setExpandedTasks((prev) => {
-                      const next = new Set(prev);
-                      if (next.has(taskId)) next.delete(taskId);
-                      else next.add(taskId);
-                      return next;
-                    });
-                  }}
+                  onToggleExpand={toggleExpand}
                 />
               ))}
             </div>

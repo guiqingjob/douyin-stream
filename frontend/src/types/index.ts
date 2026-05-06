@@ -49,6 +49,7 @@ export interface Task {
   error_msg?: string;
   auto_retry?: boolean | number;
   update_time?: string;
+  priority?: number;
 }
 
 export type PipelineProgressStage =

@@ -24,7 +24,26 @@ def _disable_f2_bark_notifications() -> None:
         pass
 
 
+def _disable_f2_logging() -> None:
+    """禁用 F2 库的日志输出，避免产生大量 f2-trace-*.log 空文件。
+    
+    F2 库每次请求都会创建一个日志文件，但只有发生错误时才写入内容，
+    导致 logs/ 目录下产生大量空的 f2-trace-*.log 文件。
+    """
+    # 禁用 f2 库的根日志器
+    f2_logger = logging.getLogger('f2')
+    f2_logger.setLevel(logging.WARNING)
+    
+    # 移除所有 handler，防止 F2 自己添加的 handler 输出日志
+    for handler in list(f2_logger.handlers):
+        f2_logger.removeHandler(handler)
+    
+    # 设置 propagate 为 False，避免日志传播到父日志器
+    f2_logger.propagate = False
+
+
 _disable_f2_bark_notifications()
+_disable_f2_logging()
 
 
 def _get_active_douyin_cookie_from_pool(db_path) -> str:

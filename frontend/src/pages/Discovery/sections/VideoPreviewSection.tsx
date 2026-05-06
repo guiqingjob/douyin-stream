@@ -106,7 +106,7 @@ export function VideoPreviewSection({
         <div className="flex items-center gap-4 rounded-lg apple-floating-bar py-3 pl-3 pr-3 apple-shadow-md">
           <Button
             variant="ghost"
-            size="icon-sm"
+            size="iconSm"
             onClick={onToggleAll}
             className="text-muted-foreground hover:bg-secondary hover:text-foreground"
             title={metadata.videos.length > 0 && metadata.videos.every((v) => selectedUrls.has(v.video_url)) ? '取消全选' : '全选'}

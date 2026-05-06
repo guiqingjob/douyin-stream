@@ -41,7 +41,7 @@ cd frontend && npx vitest                           # 前端测试（vitest.conf
 ## 架构核心（必须先理解）
 
 ### 真相源分层
-1. **业务真相源** = `media_tools.db`（SQLite, WAL）。`media_assets` 表的 `transcript_status` / `download_status` 才决定业务是否完成；任务（`task_queue`）只是"一次执行尝试"。
+1. **业务真相源** = `data/media_tools.db`（SQLite, WAL）。`media_assets` 表的 `transcript_status` / `download_status` 才决定业务是否完成；任务（`task_queue`）只是"一次执行尝试"。
 2. **运行时配置真相源** = `SystemSettings` 表（KV）。`auto_transcribe`、`auto_delete`、`concurrency`、`api_key` 全在这里，**不要回去读 `config.yaml`**。`config.yaml` 只剩 `cookie` / `download_path` / `naming` 这种启动期常量。
 3. **转写阶段真相源** = `transcribe_runs` 表（2026-05 新加）。每行 = 某 asset 在某账号上的一次完整尝试，stage 推进序：`queued → uploaded → transcribing → exporting → downloading → saved`。
 

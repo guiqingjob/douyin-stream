@@ -316,6 +316,16 @@ class TaskRepository:
                 (1 if enabled else 0, task_id),
             )
 
+    @staticmethod
+    def update_priority(task_id: str, priority: int) -> None:
+        """更新任务优先级"""
+        now = datetime.now().isoformat()
+        with get_db_connection() as conn:
+            conn.execute(
+                "UPDATE task_queue SET priority = ?, update_time = ? WHERE task_id = ?",
+                (priority, now, task_id),
+            )
+
     # ---------- DELETE ----------
 
     @staticmethod

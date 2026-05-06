@@ -433,7 +433,14 @@ export const TaskItem = memo(function TaskItem({ task, onRetry, isExpanded, onTo
             {isRunning && <span className="absolute right-1.5 top-1.5 size-2 rounded-md bg-primary animate-pulse" />}
           </div>
           <div className="min-w-0 flex-1">
-            <div className="truncate text-[13px] font-semibold text-foreground/85">{taskTypeLabel(task.task_type)}</div>
+            <div className="flex items-center gap-2">
+              <span className="truncate text-[13px] font-semibold text-foreground/85">{taskTypeLabel(task.task_type)}</span>
+              {task.priority && task.priority > 0 && (
+                <Badge className="shrink-0 text-[10px] bg-warning/10 text-warning">
+                  优先级 {task.priority}
+                </Badge>
+              )}
+            </div>
             <div className="mt-0.5 truncate text-[12px] text-muted-foreground">{subtitle}</div>
           </div>
           <div className="flex items-center gap-2">
@@ -527,6 +534,11 @@ export const TaskItem = memo(function TaskItem({ task, onRetry, isExpanded, onTo
             >
               {getTaskStatusLabel(task)}
             </Badge>
+            {task.priority && task.priority > 0 && (
+              <Badge className="text-[10px] bg-warning/10 text-warning">
+                优先级 {task.priority}
+              </Badge>
+            )}
             {duration && <span className="text-[11px] text-muted-foreground tabular-nums">{duration}</span>}
           </div>
           <div className="mt-1 text-xs font-mono text-muted-foreground/50">{task.task_id}</div>
