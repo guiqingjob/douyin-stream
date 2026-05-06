@@ -12,6 +12,7 @@
 - ✅ **健康检查脚本**：`scripts/health_check.py` 检 4 类一致性问题；JSON 输出 + 退出码可接 cron
 - ✅ **PARTIAL_FAILED 任务状态**：区分全失败/部分失败；前端 badge 中文化；UI"重试失败子任务"按钮在 PARTIAL 任务上正确显示
 - ✅ **logs/ 归档机制**：`services.log_rotation.archive_old_logs()` mv 到 archive 子目录，不删
+- ✅ **Ghost transcripts 清理**：`reconcile_transcripts()` 新增 prune 逻辑，清理 DB 中已完成但文件已不存在的"幽灵"记录
 - ⏳ Phase 3 生产数据回放验证（需要人值守）
 
 ### Phase 3 — 可恢复转写流水线（重构第三阶段）
@@ -29,6 +30,7 @@
 | 续传 fast-path B | 已有 `gen_record_id` → 跳过 token/upload/heartbeat/start，从 poll 继续 |
 | 保险丝 | 续传任何异常 → stage 重置 `queued` → 完整 flow 接管 |
 | 测试覆盖 | 13 个单元/集成测试（建表、stage 推进、续传命中、各级 fallback、E2E 失败 → 重试复用） |
+| Ghost transcripts 清理 | reconciler 新增 prune 逻辑：completed 但文件已不存在时自动清理 DB 记录 |
 
 **关键不变量**：跨账号续传**不**支持（Qwen `genRecordId` 与账号绑定）。
 
@@ -252,6 +254,7 @@ WebSocket 广播进度更新（含 result_summary）
 ### 2026-05-05
 
 - [x] Phase 4 可观测性：失败聚合 API + Settings 表格 / 健康检查脚本 / PARTIAL_FAILED 状态机
+- [x] Ghost transcripts 清理：reconcile_transcripts() 新增 prune 逻辑
 - [x] Phase 3 可恢复转写流水线（transcribe_runs 表 + find_resumable + 两条续传 fast-path）
 - [x] Qwen 转写引擎完全迁移到 HTTP（去 Playwright/Chromium 依赖）
 - [x] 全仓清理 Playwright 残留描述（5 个文档 + 4 个源/测试文件）
@@ -293,11 +296,13 @@ WebSocket 广播进度更新（含 result_summary）
 > 优先级原则：**业务可靠性 > 工程规范**（详见 [CLAUDE.md](../CLAUDE.md)）。
 > 这是单机本地工作台，不引入 CI/CD、Docker、覆盖率门槛、APM 等"生产服务"工程标准。
 
-### P1 — 业务可靠性收尾（活跃中）
+### P1 — 业务可靠性收尾（已闭环）
 
-- [ ] **Phase 3 生产数据回放**：故意 kill 中段验证续传 fast-path（需要人值守）
+> Phase 1-4 全部落地，refactor 文档预设的所有路线图已交付（2026-05-05）。
+> 继续重构需以**真实业务痛点**为驱动，而非工程惯性——参见 CLAUDE.md "业务可靠性 > 工程规范"。
 
-> Phase 4 三大块（PARTIAL_FAILED / 失败聚合 / 健康检查）已于 2026-05-05 落地；
+- [x] ~~Phase 3 生产数据回放~~：手工演练，决定不安排（2026-05-05）；续传逻辑由 13 个单元/集成测试覆盖视为足够。
+
 > `media_assets` 失败追踪字段（`transcript_last_error` / `transcript_error_type`
 > / `transcript_retry_count` / `transcript_failed_at` / `last_task_id`）**已在
 > Phase 2 通过 `_ensure_column` 加入并接通写入路径**（见 `db/core.py:507-513`），

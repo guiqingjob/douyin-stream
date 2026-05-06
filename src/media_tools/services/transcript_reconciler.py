@@ -21,6 +21,7 @@ def reconcile_transcripts():
         "assets_updated": 0,
         "creators_removed": 0,
         "assets_removed": 0,
+        "ghosts_pruned": 0,
     }
     now = datetime.now().isoformat()
 
@@ -142,6 +143,30 @@ def reconcile_transcripts():
                 if batch_count >= 100:
                     conn.commit()
                     batch_count = 0
+
+        # prune：completed 但 transcript_path 指向的文件已不存在 → DB 行已无业务依据
+        # 主要原因是用户在 FS 直接删/改名 .md，reconciler 此前只增不减
+        completed_rows = conn.execute(
+            "SELECT asset_id, transcript_path FROM media_assets "
+            "WHERE transcript_status = 'completed' "
+            "AND transcript_path IS NOT NULL AND transcript_path != ''"
+        ).fetchall()
+        ghost_ids: list[str] = []
+        for row in completed_rows:
+            rel_path = row["transcript_path"]
+            full = Path(rel_path)
+            if not full.is_absolute():
+                full = transcripts_dir / full
+            if not full.exists():
+                ghost_ids.append(str(row["asset_id"]))
+        if ghost_ids:
+            placeholders = ",".join("?" * len(ghost_ids))
+            conn.execute(f"DELETE FROM assets_fts WHERE asset_id IN ({placeholders})", ghost_ids)
+            deleted = conn.execute(
+                f"DELETE FROM media_assets WHERE asset_id IN ({placeholders})", ghost_ids
+            )
+            results["ghosts_pruned"] = deleted.rowcount
+            logger.info(f"Pruned {deleted.rowcount} ghost transcripts (file missing on disk)")
 
         empty = conn.execute(
             "SELECT c.uid FROM creators c LEFT JOIN media_assets m ON c.uid=m.creator_uid WHERE c.platform='local' AND m.asset_id IS NULL"
