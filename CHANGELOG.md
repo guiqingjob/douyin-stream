@@ -62,7 +62,7 @@
 ### 🎉 新增
 
 #### 核心功能
-- **增强版Pipeline** (`orchestrator_v2.py`)
+- **增强版Pipeline** (`orchestrator.py`)
   - 失败自动重试机制（最多3次，指数退避）
   - 断点续传支持（`.pipeline_state.json`）
   - 实时进度追踪（`on_progress`回调）
