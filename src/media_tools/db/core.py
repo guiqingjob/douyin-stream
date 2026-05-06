@@ -610,6 +610,6 @@ def task_status_from_code(code: int) -> str:
 
 
 if __name__ == "__main__":
-    db_path = "media_tools.db"
+    db_path = "data/media_tools.db"
     init_db(db_path)
     logger.info("DB Init success")

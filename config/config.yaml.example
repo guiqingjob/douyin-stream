@@ -1,0 +1,14 @@
+# 数据库配置
+database:
+  # 数据库文件路径（相对于项目根目录）
+  path: data/media_tools.db
+
+# 下载目录配置
+download:
+  path: downloads
+
+# 文件命名格式
+naming: "{desc}_{aweme_id}"
+
+# 抖音 Cookie（敏感信息，不建议直接写在这里）
+# cookie: "your_cookie_here"

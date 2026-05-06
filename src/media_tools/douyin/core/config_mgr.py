@@ -135,7 +135,7 @@ class ConfigManager:
         if path:
             return Path(path).expanduser()
 
-        return self.project_root / "media_tools.db"
+        return self.project_root / "data" / "media_tools.db"
 
     def get_naming(self):
         """获取文件命名格式"""

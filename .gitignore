@@ -94,8 +94,13 @@ logs/
 douyin_users.db
 media_tools.db
 
+# 本地数据库文件
+# 注意：data/media_tools.db 需要手动创建或从备份恢复
+data/
+
 # 配置（敏感信息）
-config/config.yaml
+config/
+!config/config.yaml.example
 config/transcribe/.env
 config/transcribe/accounts.json
 config/backups/

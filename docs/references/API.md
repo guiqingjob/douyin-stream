@@ -55,33 +55,37 @@ async def trigger_download():
 
 ---
 
-## 2. 数据库设计 (SQLite: `douyin_users.db`)
+## 2. 数据库设计 (SQLite: `data/media_tools.db`)
 
-项目运行时会自动在根目录下生成 `douyin_users.db`。它包含三张核心表，用于支撑全链路的数据看板和防重复下载。
+项目运行时使用 `data/media_tools.db`（路径可通过 `config/config.yaml` 配置）。数据库使用 WAL 模式，支持并发读写。
 
-### 2.1 `user_info_web` 表
-存放通过 API 抓取到的博主详细信息。
-- `uid`: 博主数字 ID (Primary Key)
-- `sec_user_id`: 抖音内部加密 ID
-- `nickname`: 博主昵称
-- `avatar_url`: 头像地址
-- `signature`: 个性签名
-- `follower_count`: 粉丝数
-- `following_count`: 关注数
-- `aweme_count`: 历史发布视频总数
+### 2.1 核心业务表
 
-### 2.2 `video_metadata` 表 (核心业务数据)
-记录被成功下载并解析的每一条视频元数据。
-- `aweme_id`: 视频唯一 ID (Primary Key)
-- `uid`: 归属博主 UID
-- `nickname`: 归属博主昵称
-- `desc`: 视频文案（含 Hash 标签）
-- `create_time`: 发布时间（时间戳）
-- `digg_count`: 点赞量
-- `comment_count`: 评论量
-- `share_count`: 分享量
-- `collect_count`: 收藏量
-- `download_time`: 记录下载到本地的准确时间戳
+| 表名 | 用途 |
+| :--- | :--- |
+| `media_assets` | 素材表：存储视频/音频文件的元数据和转写状态 |
+| `creators` | 创作者表：存储博主信息及下载/转写统计 |
+| `task_queue` | 任务队列：存储下载、转写等后台任务的执行状态 |
+| `transcribe_runs` | 转写记录表：记录每次转写尝试的阶段和状态 |
+
+### 2.2 配置与辅助表
+
+| 表名 | 用途 |
+| :--- | :--- |
+| `SystemSettings` | 系统设置：运行时配置（KV 存储） |
+| `Accounts_Pool` | Qwen 账号池：管理通义千问转写账号 |
+| `auth_credentials` | 认证凭据：存储 Cookie 等认证信息 |
+| `scheduled_tasks` | 定时任务：存储周期任务配置 |
+| `assets_fts` | 全文搜索索引：素材内容搜索 |
+| `video_metadata` | 视频元数据：存放视频详细信息 |
+| `user_info_web` | 用户信息：存放创作者公开信息 |
+
+### 2.3 状态字段说明
+
+- `media_assets.download_status`: `pending` | `downloading` | `completed` | `failed`
+- `media_assets.transcript_status`: `pending` | `transcribing` | `completed` | `failed`
+- `task_queue.status`: `PENDING` | `RUNNING` | `COMPLETED` | `FAILED` | `PARTIAL_FAILED`
+- `transcribe_runs.stage`: `queued` | `uploaded` | `transcribing` | `exporting` | `downloading` | `saved` | `failed`
 
 ---
 
@@ -90,9 +94,9 @@ async def trigger_download():
 如果你准备将本项目部署到生产级服务器或开源社区的高可用场景，建议进行以下改造：
 
 ### 3.1 替换 SQLite 为 MySQL/PostgreSQL
-当前 `douyin_users.db` 满足本地单机高频读取，但并发写能力较弱。如果封装为多用户的 Web API：
+当前 `media_tools.db` 满足本地单机高频读写，但并发写能力较弱。如果封装为多用户的 Web API：
 1. 建议使用 `SQLAlchemy` 或 `Tortoise ORM` 替换原生的 `sqlite3` 模块。
-2. 确保 `download_with_stats` 中的落库行为改为使用 ORM 事务。
+2. 确保下载入库行为改为使用 ORM 事务。
 
 ### 3.2 剥离 Web 看板为独立前端项目
 目前的 Web 看板是靠 `generate-data.py` 静态注入 `data.js` 的“伪 SSR”模式。如果改为 API 后端：

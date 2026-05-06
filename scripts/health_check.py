@@ -16,7 +16,7 @@
 用法：
   python scripts/health_check.py
   python scripts/health_check.py --verbose
-  python scripts/health_check.py --db ./media_tools.db --sample-size 20
+  python scripts/health_check.py --db ./data/media_tools.db --sample-size 20
   echo "0=healthy / 1=anomaly: $?"
 """
 from __future__ import annotations
@@ -32,7 +32,7 @@ from pathlib import Path
 from typing import Any
 
 # 默认值，可被 CLI 参数覆盖
-DEFAULT_DB_PATH = Path(__file__).resolve().parent.parent / "media_tools.db"
+DEFAULT_DB_PATH = Path(__file__).resolve().parent.parent / "data" / "media_tools.db"
 DEFAULT_SAMPLE_SIZE = 10
 RUNNING_STALE_HOURS = 1
 RUN_STALE_HOURS = 24

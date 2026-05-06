@@ -164,12 +164,12 @@ def get_db_path() -> Path:
     """
     获取数据库路径
 
-    数据库统一存放在技能目录下，而不是下载目录
+    数据库统一存放在 data 目录下
 
     Returns:
         数据库路径
     """
-    return PROJECT_ROOT / "media_tools.db"
+    return PROJECT_ROOT / "data" / "media_tools.db"
 
 
 

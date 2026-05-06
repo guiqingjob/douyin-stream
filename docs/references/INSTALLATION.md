@@ -46,12 +46,26 @@ pip install f2 pyyaml httpx aiofiles
 安装完所有依赖后，初始化你的个人配置：
 
 ```bash
-# 如果 config 目录不存在，请先创建
-mkdir -p config
-
 # 复制模板文件
 cp config/config.yaml.example config/config.yaml
-cp config/following.json.example config/following.json
+```
+
+## 5. 数据目录说明
+
+项目使用以下目录结构存储数据：
+
+| 目录 | 用途 |
+| :--- | :--- |
+| `data/` | SQLite 数据库文件 (`media_tools.db`) |
+| `downloads/` | 下载的视频文件 |
+| `transcripts/` | 转写文本文件 |
+| `logs/` | 日志文件 |
+
+数据库路径可通过 `config/config.yaml` 中的 `database.path` 配置：
+
+```yaml
+database:
+  path: data/media_tools.db
 ```
 
 接下来，你就可以参考 [使用说明 (USAGE.md)](USAGE.md) 进行配置并开始下载了。
