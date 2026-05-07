@@ -168,32 +168,6 @@ def get_f2_kwargs() -> dict:
     return kwargs
 
 
-
-
-def _patch_f2_live_output() -> None:
-    """优化 F2 的 rich.live 输出，保留下载进度但过滤重复的'当前任务处理完成'消息。"""
-    try:
-        from rich import live
-        from rich.rule import Rule
-        
-        original_update = live.Live.update
-        
-        def filtered_update(self, renderable, *args, **kwargs):
-            if isinstance(renderable, Rule):
-                text = str(renderable.text)
-                if "当前任务处理完成" in text:
-                    return
-            original_update(self, renderable, *args, **kwargs)
-        
-        live.Live.update = filtered_update
-        
-    except Exception as e:
-        logger.debug(f"Failed to patch F2 live output: {e}")
-
-
-_patch_f2_live_output()
-
-
 import datetime
 
 
@@ -280,25 +254,144 @@ class StructuredLogger:
         cls.log(message, stage, "debug")
 
 
-def _patch_f2_live_output() -> None:
-    """优化 F2 的 rich.live 输出，保留下载进度但过滤重复的'当前任务处理完成'消息。"""
+def _is_interactive_terminal() -> bool:
+    """检测当前是否在交互式终端中运行。
+
+    交互式终端：用户直接在前台运行，支持 Rich 的动态刷新。
+    非交互式终端：后台服务（uvicorn）、管道、重定向输出等，
+                  Rich Live 的终端控制序列会产生空行干扰。
+    """
+    import sys
+    return hasattr(sys.stdout, "isatty") and sys.stdout.isatty()
+
+
+def _patch_f2_console_for_non_interactive() -> None:
+    """非交互式终端环境下，将 F2 的 rich console 输出重定向到日志系统。
+
+    F2 使用 rich_console.print(Rule(...)) 输出"处理第 X 页"等分隔线，
+    Rule 带有上下边距，在 uvicorn 日志环境中会产生大量空行。
+    通过替换 Console，将输出捕获并转发到 Python logging，同时过滤空行。
+    """
+    if _is_interactive_terminal():
+        return
+
+    try:
+        import io
+        from rich.console import Console
+        from f2.cli.cli_console import RichConsoleManager
+
+        class LogConsole(Console):
+            """将 Rich print 输出重定向到 Python logging，过滤空行。"""
+
+            def __init__(self, *args, **kwargs):
+                self._log_buffer = io.StringIO()
+                super().__init__(
+                    file=self._log_buffer,
+                    force_terminal=False,
+                    width=120,
+                    *args,
+                    **kwargs,
+                )
+
+            def print(self, *args, **kwargs):
+                super().print(*args, **kwargs)
+                value = self._log_buffer.getvalue()
+                if value:
+                    for line in value.rstrip("\n").splitlines():
+                        stripped = line.strip()
+                        # 跳过纯分隔线和空行
+                        if not stripped or set(stripped) <= {"─", "━", "═", "─"}:
+                            continue
+                        # 去掉行首行尾的分隔符，提取核心内容
+                        cleaned = stripped.strip("─━═─ ")
+                        if cleaned:
+                            logger.info(f"[F2] {cleaned}")
+                    self._log_buffer.truncate(0)
+                    self._log_buffer.seek(0)
+
+        # 替换 RichConsoleManager 的 rich_console property
+        original_property = RichConsoleManager.rich_console
+
+        @property
+        def patched_rich_console(self):
+            return LogConsole()
+
+        RichConsoleManager.rich_console = patched_rich_console
+        logger.debug("已重定向 F2 Console 输出到日志系统（非交互式终端）")
+
+    except Exception as e:
+        logger.debug(f"Failed to patch F2 console output: {e}")
+
+
+def _patch_f2_live_for_non_interactive() -> None:
+    """非交互式终端环境下，禁用 F2 的 rich.live 动态刷新。
+
+    保留 Progress 进度条和 Console 输出，只禁用 Live 的终端控制序列，
+    避免在 uvicorn 日志环境中产生大量空行。
+    """
+    if _is_interactive_terminal():
+        return
+
     try:
         from rich import live
-        from rich.rule import Rule
-        
-        original_update = live.Live.update
-        
-        def filtered_update(self, renderable, *args, **kwargs):
-            if isinstance(renderable, Rule):
-                text = str(renderable.text)
-                if "当前任务处理完成" in text:
-                    return
-            original_update(self, renderable, *args, **kwargs)
-        
-        live.Live.update = filtered_update
-        
+
+        def noop_refresh(self, *args, **kwargs):
+            return
+
+        def noop_update(self, renderable=None, *args, **kwargs):
+            return
+
+        live.Live.refresh = noop_refresh
+        live.Live.update = noop_update
+        logger.debug("已禁用 F2 Live 动态刷新（非交互式终端）")
+
     except Exception as e:
         logger.debug(f"Failed to patch F2 live output: {e}")
 
 
-_patch_f2_live_output()
+def _clean_f2_trace_logs(max_age_days: int = 7) -> None:
+    """清理超过指定天数的 f2-trace-*.log 文件。
+
+    F2 默认会创建 f2-trace-*.log 文件，即使内容为空。
+    定期清理避免文件堆积。
+
+    Args:
+        max_age_days: 保留最近几天的日志，默认 7 天
+    """
+    import os
+    import time
+    from pathlib import Path
+
+    try:
+        cutoff = time.time() - max_age_days * 86400
+        cleaned = 0
+
+        # 常见路径：当前目录、用户主目录、临时目录
+        search_paths = [
+            Path.cwd(),
+            Path.home(),
+            Path(os.environ.get("TMPDIR", "/tmp")),
+            Path(os.environ.get("TEMP", "/tmp")),
+        ]
+
+        for base_path in search_paths:
+            if not base_path.exists():
+                continue
+            for log_file in base_path.glob("f2-trace-*.log"):
+                try:
+                    if log_file.stat().st_mtime < cutoff:
+                        log_file.unlink()
+                        cleaned += 1
+                except (OSError, PermissionError):
+                    continue
+
+        if cleaned:
+            logger.debug(f"清理了 {cleaned} 个过期 f2-trace 日志文件")
+
+    except Exception as e:
+        logger.debug(f"清理 f2-trace 日志失败: {e}")
+
+
+_patch_f2_console_for_non_interactive()
+_patch_f2_live_for_non_interactive()
+_clean_f2_trace_logs()
