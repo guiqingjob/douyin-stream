@@ -84,31 +84,34 @@ def get_active_tasks():
         raise HTTPException(status_code=500, detail="获取活跃任务失败")
 
 
+def _enrich_task_with_pipeline_progress(task: dict[str, Any]) -> None:
+    payload_raw = task.get("payload")
+    payload: dict[str, Any] = {}
+    if isinstance(payload_raw, str) and payload_raw:
+        try:
+            parsed = json.loads(payload_raw)
+        except (json.JSONDecodeError, TypeError, ValueError):
+            parsed = {}
+        if isinstance(parsed, dict):
+            payload = parsed
+
+    pipeline_progress = build_pipeline_progress(
+        str(task.get("task_type") or ""),
+        str(task.get("status") or ""),
+        task.get("progress"),
+        payload,
+    )
+    if pipeline_progress:
+        payload["pipeline_progress"] = pipeline_progress
+        task["payload"] = json.dumps(payload, ensure_ascii=False)
+
+
 @router.get("/history")
 def get_task_history():
     try:
         tasks = TaskRepository.list_recent(200)
         for task in tasks:
-            payload_raw = task.get("payload")
-            payload: dict[str, Any] = {}
-            if isinstance(payload_raw, str) and payload_raw:
-                try:
-                    parsed = json.loads(payload_raw)
-                except (json.JSONDecodeError, TypeError, ValueError):
-                    parsed = {}
-                if isinstance(parsed, dict):
-                    payload = parsed
-
-            pipeline_progress = build_pipeline_progress(
-                str(task.get("task_type") or ""),
-                str(task.get("status") or ""),
-                task.get("progress"),
-                payload,
-            )
-            if pipeline_progress:
-                payload["pipeline_progress"] = pipeline_progress
-                task["payload"] = json.dumps(payload, ensure_ascii=False)
-
+            _enrich_task_with_pipeline_progress(task)
         return tasks
     except sqlite3.Error:
         logger.exception("get_task_history failed")
@@ -165,25 +168,7 @@ def get_task_status(task_id: str):
     try:
         task = TaskRepository.find_by_id(task_id)
         if task:
-            payload_raw = task.get("payload")
-            payload: dict[str, Any] = {}
-            if isinstance(payload_raw, str) and payload_raw:
-                try:
-                    parsed = json.loads(payload_raw)
-                except (json.JSONDecodeError, TypeError, ValueError):
-                    parsed = {}
-                if isinstance(parsed, dict):
-                    payload = parsed
-
-            pipeline_progress = build_pipeline_progress(
-                str(task.get("task_type") or ""),
-                str(task.get("status") or ""),
-                task.get("progress"),
-                payload,
-            )
-            if pipeline_progress:
-                payload["pipeline_progress"] = pipeline_progress
-                task["payload"] = json.dumps(payload, ensure_ascii=False)
+            _enrich_task_with_pipeline_progress(task)
             return task
         raise HTTPException(status_code=404, detail="任务不存在")
     except sqlite3.Error:
