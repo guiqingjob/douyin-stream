@@ -16,7 +16,7 @@ import time
 from pydantic import BaseModel
 from pathlib import Path
 
-router = APIRouter(prefix="/api/v1/creators", tags=["creators"])
+router = APIRouter(prefix="/api/v1/creators", tags=["creators"], redirect_slashes=False)
 logger = logging.getLogger(__name__)
 
 _DISK_COUNTS_TTL_SECONDS = 10.0

@@ -1,7 +1,7 @@
 from typing import Optional, Union
 from fastapi import APIRouter, HTTPException
 
-router = APIRouter(prefix="/api/v1/douyin", tags=["douyin"])
+router = APIRouter(prefix="/api/v1/douyin", tags=["douyin"], redirect_slashes=False)
 
 _f2_import_error: Optional[Exception] = None
 

@@ -19,7 +19,7 @@ export const getSettings = async (signal?: AbortSignal): Promise<{
     can_run_pipeline: boolean;
   };
 }> => {
-  const response = await apiClient.get('/settings/', { signal });
+  const response = await apiClient.get('/settings', { signal });
   return response.data;
 };
 

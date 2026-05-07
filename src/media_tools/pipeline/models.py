@@ -162,6 +162,7 @@ class PipelineResultV2:
     attempts: int = 1
     duration: float = 0.0
     account_id: Optional[str] = None
+    video_deleted: bool = False
 
     def __str__(self) -> str:
         if self.success:

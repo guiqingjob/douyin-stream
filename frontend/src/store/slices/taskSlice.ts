@@ -48,6 +48,24 @@ export const createTaskSlice: StateCreator<StoreState, [], [], TaskSlice> = (set
           Object.entries(taskUpdate).filter(([, v]) => v !== undefined),
         );
         updatedTasks[existingTaskIndex] = { ...updatedTasks[existingTaskIndex], ...filteredUpdate };
+        // 将 WS 推送的 _msg / _pp / _subtasks 合并到 payload JSON 中
+        const wsData = taskUpdate as Record<string, unknown>;
+        if ((wsData._msg || wsData._pp || wsData._subtasks) && updatedTasks[existingTaskIndex].payload) {
+          try {
+            const existing = JSON.parse(updatedTasks[existingTaskIndex].payload);
+            if (wsData._msg) existing.msg = wsData._msg;
+            if (wsData._pp) existing.pipeline_progress = wsData._pp;
+            if (wsData._subtasks) existing.subtasks = wsData._subtasks;
+            updatedTasks[existingTaskIndex] = {
+              ...updatedTasks[existingTaskIndex],
+              payload: JSON.stringify(existing),
+            };
+          } catch { /* ignore parse errors */ }
+        }
+        // 从 filteredUpdate 中删除内部字段，避免污染 Task 对象
+        if (wsData._msg !== undefined) delete (updatedTasks[existingTaskIndex] as unknown as Record<string, unknown>)._msg;
+        if (wsData._pp !== undefined) delete (updatedTasks[existingTaskIndex] as unknown as Record<string, unknown>)._pp;
+        if (wsData._subtasks !== undefined) delete (updatedTasks[existingTaskIndex] as unknown as Record<string, unknown>)._subtasks;
         if (
           !DONE_STATUSES.includes(oldStatus as (typeof DONE_STATUSES)[number]) &&
           DONE_STATUSES.includes(taskUpdate.status as (typeof DONE_STATUSES)[number])

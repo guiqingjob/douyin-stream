@@ -73,6 +73,7 @@ class DownloadProgress:
     failed: int = 0
     total: int = 0
     current_video: str = ""
+    current_video_progress: float = 0.0
     current_index: int = 0
 
     def to_dict(self) -> dict:
@@ -82,6 +83,7 @@ class DownloadProgress:
             "failed": self.failed,
             "total": self.total,
             "current_video": self.current_video,
+            "current_video_progress": self.current_video_progress,
             "current_index": self.current_index,
         }
 
@@ -95,6 +97,7 @@ class DownloadProgress:
             failed=int(data.get("failed", 0)),
             total=int(data.get("total", 0)),
             current_video=str(data.get("current_video", "")),
+            current_video_progress=float(data.get("current_video_progress", 0.0)),
             current_index=int(data.get("current_index", 0)),
         )
 
@@ -142,6 +145,7 @@ class TaskProgress:
     transcribe_progress: Optional[TranscribeProgress] = None
     error_count: int = 0
     errors: list = field(default_factory=list)
+    details: list = field(default_factory=list)
     start_time: Optional[str] = None
 
     def to_dict(self) -> dict:
@@ -152,6 +156,7 @@ class TaskProgress:
             "transcribe_progress": self.transcribe_progress.to_dict() if self.transcribe_progress else None,
             "error_count": self.error_count,
             "errors": self.errors,
+            "details": self.details,
             "start_time": self.start_time,
         }
 
@@ -171,6 +176,7 @@ class TaskProgress:
             transcribe_progress=TranscribeProgress.from_dict(data.get("transcribe_progress")),
             error_count=int(data.get("error_count", 0)),
             errors=list(data.get("errors", [])),
+            details=list(data.get("details", [])),
             start_time=data.get("start_time"),
         )
 

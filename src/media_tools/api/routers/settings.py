@@ -14,7 +14,7 @@ from media_tools.db.core import get_db_connection
 from media_tools.core.config import get_runtime_setting_int, get_runtime_setting_bool, set_runtime_setting
 from media_tools.services.qwen_status import get_qwen_account_status, claim_qwen_quota
 
-router = APIRouter(prefix="/api/v1/settings", tags=["settings"])
+router = APIRouter(prefix="/api/v1/settings", tags=["settings"], redirect_slashes=False)
 logger = logging.getLogger(__name__)
 
 class QwenConfigRequest(BaseModel):
@@ -43,7 +43,7 @@ class GlobalSettingsRequest(BaseModel):
 class RemarkRequest(BaseModel):
     remark: str
 
-@router.get("/")
+@router.get("")
 def get_settings():
     with get_db_connection() as conn:
         cursor = conn.cursor()

@@ -9,7 +9,7 @@ import {
   type TaskFilterCategory,
 } from '@/lib/task-utils';
 import { useTaskActions } from '@/hooks/useTaskActions';
-import { useWebSocket } from '@/hooks/useWebSocket';
+
 import {
   Dialog,
   DialogContent,
@@ -32,8 +32,6 @@ export function TaskMonitorPanel() {
   const [expandedTasks, setExpandedTasks] = useState<Set<string>>(new Set());
   const rawTasks = useStore((state) => state.tasks);
   const fetchInitialTasks = useStore((state) => state.fetchInitialTasks);
-
-  useWebSocket();
 
   const { handleClearHistory, handleRetry } = useTaskActions();
 

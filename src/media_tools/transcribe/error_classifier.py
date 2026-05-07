@@ -13,6 +13,15 @@ class ErrorInfo:
     error_code: Optional[str] = None
 
 
+class TranscribeError(RuntimeError):
+    """携带完整错误上下文的转写异常，供上层做精准重试/账号切换决策"""
+
+    def __init__(self, error_info: ErrorInfo, detail: str = ""):
+        self.error_info = error_info
+        detail_suffix = f": {detail}" if detail else ""
+        super().__init__(f"{error_info.message}{detail_suffix}")
+
+
 class TranscribeErrorClassifier:
     _error_mapping = {
         "40": ErrorInfo(

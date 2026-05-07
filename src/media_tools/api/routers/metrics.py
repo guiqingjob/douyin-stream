@@ -16,7 +16,7 @@ from media_tools.db.core import DBConnection, get_db_connection
 
 logger = logging.getLogger(__name__)
 
-router = APIRouter(prefix="/api/v1/metrics", tags=["metrics"])
+router = APIRouter(prefix="/api/v1/metrics", tags=["metrics"], redirect_slashes=False)
 
 _KNOWN_TASK_STATUSES = ("PENDING", "RUNNING", "PAUSED", "COMPLETED", "FAILED", "PARTIAL_FAILED", "CANCELLED")
 _PROCESS_START_TIME = time.monotonic()

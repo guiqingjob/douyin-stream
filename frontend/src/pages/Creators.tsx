@@ -1,4 +1,4 @@
-import { useMemo } from 'react';
+import { useMemo, useCallback } from 'react';
 import { Users } from 'lucide-react';
 import { useStore } from '@/store/useStore';
 import { sortTasks } from '@/lib/task-utils';
@@ -55,6 +55,11 @@ export default function Creators() {
     fetchInitialTasks,
     lastCompletedTaskTime,
   });
+
+  const handleDelete = useCallback((uid: string) => {
+    const creator = allCreators.find(c => c.uid === uid);
+    setConfirmDelete({ uid, nickname: creator?.nickname || uid });
+  }, [allCreators, setConfirmDelete]);
 
   const summary = useMemo(() => {
     const assetCount = creators.reduce((total, c) => total + (c.disk_asset_count ?? 0), 0);
@@ -129,7 +134,7 @@ export default function Creators() {
                 transcribingUids={transcribingUids}
                 onRetryFailed={handleRetryFailed}
                 retryingFailedUids={retryingFailedUids}
-                onDelete={(uid) => setConfirmDelete({ uid, nickname: creator.nickname || creator.uid })}
+                onDelete={handleDelete}
                 settings={settings}
               />
             ))}

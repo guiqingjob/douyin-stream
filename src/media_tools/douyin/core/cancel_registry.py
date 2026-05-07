@@ -95,6 +95,7 @@ def init_download_progress(
             transcribe_progress=None,
             error_count=0,
             errors=[],
+            details=[],
             start_time=None,
         )
         _download_progress[task_id] = tp
@@ -139,7 +140,7 @@ def update_video_progress(task_id: str, progress_value: float) -> None:
     with _lock:
         progress = _download_progress.get(task_id)
         if progress and progress.download_progress:
-            progress.download_progress.current_video = progress_value
+            progress.download_progress.current_video_progress = progress_value
             _last_activity[task_id] = time.monotonic()
 
 
@@ -152,7 +153,7 @@ def increment_downloaded(task_id: str, video_title: str = "") -> None:
                 progress.download_progress = DownloadProgress()
             progress.download_progress.downloaded += 1
             if video_title:
-                progress.errors.append({
+                progress.details.append({
                     "title": video_title,
                     "status": "downloaded",
                     "time": time.time(),
@@ -170,7 +171,7 @@ def increment_skipped(task_id: str, video_title: str = "") -> None:
                 progress.download_progress = DownloadProgress()
             progress.download_progress.skipped += 1
             if video_title:
-                progress.errors.append({
+                progress.details.append({
                     "title": video_title,
                     "status": "skipped",
                     "time": time.time(),

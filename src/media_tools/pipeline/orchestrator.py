@@ -348,6 +348,7 @@ class OrchestratorV2:
                         transcript_path=result.export_path,
                         duration=duration,
                         account_id=current_account_id,
+                        video_deleted=self.config.remove_video or not self.config.keep_original,
                     )
                 except BaseException as e:  # classify_error 设计为处理任意异常类型
                     if not isinstance(e, Exception):
@@ -370,7 +371,17 @@ class OrchestratorV2:
                         except Exception as exc:  # noqa: BLE001
                             logger.warning(f"transcribe_runs.mark_failed 失败 (run_id={run_id}): {exc}")
 
-                    if last_error_type == ErrorType.AUTH and current_account_id:
+                    from media_tools.transcribe.error_classifier import TranscribeError
+                    if isinstance(e, TranscribeError) and e.error_info.retryable:
+                        if last_error_type in (ErrorType.AUTH, ErrorType.QUOTA) and current_account_id:
+                            if last_error_type == ErrorType.AUTH:
+                                self._mark_qwen_account_status(current_account_id, "expired")
+                            else:
+                                self._mark_qwen_account_status(current_account_id, "rate_limited")
+                            preferred_account_id = None
+                            logger.warning(f"账号 {current_account_id} {last_error_type.value}，尝试下一个账号: {e.error_info.suggestion}")
+                            continue
+                    elif last_error_type == ErrorType.AUTH and current_account_id:
                         self._mark_qwen_account_status(current_account_id, "expired")
                         preferred_account_id = None
                         logger.warning(f"账号 {current_account_id} 认证过期，尝试下一个账号")

@@ -1,11 +1,13 @@
 import { NavLink } from 'react-router-dom';
-import { Compass, Users, Settings, Sun, Moon } from 'lucide-react';
+import { Compass, Users, Settings, Sun, Moon, X } from 'lucide-react';
 import { useTheme } from 'next-themes';
 import { cn } from '@/lib/utils';
 import { TaskMonitorPanel } from '@/components/layout/TaskMonitorPanel';
 
 interface SidebarProps {
   listContent?: React.ReactNode;
+  open?: boolean;
+  onClose?: () => void;
 }
 
 function SidebarItem({
@@ -74,9 +76,30 @@ function ThemeToggle() {
   );
 }
 
-export default function Sidebar({ listContent }: SidebarProps) {
+export default function Sidebar({ listContent, open, onClose }: SidebarProps) {
   return (
-    <aside className="w-[260px] h-full overflow-y-auto flex-shrink-0 flex flex-col apple-glass-sidebar border-r border-sidebar-border">
+    <>
+      {/* Mobile overlay */}
+      {open && (
+        <div
+          className="fixed inset-0 z-40 bg-black/30 backdrop-blur-sm lg:hidden"
+          onClick={onClose}
+          aria-hidden="true"
+        />
+      )}
+      <aside className={cn(
+        'w-[260px] h-full overflow-y-auto flex-shrink-0 flex flex-col apple-glass-sidebar border-r border-sidebar-border',
+        'fixed inset-y-0 left-0 z-50 transform transition-transform duration-300 ease-apple-spring lg:relative lg:translate-x-0',
+        open ? 'translate-x-0' : '-translate-x-full'
+      )}>
+        {/* Close button for mobile */}
+        <button
+          className="absolute top-3 right-3 lg:hidden flex items-center justify-center size-8 rounded-[var(--radius-button)] hover:bg-secondary transition-colors"
+          onClick={onClose}
+          aria-label="关闭侧边栏"
+        >
+          <X className="size-4 text-muted-foreground" />
+        </button>
       {/* Header */}
       <div className="shrink-0 h-14 px-5 flex items-center">
         <div className="w-8 h-8 rounded-[10px] bg-gradient-to-br from-primary to-primary/70 flex items-center justify-center">
@@ -114,5 +137,6 @@ export default function Sidebar({ listContent }: SidebarProps) {
         {listContent}
       </div>
     </aside>
+    </>
   );
 }

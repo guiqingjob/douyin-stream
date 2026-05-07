@@ -9,18 +9,13 @@ import {
   getTaskError,
   getTaskMessage,
   getTaskStatusLabel,
+  getStageInfo,
   taskTypeLabel,
 } from '@/lib/task-utils';
 import { cancelTask, rerunTask, retryFailedSubtasks, setAutoRetry, deleteTask, recoverAwemeAndTranscribe, retryCreatorTranscribeCleanup } from '@/lib/api';
 import { Badge } from '@/components/ui/badge';
 import type { Task } from '@/lib/api';
-import type { PipelineProgress, TaskStage, TaskProgress } from '@/types';
-import {
-  getStageInfo,
-  formatStageMessage,
-  getProgressPercent,
-  getProgressDetails,
-} from '@/lib/task-utils';
+import type { PipelineProgress, TaskStage } from '@/types';
 
 type TaskSubtask = {
   title: string;
@@ -167,8 +162,14 @@ function cleanupReasonLabel(reason: string) {
 }
 
 function TaskCenterStageDots({ stage }: { stage: string }) {
-  const normalized = stage === 'upload' ? 'transcribe' : stage;
-  const idx = normalized === 'download' ? 0 : normalized === 'transcribe' ? 1 : normalized === 'export' ? 2 : 0;
+  const mapping: Record<string, number> = {
+    downloading: 0,
+    uploading: 1,
+    transcribing: 1,
+    exporting: 2,
+    completed: 2,
+  };
+  const idx = mapping[stage] ?? 0;
   return (
     <span className="flex items-center gap-1" aria-label="阶段：下载 / 转写 / 导出">
       {[0, 1, 2].map((i) => (

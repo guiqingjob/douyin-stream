@@ -2,6 +2,7 @@ import { toast } from 'sonner';
 import {
   getTaskStatus,
   clearTaskHistory,
+  getTaskHistory,
   triggerBatchPipeline,
   triggerCreatorDownload,
   triggerDownloadBatch,
@@ -24,8 +25,9 @@ export function useTaskActions() {
   const handleClearHistory = async () => {
     try {
       await clearTaskHistory();
-      const { fetchInitialTasks } = useStore.getState();
-      await fetchInitialTasks();
+      const { setTasks } = useStore.getState();
+      const freshTasks = await getTaskHistory();
+      setTasks(freshTasks);
       toast.success('已清除历史任务');
     } catch {
       // interceptor already toasts

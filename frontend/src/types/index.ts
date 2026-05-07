@@ -53,13 +53,13 @@ export interface Task {
 }
 
 export type PipelineProgressStage =
-  | 'list'
-  | 'audit'
-  | 'download'
-  | 'upload'
-  | 'transcribe'
-  | 'export'
-  | 'done'
+  | 'fetching'
+  | 'auditing'
+  | 'downloading'
+  | 'uploading'
+  | 'transcribing'
+  | 'exporting'
+  | 'completed'
   | 'failed'
   | string;
 
@@ -80,6 +80,7 @@ export interface DownloadStageProgress {
   failed: number;
   total: number;
   current_video: string;
+  current_video_progress: number;
   current_index: number;
 }
 
@@ -152,3 +153,34 @@ export interface ScannedFile {
 
 export interface DouyinVideoMeta {
   aweme_id: string;
+  desc: string;
+  create_time: number;
+  video_url: string;
+  cover_url: string;
+}
+
+export interface DouyinCreatorMeta {
+  uid: string;
+  nickname: string;
+  avatar: string;
+}
+
+export interface DouyinMetadataResponse {
+  creator: DouyinCreatorMeta;
+  videos: DouyinVideoMeta[];
+}
+
+export interface QwenStatusAccount {
+  accountId: string;
+  remaining_hours: number;
+}
+
+export interface QwenStatusResponse {
+  status: string;
+  accounts: QwenStatusAccount[];
+}
+
+export interface AddQwenAccountResponse {
+  account_id: string;
+  remaining_hours: number;
+}

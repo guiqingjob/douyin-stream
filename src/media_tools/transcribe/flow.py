@@ -7,7 +7,7 @@ from pathlib import Path
 from typing import Any, Optional, Union
 
 from media_tools.logger import get_logger
-from .error_classifier import TranscribeErrorClassifier
+from .error_classifier import TranscribeErrorClassifier, TranscribeError
 logger = get_logger(__name__)
 
 from .auth_state import resolve_qwen_cookie_string
@@ -93,7 +93,7 @@ async def poll_until_done(context: Any, gen_record_id: str, timeout_seconds: flo
                             fail_reason = record.get("failReason") or record.get("errorMessage") or f"recordStatus={status}"
                             error_info = TranscribeErrorClassifier.classify(fail_reason)
                             logger.error(f"转写错误 [{error_info.error_code}]: {error_info.message} - {error_info.suggestion}")
-                            raise RuntimeError(f"{error_info.message}")
+                            raise TranscribeError(error_info, detail=fail_reason)
             import random
             await asyncio.sleep(5 + random.uniform(0, 2))
 
@@ -101,7 +101,7 @@ async def poll_until_done(context: Any, gen_record_id: str, timeout_seconds: flo
         return await asyncio.wait_for(_poll_loop(), timeout=timeout_seconds)
     except asyncio.TimeoutError:
         error_info = TranscribeErrorClassifier.classify("timeout")
-        raise RuntimeError(f"{error_info.message}")
+        raise TranscribeError(error_info, detail=f"转写轮询超时 ({timeout_seconds}s)")
 
 
 async def delete_record(context: Any, record_ids: list[str]) -> bool:
@@ -148,12 +148,12 @@ async def export_file(context: Any, gen_record_id: str, export_config: ExportCon
         request_too_fast = code == "EPO.RequestTooFast" or "request too fast" in message
         if not request_too_fast or attempt == max_attempts - 1:
             error_info = TranscribeErrorClassifier.classify(f"export error: {message}")
-            raise RuntimeError(f"{error_info.message}")
+            raise TranscribeError(error_info, detail=f"code={code} message={message}")
         await asyncio.sleep(initial_backoff * (2**attempt))
 
     if not export_task_id:
         error_info = TranscribeErrorClassifier.classify("export failed")
-        raise RuntimeError(f"{error_info.message}")
+        raise TranscribeError(error_info, detail="无法获取导出任务ID")
 
     for _ in range(60):
         export_poll_json = await api_json(
@@ -174,7 +174,7 @@ async def export_file(context: Any, gen_record_id: str, export_config: ExportCon
         await asyncio.sleep(5)
 
     error_info = TranscribeErrorClassifier.classify("export timeout")
-    raise RuntimeError(f"{error_info.message}")
+    raise TranscribeError(error_info, detail=f"导出轮询超时 exportTaskId={export_task_id}")
 
 
 def record_flow_quota_usage(

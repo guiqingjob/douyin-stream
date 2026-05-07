@@ -9,7 +9,7 @@ from apscheduler.triggers.cron import CronTrigger
 
 from media_tools.db.core import get_db_connection
 
-router = APIRouter(prefix="/api/v1/scheduler", tags=["scheduler"])
+router = APIRouter(prefix="/api/v1/scheduler", tags=["scheduler"], redirect_slashes=False)
 logger = logging.getLogger(__name__)
 
 # Initialize scheduler (started by startup_scheduler() on app lifespan)

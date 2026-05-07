@@ -1,9 +1,58 @@
+import { memo } from 'react';
 import { CheckSquare, Square, Users } from 'lucide-react';
 import { VirtuosoGrid } from 'react-virtuoso';
 import { cn } from '@/lib/utils';
 import { Button } from '@/components/ui/button';
 import { Loader2 } from 'lucide-react';
+import type { DouyinVideoMeta } from '@/types';
 import type { DouyinMetadataResponse } from '@/lib/api';
+
+const VideoItem = memo(function VideoItem({
+  video,
+  isSelected,
+  onToggle,
+}: {
+  video: DouyinVideoMeta;
+  isSelected: boolean;
+  onToggle: (url: string) => void;
+}) {
+  return (
+    <Button
+      variant="secondary"
+      type="button"
+      onClick={() => onToggle(video.video_url)}
+      className={cn(
+        'group relative h-auto w-full cursor-pointer overflow-hidden rounded-[var(--radius-card)] border border-border/60 bg-card p-0 text-left transition-all duration-200 hover:-translate-y-[1px] hover:apple-shadow-md',
+        isSelected
+          ? 'border-primary/50 bg-primary/5'
+          : 'border-border/60 bg-muted hover:bg-secondary'
+      )}
+    >
+      <div className="relative aspect-[3/4] bg-muted">
+        {video.cover_url ? (
+          <img src={video.cover_url} alt="Cover" className="h-full w-full object-cover transition-transform duration-300 group-hover:scale-105" />
+        ) : (
+          <div className="flex h-full w-full items-center justify-center text-muted-foreground/40">
+            <Users className="size-8" />
+          </div>
+        )}
+        <div
+          className={cn(
+            'absolute right-2.5 top-2.5 flex h-6 w-6 items-center justify-center rounded-md transition-all duration-200',
+            isSelected
+              ? 'bg-primary text-primary-foreground'
+              : 'scale-90 border border-border/60 bg-background/80 backdrop-blur-sm group-hover:scale-100'
+          )}
+        >
+          {isSelected && <CheckSquare className="size-3.5" />}
+        </div>
+      </div>
+      <div className="p-3">
+        <p className="line-clamp-2 text-xs leading-snug text-foreground/70">{video.desc || 'Untitled Video'}</p>
+      </div>
+    </Button>
+  );
+});
 
 interface VideoPreviewSectionProps {
   metadata: DouyinMetadataResponse;
@@ -59,46 +108,14 @@ export function VideoPreviewSection({
         style={{ flex: '1 1 auto', minHeight: 0, width: '100%' }}
         data={metadata.videos}
         listClassName="grid grid-cols-2 gap-4 pb-28 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5"
-        itemContent={(_index, video) => {
-          const isSelected = selectedUrls.has(video.video_url);
-          return (
-            <Button
-              key={video.aweme_id}
-              variant="secondary"
-              type="button"
-              onClick={() => onToggleSelect(video.video_url)}
-              className={cn(
-                'group relative h-auto w-full cursor-pointer overflow-hidden rounded-[var(--radius-card)] border border-border/60 bg-card p-0 text-left transition-all duration-200 hover:-translate-y-[1px] hover:apple-shadow-md',
-                isSelected
-                  ? 'border-primary/50 bg-primary/5'
-                  : 'border-border/60 bg-muted hover:bg-secondary'
-              )}
-            >
-              <div className="relative aspect-[3/4] bg-muted">
-                {video.cover_url ? (
-                  <img src={video.cover_url} alt="Cover" className="h-full w-full object-cover transition-transform duration-300 group-hover:scale-105" />
-                ) : (
-                  <div className="flex h-full w-full items-center justify-center text-muted-foreground/40">
-                    <Users className="size-8" />
-                  </div>
-                )}
-                <div
-                  className={cn(
-                    'absolute right-2.5 top-2.5 flex h-6 w-6 items-center justify-center rounded-md transition-all duration-200',
-                    isSelected
-                      ? 'bg-primary text-primary-foreground'
-                      : 'scale-90 border border-border/60 bg-background/80 backdrop-blur-sm group-hover:scale-100'
-                  )}
-                >
-                  {isSelected && <CheckSquare className="size-3.5" />}
-                </div>
-              </div>
-              <div className="p-3">
-                <p className="line-clamp-2 text-xs leading-snug text-foreground/70">{video.desc || 'Untitled Video'}</p>
-              </div>
-            </Button>
-          );
-        }}
+        itemContent={(_index, video) => (
+          <VideoItem
+            key={video.aweme_id}
+            video={video}
+            isSelected={selectedUrls.has(video.video_url)}
+            onToggle={onToggleSelect}
+          />
+        )}
       />
 
       {/* Floating Action Bar */}

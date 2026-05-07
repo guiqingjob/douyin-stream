@@ -16,7 +16,7 @@ import io
 import zipfile
 from pathlib import Path
 
-router = APIRouter(prefix="/api/v1/assets", tags=["assets"])
+router = APIRouter(prefix="/api/v1/assets", tags=["assets"], redirect_slashes=False)
 logger = logging.getLogger(__name__)
 LOCAL_CREATOR_UID = "local:upload"
 

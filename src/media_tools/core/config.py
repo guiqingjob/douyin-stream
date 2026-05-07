@@ -477,7 +477,7 @@ class PipelineConfig:
     def remove_video(self) -> bool:
         if self._remove_video is not None:
             return self._remove_video
-        return get_app_config().pipeline_remove_video
+        return False
 
     @property
     def keep_original(self) -> bool:

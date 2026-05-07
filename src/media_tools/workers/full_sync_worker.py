@@ -61,10 +61,12 @@ async def _background_full_sync_worker(task_id: str, mode: str = "incremental", 
                             if info:
                                 d = info.get("download_progress", {}).get("downloaded", 0)
                                 s = info.get("download_progress", {}).get("skipped", 0)
-                                details = info.get("errors", [])
+                                details = info.get("details", [])
+                                errors = info.get("errors", [])
+                                combined = details + errors
                                 subtasks = [
                                     {"title": d_.get("title", "未知")[:60], "status": d_.get("status", "unknown")}
-                                    for d_ in details[-50:]
+                                    for d_ in combined[-50:]
                                 ]
                                 await update_task_progress(
                                     task_id,

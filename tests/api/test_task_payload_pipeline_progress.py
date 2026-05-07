@@ -101,17 +101,17 @@ def test_task_history_injects_pipeline_progress_into_payload() -> None:
     by_id = {t["task_id"]: t for t in tasks}
 
     payload_1 = json.loads(by_id["t-p1"]["payload"])
-    assert payload_1["pipeline_progress"]["stage"] == "download"
+    assert payload_1["pipeline_progress"]["stage"] == "downloading"
     assert payload_1["pipeline_progress"]["list"] == {"done": 1, "total": 1}
     assert payload_1["pipeline_progress"]["download"]["total"] == 1
     assert payload_1["pipeline_progress"]["export"]["total"] == 1
 
     payload_2 = json.loads(by_id["t-p2"]["payload"])
-    assert payload_2["pipeline_progress"]["stage"] == "transcribe"
+    assert payload_2["pipeline_progress"]["stage"] == "transcribing"
     assert payload_2["pipeline_progress"]["transcribe"]["total"] >= 0
 
     payload_other = json.loads(by_id["t-other"]["payload"])
-    assert payload_other["pipeline_progress"]["stage"] == "download"
+    assert payload_other["pipeline_progress"]["stage"] == "downloading"
 
     payload_3 = json.loads(by_id["t-p3"]["payload"])
     assert payload_3["pipeline_progress"]["download"]["total"] == 3
@@ -119,7 +119,7 @@ def test_task_history_injects_pipeline_progress_into_payload() -> None:
     assert payload_3["pipeline_progress"]["export"]["status"] == "saved"
 
     payload_c1 = json.loads(by_id["t-c1"]["payload"])
-    assert payload_c1["pipeline_progress"]["stage"] == "list"
+    assert payload_c1["pipeline_progress"]["stage"] == "fetching"
     assert payload_c1["pipeline_progress"]["audit"]["missing"] == 2
 
 
@@ -166,8 +166,8 @@ def test_task_status_injects_pipeline_progress_into_payload() -> None:
 
     assert resp_1.status_code == 200
     payload_1 = json.loads(resp_1.json()["payload"])
-    assert payload_1["pipeline_progress"]["stage"] == "download"
+    assert payload_1["pipeline_progress"]["stage"] == "downloading"
 
     assert resp_2.status_code == 200
     payload_2 = json.loads(resp_2.json()["payload"])
-    assert payload_2["pipeline_progress"]["stage"] in ("list", "download")
+    assert payload_2["pipeline_progress"]["stage"] in ("fetching", "downloading")

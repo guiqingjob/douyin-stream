@@ -97,11 +97,34 @@ def cleanup_stale_tasks(conn: sqlite3.Connection, stale_minutes: Optional[int] =
             (now_iso, task_id),
         )
 
-    delete_cutoff = (datetime.now() - timedelta(days=7)).isoformat()
+    failed_cutoff = (datetime.now() - timedelta(days=1)).isoformat()
+    completed_cutoff = (datetime.now() - timedelta(days=3)).isoformat()
+    cancelled_cutoff = (datetime.now() - timedelta(days=1)).isoformat()
     conn.execute(
-        "DELETE FROM task_queue WHERE status IN ('COMPLETED', 'FAILED', 'CANCELLED') AND update_time < ?",
-        (delete_cutoff,),
+        "DELETE FROM task_queue WHERE status = 'FAILED' AND update_time < ?",
+        (failed_cutoff,),
     )
+    conn.execute(
+        "DELETE FROM task_queue WHERE status = 'COMPLETED' AND update_time < ?",
+        (completed_cutoff,),
+    )
+    conn.execute(
+        "DELETE FROM task_queue WHERE status = 'CANCELLED' AND update_time < ?",
+        (cancelled_cutoff,),
+    )
+    # 失败任务最多保留 50 条，超出时删除最旧的
+    row = conn.execute(
+        "SELECT COUNT(*) as cnt FROM task_queue WHERE status = 'FAILED'"
+    ).fetchone()
+    if row and row["cnt"] > 50:
+        excess = row["cnt"] - 50
+        conn.execute(
+            "DELETE FROM task_queue WHERE task_id IN ("
+            "  SELECT task_id FROM task_queue WHERE status = 'FAILED'"
+            "  ORDER BY update_time ASC LIMIT ?"
+            ")",
+            (excess,),
+        )
 
 
 async def notify_task_update(
@@ -115,7 +138,7 @@ async def notify_task_update(
     stage: str = "",
     pipeline_progress: Optional[dict] = None,
 ):
-    message = {
+    payload = {
         "task_id": task_id,
         "progress": progress,
         "msg": msg,
@@ -124,14 +147,14 @@ async def notify_task_update(
         "update_time": datetime.now().isoformat(),
     }
     if stage:
-        message["stage"] = stage
+        payload["stage"] = stage
     if result_summary:
-        message["result_summary"] = result_summary
+        payload["result_summary"] = result_summary
     if subtasks:
-        message["subtasks"] = subtasks[-20:]
+        payload["subtasks"] = subtasks[-20:]
     if pipeline_progress:
-        message["pipeline_progress"] = pipeline_progress
-    await manager.broadcast(message)
+        payload["pipeline_progress"] = pipeline_progress
+    await manager.broadcast({"type": "task_update", "payload": payload})
 
 
 # _merge_task_payload 和 _merge_payload_from_db 从 task_repository.py 导入，消除重复代码

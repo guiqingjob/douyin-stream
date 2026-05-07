@@ -2,12 +2,12 @@ import { apiClient } from '@/lib/api';
 import type { Asset } from '@/types';
 
 export const getAssets = async (limit = 500, signal?: AbortSignal): Promise<Asset[]> => {
-  const response = await apiClient.get(`/assets/?limit=${limit}`, { signal });
+  const response = await apiClient.get(`/assets?limit=${limit}`, { signal });
   return response.data;
 };
 
 export const getAssetsByCreator = async (creatorUid: string, signal?: AbortSignal): Promise<Asset[]> => {
-  const response = await apiClient.get(`/assets/?creator_uid=${creatorUid}&limit=500`, { signal });
+  const response = await apiClient.get(`/assets?creator_uid=${creatorUid}&limit=500`, { signal });
   return response.data;
 };
 

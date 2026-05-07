@@ -123,7 +123,7 @@ async def background_creator_download_worker(
                 # 无 last_fetch_time 或距今太久，退化为全量
                 mode_label = "增量（退化全量）"
 
-        await _progress_fn(0.05, f"开始同步 {display_name} 的视频（{mode_label}）...", stage="list")
+        await _progress_fn(0.05, f"开始同步 {display_name} 的视频（{mode_label}）...", stage="fetching")
 
         skip_existing = True
         total_downloaded = 0
@@ -132,7 +132,8 @@ async def background_creator_download_worker(
         transcribe_stats = {"success_count": 0, "failed_count": 0, "total": 0}
         all_subtasks: list[dict] = []
 
-        await _progress_fn(0.1, f"下载中...", stage=info.get("stage", "download"))
+        info = get_download_progress(task_id) or {}
+        await _progress_fn(0.1, f"下载中...", stage=info.get("stage", "downloading"))
 
         if platform == "bilibili":
             from media_tools.bilibili.core.downloader import download_up_by_url
@@ -144,7 +145,7 @@ async def background_creator_download_worker(
             except (RuntimeError, OSError, ValueError) as e:
                 error_msg = str(e)
                 if "412" in error_msg or "blocked" in error_msg.lower():
-                    await _progress_fn(0.5, f"B站请求被拦截(412)，请更换IP或稍后重试", stage=info.get("stage", "download"))
+                    await _progress_fn(0.5, f"B站请求被拦截(412)，请更换IP或稍后重试", stage=info.get("stage", "downloading"))
                     raise RuntimeError(f"B站请求被拦截(412)，请更换IP或稍后重试: {error_msg}")
                 raise
             if isinstance(result, dict):
@@ -183,7 +184,7 @@ async def background_creator_download_worker(
                             f"已下载 {d} 个，跳过 {s} 个",
                             f"creator_sync_{mode}",
                             subtasks=subtasks,
-                            stage=info.get("stage", "download"),
+                            stage=info.get("stage", "downloading"),
                         )
 
             poll_task = asyncio.create_task(_poll())
@@ -283,7 +284,7 @@ async def background_creator_download_worker(
             await _progress_fn(
                 0.72,
                 f"对账完成：缺失 {reconcile_missing} 条",
-                stage="audit",
+                stage="auditing",
             )
 
         # 自动转写

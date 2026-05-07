@@ -2,12 +2,12 @@ import { apiClient } from '@/lib/api';
 import type { ScheduleTask } from '@/types';
 
 export const getSchedules = async (signal?: AbortSignal): Promise<ScheduleTask[]> => {
-  const response = await apiClient.get('/scheduler/', { signal });
+  const response = await apiClient.get('/scheduler', { signal });
   return response.data;
 };
 
 export const addSchedule = async (cronExpr: string, enabled: boolean = true, signal?: AbortSignal): Promise<{task_id: string}> => {
-  const response = await apiClient.post('/scheduler/', { cron_expr: cronExpr, enabled }, { signal });
+  const response = await apiClient.post('/scheduler', { cron_expr: cronExpr, enabled }, { signal });
   return response.data;
 };
 

@@ -6,52 +6,52 @@ from typing import Any, Optional
 from media_tools.domain.entities.task import Stage
 
 
-ALLOWED_STAGES = {"list", "audit", "download", "upload", "transcribe", "export", "done", "failed"}
+ALLOWED_STAGES = {"fetching", "auditing", "downloading", "uploading", "transcribing", "exporting", "completed", "failed"}
 
 
 def _normalize_stage(raw: str) -> str:
     value = raw.strip().lower()
     mapping = {
-        "initializing": "list",
-        "scanning": "list",
-        "queued": "list",
-        "listing": "list",
-        "list": "list",
-        "created": "list",
-        "fetching": "list",
-        "audit": "audit",
-        "reconcile": "audit",
-        "auditing": "audit",
-        "downloading": "download",
-        "download": "download",
-        "uploading": "upload",
-        "upload": "upload",
-        "transcribing": "transcribe",
-        "transcribe": "transcribe",
-        "exporting": "export",
-        "export": "export",
-        "completed": "done",
-        "success": "done",
-        "done": "done",
+        "initializing": "fetching",
+        "scanning": "fetching",
+        "queued": "fetching",
+        "listing": "fetching",
+        "list": "fetching",
+        "created": "fetching",
+        "fetching": "fetching",
+        "audit": "auditing",
+        "reconcile": "auditing",
+        "auditing": "auditing",
+        "downloading": "downloading",
+        "download": "downloading",
+        "uploading": "uploading",
+        "upload": "uploading",
+        "transcribing": "transcribing",
+        "transcribe": "transcribing",
+        "exporting": "exporting",
+        "export": "exporting",
+        "completed": "completed",
+        "success": "completed",
+        "done": "completed",
         "failed": "failed",
         "error": "failed",
         "cancelled": "failed",
         "canceled": "failed",
     }
     normalized = mapping.get(value, value)
-    return normalized if normalized in ALLOWED_STAGES else "download"
+    return normalized if normalized in ALLOWED_STAGES else "downloading"
 
 
 def stage_to_enum(raw_stage: str) -> Stage:
     normalized = _normalize_stage(raw_stage)
     mapping = {
-        "list": Stage.FETCHING,
-        "audit": Stage.AUDITING,
-        "download": Stage.DOWNLOADING,
-        "upload": Stage.TRANSCRIBING,
-        "transcribe": Stage.TRANSCRIBING,
-        "export": Stage.EXPORTING,
-        "done": Stage.COMPLETED,
+        "fetching": Stage.FETCHING,
+        "auditing": Stage.AUDITING,
+        "downloading": Stage.DOWNLOADING,
+        "uploading": Stage.TRANSCRIBING,
+        "transcribing": Stage.TRANSCRIBING,
+        "exporting": Stage.EXPORTING,
+        "completed": Stage.COMPLETED,
         "failed": Stage.FAILED,
     }
     return mapping.get(normalized, Stage.DOWNLOADING)
@@ -198,18 +198,18 @@ def build_pipeline_progress(
             stage_str = _normalize_stage(raw_stage)
 
     if status in ("COMPLETED", "SUCCESS"):
-        stage_str = "done"
+        stage_str = "completed"
     elif status in ("FAILED", "ERROR", "CANCELLED"):
         stage_str = "failed"
     elif not stage_str:
         if task_type == "download":
-            stage_str = "download"
+            stage_str = "downloading"
         elif task_type.startswith("creator_sync"):
-            stage_str = "download" if overall >= 0.1 else "list"
+            stage_str = "downloading" if overall >= 0.1 else "fetching"
         else:
-            stage_str = "download" if overall < 0.4 else "transcribe"
+            stage_str = "downloading" if overall < 0.4 else "transcribing"
 
-    stage_str = stage_str if stage_str in ALLOWED_STAGES else "download"
+    stage_str = stage_str if stage_str in ALLOWED_STAGES else "downloading"
 
     list_done = 1
     list_total = 1
@@ -246,9 +246,11 @@ def build_pipeline_progress(
     transcribe_progress_data = payload_pp.get("transcribe_progress") if isinstance(payload_pp, dict) else None
 
     download_current_video = ""
+    download_current_video_progress = 0.0
     download_current_index = 0
     if isinstance(download_progress_data, dict):
         download_current_video = str(download_progress_data.get("current_video", ""))
+        download_current_video_progress = float(download_progress_data.get("current_video_progress", 0.0))
         download_current_index = int(download_progress_data.get("current_index", 0))
 
     transcribe_current_video = ""
@@ -265,6 +267,7 @@ def build_pipeline_progress(
             "done": int(download_done),
             "total": int(download_total),
             "current_video": download_current_video,
+            "current_video_progress": download_current_video_progress,
             "current_index": download_current_index,
         },
         "transcribe": {
@@ -312,6 +315,7 @@ def build_task_progress(
             failed=dp_data.get("failed", 0),
             total=dp_data.get("total", pp_dl.get("total", 0)),
             current_video=dp_data.get("current_video", pp_dl.get("current_video", "")),
+            current_video_progress=float(dp_data.get("current_video_progress", pp_dl.get("current_video_progress", 0.0))),
             current_index=dp_data.get("current_index", pp_dl.get("current_index", 0)),
         )
 

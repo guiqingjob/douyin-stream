@@ -55,7 +55,7 @@ from media_tools.workers.pipeline_worker import (
 from media_tools.workers.full_sync_worker import _background_full_sync_worker
 from media_tools.workers.local_transcribe_worker import _background_local_transcribe_worker
 
-router = APIRouter(prefix="/api/v1/tasks", tags=["tasks"])
+router = APIRouter(prefix="/api/v1/tasks", tags=["tasks"], redirect_slashes=False)
 logger = logging.getLogger(__name__)
 
 
