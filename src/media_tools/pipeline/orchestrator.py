@@ -363,9 +363,11 @@ class OrchestratorV2:
 
                     from media_tools.transcribe.error_classifier import TranscribeError
                     if isinstance(e, TranscribeError) and e.error_info.retryable:
-                        if last_error_type in (ErrorType.AUTH, ErrorType.QUOTA) and current_account_id:
+                        if last_error_type in (ErrorType.AUTH, ErrorType.QUOTA, ErrorType.SERVICE_UNAVAILABLE) and current_account_id:
                             if last_error_type == ErrorType.AUTH:
                                 self._mark_qwen_account_status(current_account_id, "expired")
+                            elif last_error_type == ErrorType.SERVICE_UNAVAILABLE:
+                                self._mark_qwen_account_status(current_account_id, "rate_limited")
                             else:
                                 self._mark_qwen_account_status(current_account_id, "rate_limited")
                             preferred_account_id = None
@@ -375,6 +377,11 @@ class OrchestratorV2:
                         self._mark_qwen_account_status(current_account_id, "expired")
                         preferred_account_id = None
                         logger.warning(f"账号 {current_account_id} 认证过期，尝试下一个账号")
+                        continue
+                    elif last_error_type == ErrorType.SERVICE_UNAVAILABLE and current_account_id:
+                        self._mark_qwen_account_status(current_account_id, "rate_limited")
+                        preferred_account_id = None
+                        logger.warning(f"账号 {current_account_id} 服务不可用，尝试下一个账号")
                         continue
                     logger.warning(f"转写失败 [{last_error_type.value}]，保留在账号 {current_account_id} 的重试链路: {e}")
                     break
@@ -448,6 +455,51 @@ class OrchestratorV2:
             )
         except (OSError, ValueError) as e:
             logger.warning(f"写回 media_assets 失败状态失败: {e}")
+
+    async def _cleanup_failed_cloud_records(self, video_path: Path) -> None:
+        """转写最终失败后，清理云端残留的转写记录。
+
+        当所有重试和账号切换都失败后，已上传到千问平台的文件仍会占用云端存储。
+        此方法查找该视频所有失败 run 的 record_id，并调用删除 API 清理。
+        """
+        from media_tools.repositories.transcribe_run_repository import TranscribeRunRepository
+        from media_tools.services.media_asset_service import MediaAssetService
+
+        asset_id = MediaAssetService.find_asset_id_for_video_path(video_path)
+
+        record_ids: list[str] = []
+        if asset_id:
+            record_ids = TranscribeRunRepository.find_failed_record_ids(asset_id)
+        if not record_ids:
+            record_ids = TranscribeRunRepository.find_failed_record_ids_for_video(str(video_path))
+
+        if not record_ids:
+            return
+
+        try:
+            from media_tools.transcribe.auth_state import resolve_qwen_cookie_string
+            from media_tools.transcribe.flow import delete_record
+            from media_tools.transcribe.http import RequestsApiContext
+
+            cookie_string = resolve_qwen_cookie_string(
+                auth_state_path="",
+                account_id=self._current_account_id or "",
+            )
+            if not cookie_string.strip():
+                logger.warning("云端清理跳过：无法获取有效 cookie")
+                return
+
+            api = RequestsApiContext(cookie_string=cookie_string)
+            try:
+                deleted = await delete_record(api, record_ids)
+                if deleted:
+                    logger.info(f"云端清理成功：已删除 {len(record_ids)} 条失败记录 ({video_path})")
+                else:
+                    logger.warning(f"云端清理返回失败：{len(record_ids)} 条记录 ({video_path})")
+            finally:
+                await api.dispose()
+        except Exception as e:
+            logger.warning(f"云端清理异常（不影响主流程）: {video_path} - {e}")
 
     async def transcribe_with_retry(
         self,
@@ -566,6 +618,8 @@ class OrchestratorV2:
                     result.error_type.value,
                     result.error or "",
                 )
+                # 清理云端残留的失败转写记录
+                await self._cleanup_failed_cloud_records(video_path)
                 self._fire_progress(
                     0, 1, video_path,
                     f"失败 [{result.error_type.value}] (已达最大尝试次数)"

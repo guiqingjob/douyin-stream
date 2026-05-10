@@ -20,8 +20,9 @@ logger = get_logger(__name__)
 # 上传完成、且尚未落盘的中间阶段 —— 这些阶段的 run 可以在下一次尝试时被复用
 RESUMABLE_STAGES = ("uploaded", "transcribing", "exporting", "downloading")
 
-# 终态
 TERMINAL_STAGES = ("saved", "failed")
+
+NON_RESUMABLE_ERROR_TYPES = ("service_unavailable", "unsupported_format")
 
 
 class TranscribeRunRepository:
@@ -57,8 +58,10 @@ class TranscribeRunRepository:
           - stage='failed' 但 error_stage 落在 RESUMABLE_STAGES 中
             （上传后挂的失败 run，gen_record_id 还在 Qwen 端有效，可以复用）
         终态 'saved' 不返回（已成功，无需续做）。
+        不可续传的错误类型（如 service_unavailable）不返回，因为云端记录已是终态。
         """
         resumable_placeholders = ",".join(["?"] * len(RESUMABLE_STAGES))
+        non_resumable_placeholders = ",".join(["?"] * len(NON_RESUMABLE_ERROR_TYPES))
         with get_db_connection() as conn:
             conn.row_factory = sqlite3.Row
             row = conn.execute(
@@ -69,12 +72,13 @@ class TranscribeRunRepository:
                   AND gen_record_id IS NOT NULL AND gen_record_id != ''
                   AND (
                     stage IN ({resumable_placeholders})
-                    OR (stage = 'failed' AND error_stage IN ({resumable_placeholders}))
+                    OR (stage = 'failed' AND error_stage IN ({resumable_placeholders})
+                        AND (error_type IS NULL OR error_type = '' OR error_type NOT IN ({non_resumable_placeholders})))
                   )
                 ORDER BY updated_at DESC
                 LIMIT 1
                 """,
-                (asset_id, account_id, *RESUMABLE_STAGES, *RESUMABLE_STAGES),
+                (asset_id, account_id, *RESUMABLE_STAGES, *RESUMABLE_STAGES, *NON_RESUMABLE_ERROR_TYPES),
             ).fetchone()
         if row is None:
             return None
@@ -215,3 +219,44 @@ class TranscribeRunRepository:
                     "sample_error": sample_error[:200],
                 })
         return buckets
+
+    @staticmethod
+    def find_failed_record_ids(asset_id: str) -> list[str]:
+        """查找某个 asset 所有失败 run 的 record_id，用于云端清理。
+
+        只返回 stage='failed' 且 record_id 非空的 run，
+        排除已成功（saved）的 run。
+        """
+        with get_db_connection() as conn:
+            rows = conn.execute(
+                """
+                SELECT DISTINCT record_id
+                FROM transcribe_runs
+                WHERE asset_id = ?
+                  AND stage = 'failed'
+                  AND record_id IS NOT NULL
+                  AND record_id != ''
+                """,
+                (asset_id,),
+            ).fetchall()
+        return [row[0] for row in rows if row[0]]
+
+    @staticmethod
+    def find_failed_record_ids_for_video(video_path: str) -> list[str]:
+        """查找某个视频路径所有失败 run 的 record_id，用于云端清理。
+
+        当 asset_id 不可用时，通过 video_path 回退查找。
+        """
+        with get_db_connection() as conn:
+            rows = conn.execute(
+                """
+                SELECT DISTINCT record_id
+                FROM transcribe_runs
+                WHERE video_path = ?
+                  AND stage = 'failed'
+                  AND record_id IS NOT NULL
+                  AND record_id != ''
+                """,
+                (video_path,),
+            ).fetchall()
+        return [row[0] for row in rows if row[0]]

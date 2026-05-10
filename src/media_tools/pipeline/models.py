@@ -228,6 +228,7 @@ class RetryConfig:
         ErrorType.NETWORK,
         ErrorType.TIMEOUT,
         ErrorType.QUOTA,
+        ErrorType.SERVICE_UNAVAILABLE,
         ErrorType.UNKNOWN,
     ])
 

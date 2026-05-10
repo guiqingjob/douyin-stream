@@ -297,35 +297,23 @@ def init_logging(
     level: Optional[str] = None,
     log_dir: Optional[Path] = None,
 ) -> MediaLogger:
-    """初始化日志系统
-
-    Args:
-        level: 日志级别 (DEBUG/INFO/WARNING/ERROR)，未设置时读取配置系统，默认 INFO
-        log_dir: 日志目录，未设置时读取配置系统
-
-    Returns:
-        MediaLogger实例
-
-    日志归档由 ``services.log_rotation.archive_old_logs`` 在 app lifespan startup
-    显式调用，不在此处自动触发。
-    """
     global _logger
 
-    # 优先使用参数，其次从配置系统读取
+    _is_test = "pytest" in sys.modules or "PYTEST_CURRENT_TEST" in os.environ
+
     try:
         from media_tools.core.config import get_app_config
         config = get_app_config()
-        
+
         if level is None:
             level = config.log_level
-        
+
         if log_dir is None:
             log_dir = config.project_root / "data" / "logs"
     except ImportError:
-        # 配置系统尚未初始化时使用环境变量
         if level is None:
             level = os.environ.get("LOG_LEVEL", os.environ.get("MEDIA_TOOLS_LOG_LEVEL", "INFO"))
-        
+
         if log_dir is None:
             log_dir = Path("data/logs")
 
@@ -336,8 +324,8 @@ def init_logging(
         "ERROR": logging.ERROR,
     }
 
-    json_logs = os.environ.get("MEDIA_TOOLS_JSON_LOGS", "1").lower() in ("1", "true", "yes")
-    structured = _should_use_structured_logging(level)
+    json_logs = not _is_test and os.environ.get("MEDIA_TOOLS_JSON_LOGS", "1").lower() in ("1", "true", "yes")
+    structured = not _is_test and _should_use_structured_logging(level)
 
     _logger = MediaLogger(
         name="media_tools",
@@ -346,7 +334,12 @@ def init_logging(
         json_logs=json_logs,
     )
 
-    # 结构化日志模式 → 所有 handler 切换为结构化 JSON 输出
+    if _is_test:
+        for handler in list(_logger.logger.handlers):
+            if isinstance(handler, logging.FileHandler):
+                _logger.logger.removeHandler(handler)
+                handler.close()
+
     if structured:
         setup_structured_logging(level)
 

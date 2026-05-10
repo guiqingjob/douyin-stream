@@ -118,12 +118,16 @@ async def run_local_transcribe(file_paths: list[str], update_progress_fn=None, d
                     subtasks.append({"title": title or "未知", "status": "completed"})
 
                     if delete_after and video_path and video_path.exists():
-                        try:
-                            video_path.unlink()
-                        except FileNotFoundError:
-                            pass
-                        except OSError as e:
-                            logger.error(f"删除视频失败 (DB已更新): {video_path}, {e}")
+                        transcript_path = getattr(r, "transcript_path", None)
+                        if transcript_path and Path(transcript_path).exists():
+                            try:
+                                video_path.unlink()
+                            except FileNotFoundError:
+                                pass
+                            except OSError as e:
+                                logger.error(f"删除视频失败 (DB已更新): {video_path}, {e}")
+                        else:
+                            logger.warning(f"跳过删除源视频：转录文件不存在或已丢失 ({transcript_path})")
                 else:
                     failed_count += 1
                     failed_paths.append(str(video_path))
