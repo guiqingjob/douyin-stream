@@ -74,6 +74,14 @@ async def _background_pipeline_worker(task_id: str, req: Any):
 
             if s_count == 0 and f_count == 0:
                 msg = "未找到新视频或链接无效"
+            elif f_count > 0 and s_count > 0:
+                # 三态决策：跟 local_transcribe_worker / creator_sync / creator_transcribe_worker 对齐
+                # PARTIAL_FAILED 触发前端"重试失败子任务"按钮（避免重跑成功子任务）
+                status = "PARTIAL_FAILED"
+                first = subtasks[0] if subtasks and isinstance(subtasks[0], dict) else {}
+                first_error = first.get("error") if first else f"转写失败 {f_count} 个视频"
+                msg = f"转写完成但有失败：成功 {s_count} 个，失败 {f_count} 个"
+                error_msg = first_error
             elif f_count > 0:
                 status = "FAILED"
                 first = subtasks[0] if subtasks and isinstance(subtasks[0], dict) else {}
@@ -138,7 +146,18 @@ async def _background_batch_worker(task_id: str, req: Any):
                 "total": int(total or 0),
             }
 
-            if failed_count > 0:
+            if failed_count > 0 and success_count > 0:
+                # 三态决策：跟其他 worker 对齐，PARTIAL_FAILED 触发前端"重试失败子任务"按钮
+                await _complete_task(
+                    task_id,
+                    "pipeline",
+                    f"批量处理完成但有失败：成功 {success_count} 个，失败 {failed_count} 个",
+                    status="PARTIAL_FAILED",
+                    error_msg=f"处理失败 {failed_count} 个视频",
+                    result_summary=result_summary,
+                    subtasks=subtasks,
+                )
+            elif failed_count > 0:
                 await _complete_task(
                     task_id,
                     "pipeline",
