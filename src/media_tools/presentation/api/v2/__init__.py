@@ -150,6 +150,16 @@ def create_transcribe_task(asset_id: str) -> Dict[str, Any]:
 @router.post("/tasks/{task_id}/cancel")
 def cancel_task(task_id: str) -> Dict[str, str]:
     """取消任务"""
+    task = _task_service.get_task(task_id)
+    if not task:
+        raise HTTPException(status_code=404, detail="任务不存在")
+    # 终态任务不允许取消：避免 Task.cancel() 在 CANCELLED/COMPLETED 状态下抛 ValueError → 500
+    # 同时跟 v1 路由（routers/tasks.py:185）行为对齐，FAILED/PARTIAL_FAILED 也视为终态
+    if task.status.value in ("COMPLETED", "FAILED", "CANCELLED", "PARTIAL_FAILED"):
+        raise HTTPException(
+            status_code=409,
+            detail=f"任务已处于 {task.status.value} 状态，无法取消",
+        )
     _task_service.cancel_task(task_id)
     return {"status": "cancelling"}
 

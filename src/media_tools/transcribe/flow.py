@@ -232,6 +232,20 @@ async def run_real_flow(
         except Exception as exc:
             logger.warning(f"transcribe_runs 打卡失败 (run_id={run_id}, stage={stage}): {exc}")
 
+    async def _safe_cleanup_old_record(api: Any, old_record_id: Optional[str]) -> None:
+        """resume 失败回退时清理云端旧记录，避免后续 _do_flow 覆盖 gen_record_id 后变成孤儿。
+        清理失败只记录日志，不让主流程崩溃。"""
+        if not old_record_id:
+            return
+        try:
+            ok = await delete_record(api, [old_record_id])
+            if ok:
+                log(f"resume 回退：已清理云端旧记录 record_id={old_record_id}")
+            else:
+                logger.warning(f"resume 回退清理云端记录返回失败 record_id={old_record_id}")
+        except Exception as exc:
+            logger.warning(f"resume 回退清理云端记录异常 record_id={old_record_id}: {exc}")
+
     async def _do_flow(api: Any) -> FlowResult:
         log(f"Using file: {input_path}")
         log(f"File size: {stats.st_size}")
@@ -395,7 +409,7 @@ async def run_real_flow(
             remote_deleted=deleted,
         )
 
-    async def _try_resume_export_only() -> FlowResult | None:
+    async def _try_resume_export_only(api: Any) -> FlowResult | None:
         if resume_state is None or not resume_state.export_url:
             return None
         try:
@@ -423,6 +437,9 @@ async def run_real_flow(
                 f"resume[export_url] 失败，回退到完整 flow: {exc}",
                 exc_info=True,
             )
+            # 回退前先清掉云端旧记录：_do_flow 会拿新 token 覆盖 record_id/gen_record_id,
+            # 如果不在这里清,旧 record 就会变成孤儿（额度已扣但 DB 找不回 record_id）
+            await _safe_cleanup_old_record(api, resume_state.record_id)
             if run_id:
                 try:
                     from media_tools.repositories.transcribe_run_repository import TranscribeRunRepository
@@ -489,6 +506,8 @@ async def run_real_flow(
                 f"resume[gen_record_id] 失败，回退到完整 flow: {exc}",
                 exc_info=True,
             )
+            # 同样：清旧 record 避免 _do_flow 覆盖后变成孤儿
+            await _safe_cleanup_old_record(api, resume_state.record_id)
             if run_id:
                 try:
                     from media_tools.repositories.transcribe_run_repository import TranscribeRunRepository
@@ -497,11 +516,13 @@ async def run_real_flow(
                     logger.debug("重置 stage 失败，但不影响 fallback 流程", exc_info=True)
             return None
 
-    resumed = await _try_resume_export_only()
-    if resumed is not None:
-        return resumed
-
+    # api 统一在最外层准备，两个 resume 函数和 _do_flow 共用同一个 context；
+    # 这样 resume 失败回退时也能用同一 api 清云端记录，避免旧 gen_record_id 被
+    # 覆盖后变孤儿（resource leak 修复）。
     if shared_api is not None:
+        resumed = await _try_resume_export_only(shared_api)
+        if resumed is not None:
+            return resumed
         from_gen = await _try_resume_from_gen_record(shared_api)
         if from_gen is not None:
             return from_gen
@@ -513,6 +534,9 @@ async def run_real_flow(
     )
     api = RequestsApiContext(cookie_string=resolved_cookie)
     try:
+        resumed = await _try_resume_export_only(api)
+        if resumed is not None:
+            return resumed
         from_gen = await _try_resume_from_gen_record(api)
         if from_gen is not None:
             return from_gen

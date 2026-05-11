@@ -10,10 +10,11 @@ from media_tools.pipeline.task_helpers import call_progress, create_managed_task
 logger = get_logger('pipeline')
 
 
-async def run_local_transcribe(file_paths: list[str], update_progress_fn=None, delete_after: bool = False):
+async def run_local_transcribe(file_paths: list[str], update_progress_fn=None, delete_after: bool = False, task_id: Optional[str] = None):
     """转写本地视频文件（不经过下载步骤）"""
     from media_tools.pipeline.config import load_pipeline_config
     from media_tools.pipeline.orchestrator import create_orchestrator
+    from media_tools.core.config import get_project_root
 
     valid_paths = filter_supported_media_paths(file_paths)
 
@@ -21,7 +22,10 @@ async def run_local_transcribe(file_paths: list[str], update_progress_fn=None, d
         return {"success_count": 0, "failed_count": 0, "total": 0, "success_paths": [], "failed_paths": []}
 
     config = load_pipeline_config()
-    orchestrator = create_orchestrator(config)
+    # 按 task_id 隔离 state 文件，避免并发任务共享 .pipeline_state.json 时把对方
+    # 正在跑的视频判成"上次崩溃残留"重新入队 → 同一文件双开 → 双倍 Qwen 额度
+    state_file = get_project_root() / f".pipeline_state_{task_id or 'local'}.json"
+    orchestrator = create_orchestrator(config, state_file=state_file)
     if hasattr(orchestrator, '_resolve_qwen_execution_accounts'):
         orchestrator._resolve_qwen_execution_accounts()
     output_root = Path(config.output_dir).resolve()

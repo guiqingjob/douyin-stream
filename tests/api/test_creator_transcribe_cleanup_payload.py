@@ -91,7 +91,7 @@ def test_creator_transcribe_writes_cleanup_payload_and_deletes_files(tmp_path: P
     monkeypatch.setattr("media_tools.workers.creator_transcribe_worker.get_project_root", lambda: project_root)
     monkeypatch.setenv("MEDIA_TOOLS_CLEANUP_RETRY_DELAY", "0")
 
-    async def _fake_run_local_transcribe(file_paths, update_progress_fn=None, delete_after=False):  # noqa: ANN001
+    async def _fake_run_local_transcribe(file_paths, update_progress_fn=None, delete_after=False, task_id=None):  # noqa: ANN001
         return {
             "success_count": 1,
             "failed_count": 0,

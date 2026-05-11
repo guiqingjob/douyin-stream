@@ -20,6 +20,7 @@ async def _background_local_transcribe_worker(task_id: str, req: Any):
                 req.file_paths,
                 _progress_fn,
                 req.delete_after,
+                task_id=task_id,
             )
             s_count = result.get("success_count", 0)
             f_count = result.get("failed_count", 0)

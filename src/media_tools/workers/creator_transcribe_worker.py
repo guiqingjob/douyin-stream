@@ -234,7 +234,7 @@ async def background_creator_transcribe_worker(task_id: str, uid: str, delete_af
         with task_context(task_id=task_id, creator_uid=uid):
             from media_tools.core.config import get_runtime_setting_bool
             should_delete = delete_after if delete_after is not None else get_runtime_setting_bool("auto_delete", True)
-            result = await run_local_transcribe(file_paths, _progress_fn, delete_after=False)
+            result = await run_local_transcribe(file_paths, _progress_fn, delete_after=False, task_id=task_id)
             s_count = int(result.get("success_count", 0) or 0)
             f_count = int(result.get("failed_count", 0) or 0)
             total = int(result.get("total", s_count + f_count) or (s_count + f_count))

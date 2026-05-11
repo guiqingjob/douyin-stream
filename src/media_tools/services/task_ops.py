@@ -301,11 +301,13 @@ async def _complete_task(
             # COMPLETED → 1.0；FAILED 保留现有进度（避免突然回退）
             new_progress = 1.0 if status == "COMPLETED" else existing_progress
             progress_for_notify = new_progress
-            # 状态机：COMPLETED / CANCELLED 是终态，不允许被其他状态覆盖
+            # 状态机：COMPLETED / CANCELLED / PARTIAL_FAILED 都是终态，不允许被覆盖。
+            # 尤其 PARTIAL_FAILED：部分子任务已成功，整任务再被改成 FAILED 会触发 auto_retry
+            # 重跑所有子任务（含已成功），违背 PARTIAL_FAILED 的设计语义。
             cursor = conn.execute(
                 """UPDATE task_queue
                    SET status=?, progress=?, payload=?, error_msg=?, update_time=?
-                   WHERE task_id=? AND status NOT IN ('COMPLETED', 'CANCELLED')""",
+                   WHERE task_id=? AND status NOT IN ('COMPLETED', 'CANCELLED', 'PARTIAL_FAILED')""",
                 (status, new_progress, payload_str, error_msg, now, task_id),
             )
             updated = cursor.rowcount > 0
@@ -337,7 +339,7 @@ async def _fail_task(task_id: str, task_type: str, error: str) -> None:
         with get_db_connection() as conn:
             cursor = conn.execute(
                 """UPDATE task_queue SET status='FAILED', error_msg=?, update_time=?
-                   WHERE task_id=? AND status NOT IN ('COMPLETED', 'CANCELLED')""",
+                   WHERE task_id=? AND status NOT IN ('COMPLETED', 'CANCELLED', 'PARTIAL_FAILED')""",
                 (str(error), datetime.now().isoformat(), task_id),
             )
             updated = cursor.rowcount > 0
