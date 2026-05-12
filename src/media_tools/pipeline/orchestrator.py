@@ -242,6 +242,27 @@ class OrchestratorV2:
             from media_tools.repositories.transcribe_run_repository import TranscribeRunRepository
             asset_id_for_run = MediaAssetService.find_asset_id_for_video_path(video_path)
 
+            # DB 级断点续传：检查该 asset 是否已有成功的 run（跨账号去重）
+            if asset_id_for_run:
+                try:
+                    saved_run = TranscribeRunRepository.find_saved_for_asset(asset_id_for_run)
+                    if saved_run:
+                        saved_path = Path(saved_run.get("transcript_path", ""))
+                        if saved_path.exists():
+                            logger.info(f"跳过已成功的视频: {video_path} (run_id={saved_run.get('run_id')})")
+                            self._update_media_asset_transcript(video_path, saved_path)
+                            return PipelineResultV2(
+                                success=True,
+                                video_path=video_path,
+                                transcript_path=saved_path,
+                                duration=0.0,
+                                account_id=saved_run.get("account_id", ""),
+                                video_deleted=False,
+                            )
+                        logger.warning(f"缓存的转录文件已丢失，重新转录: {video_path}")
+                except Exception as exc:
+                    logger.warning(f"find_saved_for_asset 失败 (asset={asset_id_for_run}): {exc}")
+
             for _ in range(max_attempts):
                 if self._account_pool is None:
                     break

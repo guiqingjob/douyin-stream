@@ -3,7 +3,7 @@ from __future__ import annotations
 from datetime import datetime
 from typing import Any, Optional
 
-from media_tools.domain.entities.task import Stage
+from media_tools.pipeline.models import Stage
 
 
 ALLOWED_STAGES = {"fetching", "auditing", "downloading", "uploading", "transcribing", "exporting", "completed", "failed"}
@@ -303,7 +303,7 @@ def build_task_progress(
     download_progress_data = payload_pp.get("download_progress") if isinstance(payload_pp, dict) else None
     transcribe_progress_data = payload_pp.get("transcribe_progress") if isinstance(payload_pp, dict) else None
 
-    from media_tools.domain.entities.task import DownloadProgress, TranscribeProgress
+    from media_tools.pipeline.models import DownloadProgress, TranscribeProgress
 
     download_progress = None
     if download_progress_data or pp.get("download"):

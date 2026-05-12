@@ -496,6 +496,7 @@ def init_db(db_path: Union[str, Path]):
         _ensure_column(conn, "creators", "platform", "TEXT DEFAULT 'douyin'")
         _ensure_column(conn, "creators", "sync_status", "TEXT DEFAULT 'active'")
         _ensure_column(conn, "creators", "last_fetch_time", "DATETIME")
+        _ensure_column(conn, "creators", "auto_sync", "BOOLEAN DEFAULT 0")
         _ensure_column(conn, "creators", "avatar", "TEXT")
         _ensure_column(conn, "creators", "bio", "TEXT")
         _ensure_column(conn, "Accounts_Pool", "remark", "TEXT DEFAULT ''")

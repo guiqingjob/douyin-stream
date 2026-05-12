@@ -9,7 +9,6 @@ from media_tools.api.routers import creators, assets, tasks, settings, douyin, s
 from media_tools.api.websocket_manager import stale_connection_sweeper
 from media_tools.core import background
 from media_tools.core.exceptions import AppError
-from media_tools.presentation.api.v2 import router as v2_router
 import asyncio
 import sqlite3
 import uvicorn
@@ -225,10 +224,6 @@ app.include_router(douyin.router)
 app.include_router(scheduler.router)
 app.include_router(metrics.router)
 app.include_router(search.router)
-# v2 路由暂未挂载：DDD 重构是渐进式的，v2 的 cancel/cleanup/progress 等都还没接通
-# worker 协程（见 presentation/api/v2/__init__.py cancel_task 只更新 DB 状态）。
-# 等真要切换到 v2 时再恢复这行 include。
-# app.include_router(v2_router)
 
 import shutil
 import sqlite3

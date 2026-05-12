@@ -247,7 +247,7 @@ class StructuredDownloader(Downloader):
             increment_skipped,
             add_download_error,
         )
-        from media_tools.domain.entities.task import Stage
+        from media_tools.pipeline.models import Stage
 
         try:
             if task_id:
@@ -313,7 +313,7 @@ class StructuredDownloader(Downloader):
             add_download_error,
             set_total_count,
         )
-        from media_tools.domain.entities.task import Stage
+        from media_tools.pipeline.models import Stage
 
         try:
             if task_id:

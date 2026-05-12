@@ -117,6 +117,78 @@ def _register_system_jobs() -> None:
         max_instances=1,
     )
 
+    # 创作者自动同步（每 30 分钟扫描一次）
+    def _auto_creator_sync():
+        import asyncio
+        from datetime import timezone, timedelta
+        from media_tools.repositories.task_repository import TaskRepository
+        from media_tools.workers.creator_sync import background_creator_download_worker
+
+        with get_db_connection() as conn:
+            conn.row_factory = sqlite3.Row
+            rows = conn.execute(
+                "SELECT uid, last_fetch_time FROM creators WHERE auto_sync = 1"
+            ).fetchall()
+
+        now = datetime.now(timezone.utc)
+        sync_threshold = timedelta(hours=6)
+        synced_count = 0
+
+        for row in rows:
+            uid = row["uid"]
+            last_fetch = row["last_fetch_time"]
+
+            needs_sync = True
+            if last_fetch:
+                try:
+                    fetch_dt = datetime.fromisoformat(str(last_fetch).replace("Z", "+00:00"))
+                    if fetch_dt.tzinfo is None:
+                        fetch_dt = fetch_dt.replace(tzinfo=timezone.utc)
+                    if now - fetch_dt < sync_threshold:
+                        needs_sync = False
+                except (ValueError, OSError):
+                    pass
+
+            if not needs_sync:
+                continue
+
+            task_id = str(uuid.uuid4())
+            try:
+                TaskRepository.create_running(
+                    task_id, "creator_sync_incremental", {"uid": uid, "mode": "incremental"}
+                )
+            except (sqlite3.Error, OSError, ValueError) as e:
+                logger.error(f"[自动同步] 创建任务失败 {uid}: {e}")
+                continue
+
+            try:
+                loop = asyncio.new_event_loop()
+                asyncio.set_event_loop(loop)
+                loop.run_until_complete(
+                    background_creator_download_worker(task_id, uid, "incremental")
+                )
+                synced_count += 1
+            except Exception as e:
+                logger.error(f"[自动同步] 创作者同步失败 {uid}: {e}")
+            finally:
+                asyncio.set_event_loop(None)
+                try:
+                    loop.close()
+                except Exception:
+                    pass
+
+        if synced_count > 0:
+            logger.info(f"[自动同步] 本轮共同步 {synced_count} 个创作者")
+
+    scheduler.add_job(
+        _auto_creator_sync,
+        trigger="interval",
+        minutes=30,
+        id="__auto_creator_sync__",
+        replace_existing=True,
+        max_instances=1,
+    )
+
 def _sync_scheduler():
     """Sync jobs in DB with APScheduler"""
     for job in scheduler.get_jobs():

@@ -177,4 +177,99 @@ def reconcile_transcripts():
 
         conn.commit()
 
+    # 对账 media_assets 与 transcribe_runs 的状态一致性
+    run_results = reconcile_transcribe_runs()
+    results.update(run_results)
+
     return {"status": "success", **results}
+
+
+def reconcile_transcribe_runs():
+    """对账 media_assets 与 transcribe_runs 的状态一致性。
+
+    修复三类漂移：
+    1. media_assets completed 但 transcribe_runs 无 saved run → 重置为 pending
+       （transcribe_runs 记录丢失，需要重新转写）
+    2. media_assets 未 completed 但 transcribe_runs 有 saved run → 补全为 completed
+       （转写成功但 media_assets 未同步更新）
+    3. transcribe_runs saved 但转录文件不存在 → 标记为 failed（幽灵 run）
+    """
+    results = {
+        "assets_reset_from_completed": 0,
+        "assets_completed_from_saved": 0,
+        "runs_marked_ghost": 0,
+    }
+    now = datetime.now().isoformat()
+    project_root = Path(__file__).parent.parent.parent.parent
+    transcripts_dir = project_root / "transcripts"
+
+    with get_db_connection() as conn:
+        conn.row_factory = sqlite3.Row
+
+        # 1. media_assets completed 但 transcribe_runs 没有 saved run
+        completed_assets = conn.execute(
+            """
+            SELECT ma.asset_id, ma.video_path
+            FROM media_assets ma
+            LEFT JOIN transcribe_runs tr
+                ON ma.asset_id = tr.asset_id AND tr.stage = 'saved'
+            WHERE ma.transcript_status = 'completed'
+              AND tr.run_id IS NULL
+            """
+        ).fetchall()
+
+        for row in completed_assets:
+            conn.execute(
+                "UPDATE media_assets SET transcript_status = 'pending', transcript_path = NULL, transcript_preview = NULL, transcript_text = NULL, update_time = ? WHERE asset_id = ?",
+                (now, row["asset_id"]),
+            )
+            results["assets_reset_from_completed"] += 1
+            logger.info(f"重置 media_assets: asset={row['asset_id']} (completed 但无 saved run)")
+
+        # 2. media_assets 不是 completed 但 transcribe_runs 有 saved run
+        pending_assets = conn.execute(
+            """
+            SELECT ma.asset_id, tr.transcript_path
+            FROM media_assets ma
+            JOIN transcribe_runs tr ON ma.asset_id = tr.asset_id AND tr.stage = 'saved'
+            WHERE ma.transcript_status != 'completed'
+            """
+        ).fetchall()
+
+        for row in pending_assets:
+            transcript_path = row["transcript_path"] or ""
+            conn.execute(
+                "UPDATE media_assets SET transcript_status = 'completed', transcript_path = ?, update_time = ? WHERE asset_id = ?",
+                (transcript_path, now, row["asset_id"]),
+            )
+            results["assets_completed_from_saved"] += 1
+            logger.info(f"补全 media_assets: asset={row['asset_id']} (saved run 存在但未 completed)")
+
+        # 3. transcribe_runs saved 但转录文件不存在
+        saved_runs = conn.execute(
+            """
+            SELECT run_id, transcript_path, asset_id
+            FROM transcribe_runs
+            WHERE stage = 'saved'
+              AND transcript_path IS NOT NULL AND transcript_path != ''
+            """
+        ).fetchall()
+
+        for row in saved_runs:
+            tp = row["transcript_path"]
+            if not tp:
+                continue
+            path = Path(tp)
+            if not path.is_absolute():
+                path = transcripts_dir / path
+            if not path.exists():
+                conn.execute(
+                    "UPDATE transcribe_runs SET stage = 'failed', error_stage = 'saved', error_type = 'ghost_file', last_error = ?, updated_at = ? WHERE run_id = ?",
+                    ("转录文件在磁盘上已不存在", now, row["run_id"]),
+                )
+                results["runs_marked_ghost"] += 1
+                logger.info(f"标记幽灵 run: run_id={row['run_id']} asset={row['asset_id']}")
+
+        conn.commit()
+
+    return results

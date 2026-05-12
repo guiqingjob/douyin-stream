@@ -215,11 +215,6 @@
 - 每条日志已带 task_id / request_id / creator_uid 上下文（`core/logging_context.py`）
 - 任务详情展示阶段耗时、失败阶段、最后错误（`TaskMonitorPanel/TaskItem.tsx`）
 
-**未做（计划项）**：
-
-- Phase 3 生产数据回放验证（X3.3）：故意 kill 中段验证续传 fast-path 命中。
-  需要人值守，不在自动化流水范围内。
-
 ## 推荐优先级
 
 短期最重要的是：

@@ -28,7 +28,6 @@
 - ✅ **PARTIAL_FAILED 任务状态**：区分全失败/部分失败；前端 badge 中文化；UI"重试失败子任务"按钮在 PARTIAL 任务上正确显示
 - ✅ **logs/ 归档机制**：`services.log_rotation.archive_old_logs()` mv 到 archive 子目录，不删
 - ✅ **Ghost transcripts 清理**：`reconcile_transcripts()` 新增 prune 逻辑，清理 DB 中已完成但文件已不存在的"幽灵"记录
-- ⏳ Phase 3 生产数据回放验证（需要人值守）
 
 ### Phase 3 — 可恢复转写流水线（重构第三阶段）
 
@@ -48,8 +47,6 @@
 | Ghost transcripts 清理 | reconciler 新增 prune 逻辑：completed 但文件已不存在时自动清理 DB 记录 |
 
 **关键不变量**：跨账号续传**不**支持（Qwen `genRecordId` 与账号绑定）。
-
-**未做**：生产数据回放验证（计划 X3.3）。
 
 ### Qwen 转写引擎完成迁移：Playwright → HTTP API
 
