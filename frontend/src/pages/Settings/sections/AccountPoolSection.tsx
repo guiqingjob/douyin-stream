@@ -1,3 +1,4 @@
+import { useRef } from 'react';
 import { Loader2, Pencil, Trash2, User } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
@@ -66,6 +67,8 @@ export function AccountPoolSection({
   extraFooter,
   extraInfo,
 }: AccountPoolSectionProps) {
+  const savingRemarkRef = useRef<Set<string>>(new Set());
+
   return (
     <Card size="default">
       <CardContent className="space-y-4">
@@ -92,7 +95,7 @@ export function AccountPoolSection({
             placeholder="备注"
             value={remark}
             onChange={(e) => setRemark(e.target.value)}
-            className="w-24"
+            className="w-32 shrink-0"
           />
           <Button
             variant="primary"
@@ -128,9 +131,17 @@ export function AccountPoolSection({
                         className="h-7 px-2 py-0 text-[13px]"
                         value={editingRemarkValue}
                         onChange={(e) => setEditingRemarkValue(e.target.value)}
-                        onBlur={() => onSaveRemark(account.id, editingRemarkValue)}
+                        onBlur={() => {
+                          if (!savingRemarkRef.current.has(account.id)) {
+                            onSaveRemark(account.id, editingRemarkValue);
+                          }
+                          savingRemarkRef.current.delete(account.id);
+                        }}
                         onKeyDown={(e) => {
-                          if (e.key === 'Enter') onSaveRemark(account.id, editingRemarkValue);
+                          if (e.key === 'Enter') {
+                            savingRemarkRef.current.add(account.id);
+                            onSaveRemark(account.id, editingRemarkValue);
+                          }
                           if (e.key === 'Escape') setEditingRemarkId(null);
                         }}
                       />

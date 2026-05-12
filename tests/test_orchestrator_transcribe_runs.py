@@ -45,15 +45,12 @@ def _build_orchestrator(tmp_path: Path) -> OrchestratorV2:
         export_format="md",
         output_dir=str(tmp_path / "out"),
         delete_after_export=False,
-        remove_video=False,
-        keep_original=True,
         concurrency=1,
     )
-    orch = OrchestratorV2(config=cfg, state_file=tmp_path / ".state.json")
+    orch = OrchestratorV2(config=cfg)
     # 注入一个 1 个账号的 pool，跳过 _resolve_qwen_execution_accounts 的真实查询
     orch._account_pool = AccountPool(
         [{"account_id": "acc-1", "auth_state_path": tmp_path / "auth.json"}],
-        [10],
     )
     return orch
 
@@ -289,7 +286,6 @@ async def test_failure_then_resume_end_to_end(
         # AccountPool 记录了"该账号已尝试过"，需要清重试集让第二次能 acquire 同账号
         orch._account_pool = AccountPool(
             [{"account_id": "acc-1", "auth_state_path": tmp_path / "auth.json"}],
-            [10],
         )
         second = await orch._transcribe_single_video(video)
         assert second.success

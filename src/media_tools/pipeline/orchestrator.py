@@ -26,7 +26,6 @@ from .config import PipelineConfig, load_pipeline_config
 from .helpers import _clean_title_for_export, _lookup_video_title, _lookup_creator_folder
 from .error_types import ErrorType, classify_error
 from .models import AccountPool, RetryConfig, VideoState, PipelineResultV2, BatchReport
-from .state_manager import PipelineStateManager, DEFAULT_STATE_FILE
 from ..db.core import get_db_connection
 
 # 配置日志记录器
@@ -52,24 +51,19 @@ class OrchestratorV2:
         config: Optional[PipelineConfig] = None,
         auth_state_path: Optional[Path] = None,
         retry_config: Optional[RetryConfig] = None,
-        state_file: Path | str = DEFAULT_STATE_FILE,
         on_progress: Optional[ProgressCallback] = None,
         creator_folder_override: Optional[str] = None,
-        export_gate: Optional[asyncio.Semaphore] = None,
-        upload_gate: Optional[asyncio.Semaphore] = None,
     ):
         self.config = config or load_pipeline_config()
         self.auth_state_path = auth_state_path
         self.retry_config = retry_config or RetryConfig()
-        self.state_manager = PipelineStateManager(state_file)
         self.on_progress = on_progress
         self._creator_folder_override = creator_folder_override
         self._account_pool: AccountPool | None = None
-        self._current_account_id: Optional[str] = None
-        self._export_gate = export_gate or asyncio.Semaphore(
-            getattr(self.config, 'export_concurrency', 2)
-        )
-        self._upload_gate = upload_gate
+        # per-account 上传锁。Qwen 平台约束：同账号同时只允许 1 个文件上传，
+        # 多余请求服务端会隐式排队。客户端用 Lock 显式串行，避免占额度空等。
+        self._upload_locks: dict[str, asyncio.Lock] = {}
+        self._upload_locks_guard: asyncio.Lock | None = None
 
         if self.auth_state_path is None:
             try:
@@ -84,6 +78,7 @@ class OrchestratorV2:
         total: int,
         video_path: Path,
         status: str,
+        account_id: Optional[str] = None,
     ) -> None:
         """触发进度回调
 
@@ -92,10 +87,11 @@ class OrchestratorV2:
             total: 总数
             video_path: 当前视频路径
             status: 状态描述
+            account_id: 当前使用的账号（避免并发覆盖实例变量）
         """
         if self.on_progress:
             try:
-                self.on_progress(current, total, video_path, status, self._current_account_id)
+                self.on_progress(current, total, video_path, status, account_id)
             except (RuntimeError, TypeError, ValueError) as e:
                 logger.warning(f"进度回调执行失败: {e}")
 
@@ -106,24 +102,10 @@ class OrchestratorV2:
                 build_qwen_auth_state_path_for_account,
                 load_qwen_accounts_from_db,
             )
-            from media_tools.transcribe.quota import get_daily_quota_record, number_value
 
             accounts = [a for a in load_qwen_accounts_from_db() if a.status == "active"]
 
-            def _score(account_id: str) -> int:
-                record = get_daily_quota_record(account_id)
-                candidates = (
-                    record.get("lastAfterRemaining"),
-                    record.get("lastEquityAfterRemaining"),
-                    record.get("lastBeforeRemaining"),
-                    record.get("lastEquityBeforeRemaining"),
-                )
-                return max((number_value(v) for v in candidates), default=0)
-
-            accounts.sort(key=lambda a: _score(a.account_id), reverse=True)
-
             resolved: list[dict[str, Any]] = []
-            balances: list[int] = []
             for account in accounts:
                 path = (
                     Path(account.auth_state_path)
@@ -131,11 +113,11 @@ class OrchestratorV2:
                     else build_qwen_auth_state_path_for_account(account.account_id)
                 )
                 resolved.append({"account_id": account.account_id, "auth_state_path": path})
-                balances.append(_score(account.account_id))
 
             if resolved:
-                self._account_pool = AccountPool(resolved, balances)
-                logger.info(f"账号池初始化: {[(a['account_id'], b) for a, b in zip(resolved, balances)]}")
+                self._account_pool = AccountPool(resolved)
+                self._account_pool.set_upload_locks_view(self._upload_locks)
+                logger.info(f"账号池初始化: {[a['account_id'] for a in resolved]}")
                 self._adjust_gates_to_account_pool()
                 return resolved
         except (sqlite3.Error, OSError, TypeError, ValueError) as e:
@@ -145,7 +127,8 @@ class OrchestratorV2:
             return []
 
         single_account = [{"account_id": self.config.account_id, "auth_state_path": Path(self.auth_state_path)}]
-        self._account_pool = AccountPool(single_account, [0])
+        self._account_pool = AccountPool(single_account)
+        self._account_pool.set_upload_locks_view(self._upload_locks)
         self._adjust_gates_to_account_pool()
         return single_account
 
@@ -153,14 +136,27 @@ class OrchestratorV2:
         if self._account_pool is None:
             return
         n_accounts = self._account_pool.account_count
-        if self._upload_gate is None:
-            self._upload_gate = asyncio.Semaphore(n_accounts)
-            logger.info(f"上传信号量初始化: {n_accounts}（= 活跃账号数）")
-        export_concurrency = min(2 * n_accounts, 8)
-        current_export = self._export_gate._value if hasattr(self._export_gate, '_value') else 2
-        if export_concurrency != current_export:
-            self._export_gate = asyncio.Semaphore(export_concurrency)
-            logger.info(f"导出信号量动态调整: {current_export} → {export_concurrency}（= min(2×{n_accounts}, 8)）")
+        # 入口闸门跟随账号数：2×n 给"准备上传"队列留缓冲，账号一释放就有人秒进。
+        # worker.py 和 transcribe_batch 都读这个值替代 config.concurrency。
+        new_concurrency = max(1, 2 * n_accounts)
+        old = getattr(self, "_effective_concurrency", None)
+        self._effective_concurrency = new_concurrency
+        if old != new_concurrency:
+            logger.info(f"入口闸门跟随账号数: {old} → {new_concurrency}（= 2×{n_accounts}）")
+        # upload 锁是 per-account 的（按需在 _get_upload_lock 中创建）
+        # export 已取消限流——平台无明显约束，导出/下载并行更快
+
+    async def _get_upload_lock(self, account_id: str) -> asyncio.Lock:
+        """按需为账号创建上传锁。同一账号永远拿到同一把锁，跨视频共享。"""
+        if self._upload_locks_guard is None:
+            self._upload_locks_guard = asyncio.Lock()
+        async with self._upload_locks_guard:
+            lock = self._upload_locks.get(account_id)
+            if lock is None:
+                lock = asyncio.Lock()
+                self._upload_locks[account_id] = lock
+                logger.info(f"上传锁创建: account={account_id}")
+            return lock
 
     def _mark_qwen_account_status(self, account_id: str, status: str) -> None:
         if not account_id:
@@ -232,12 +228,14 @@ class OrchestratorV2:
             if self._account_pool is None:
                 resolved_accounts = self._resolve_qwen_execution_accounts()
                 if self._account_pool is None and resolved_accounts:
-                    self._account_pool = AccountPool(resolved_accounts, [0] * len(resolved_accounts))
+                    self._account_pool = AccountPool(resolved_accounts)
+                    self._account_pool.set_upload_locks_view(self._upload_locks)
 
             # 单个视频固定在同一账号内重试；只有认证失效才切换账号。
             accounts_tried = set()
             max_attempts = self._account_pool.available_count if self._account_pool else 1
             preferred_account_id = account_id
+            current_account_id: Optional[str] = None
 
             # 第三阶段：解析 asset_id，三段式 fallback；找不到也允许继续跑（只是没续传能力）
             from media_tools.services.media_asset_service import MediaAssetService
@@ -257,7 +255,6 @@ class OrchestratorV2:
                     self._account_pool.release(current_account_id)
                     break
                 accounts_tried.add(current_account_id)
-                self._current_account_id = current_account_id
 
                 auth_state_path = account.get("auth_state_path")
                 if auth_state_path is None:
@@ -309,6 +306,7 @@ class OrchestratorV2:
                             export_url=resumable_run.get("export_url"),
                         )
 
+                    account_upload_lock = await self._get_upload_lock(current_account_id)
                     result = await run_real_flow(
                         file_path=video_path,
                         auth_state_path=auth_state_path,
@@ -317,8 +315,7 @@ class OrchestratorV2:
                         should_delete=self.config.delete_after_export,
                         account_id=current_account_id,
                         title=video_title,
-                        export_gate=self._export_gate,
-                        upload_gate=self._upload_gate,
+                        account_upload_lock=account_upload_lock,
                         run_id=run_id,
                         resume_state=resume_state,
                     )
@@ -396,7 +393,7 @@ class OrchestratorV2:
                 error=str(last_error) if last_error else "no available account",
                 error_type=last_error_type,
                 duration=duration,
-                account_id=self._current_account_id,
+                account_id=current_account_id,
             )
 
         except asyncio.CancelledError:
@@ -457,11 +454,17 @@ class OrchestratorV2:
         except (OSError, ValueError) as e:
             logger.warning(f"写回 media_assets 失败状态失败: {e}")
 
-    async def _cleanup_failed_cloud_records(self, video_path: Path) -> None:
+    async def _cleanup_failed_cloud_records(
+        self, video_path: Path, *, account_id: Optional[str] = None
+    ) -> None:
         """转写最终失败后，清理云端残留的转写记录。
 
         当所有重试和账号切换都失败后，已上传到千问平台的文件仍会占用云端存储。
         此方法查找该视频所有失败 run 的 record_id，并调用删除 API 清理。
+
+        注意：record_ids 可能来自多个账号（视频曾在不同账号上重试），
+        但当前实现只尝试用传入的 account_id 对应的 cookie 删除。
+        跨账号孤儿记录由后续健康检查脚本兜底。
         """
         from media_tools.repositories.transcribe_run_repository import TranscribeRunRepository
         from media_tools.services.media_asset_service import MediaAssetService
@@ -470,9 +473,9 @@ class OrchestratorV2:
 
         record_ids: list[str] = []
         if asset_id:
-            record_ids = TranscribeRunRepository.find_failed_record_ids(asset_id)
+            record_ids = TranscribeRunRepository.find_failed_record_ids(asset_id, account_id=account_id or "")
         if not record_ids:
-            record_ids = TranscribeRunRepository.find_failed_record_ids_for_video(str(video_path))
+            record_ids = TranscribeRunRepository.find_failed_record_ids_for_video(str(video_path), account_id=account_id or "")
 
         if not record_ids:
             return
@@ -484,7 +487,7 @@ class OrchestratorV2:
 
             cookie_string = resolve_qwen_cookie_string(
                 auth_state_path="",
-                account_id=self._current_account_id or "",
+                account_id=account_id or "",
             )
             if not cookie_string.strip():
                 logger.warning("云端清理跳过：无法获取有效 cookie")
@@ -514,48 +517,14 @@ class OrchestratorV2:
         Returns:
             PipelineResultV2: 最终执行结果
         """
-        state = self.state_manager.get_state(video_path)
-
-        # 如果已成功且无重试需求，检查缓存的转录文件是否实际存在
-        if state.status == "success" and state.transcript_path:
-            cached_path = Path(state.transcript_path)
-            if cached_path.exists():
-                logger.info(f"跳过已成功的视频: {video_path}")
-                self._update_media_asset_transcript(video_path, cached_path)
-                return PipelineResultV2(
-                    success=True,
-                    video_path=video_path,
-                    transcript_path=cached_path,
-                    attempts=state.attempt,
-                    duration=state.duration,
-                )
-            logger.warning(f"缓存的转录文件已丢失，重新转录: {video_path}")
-            self.state_manager.update_state(
-                video_path,
-                status="pending",
-                transcript_path="",
-            )
-            state = self.state_manager.get_state(video_path)
-
         max_attempts = self.retry_config.max_retries + 1  # 首次 + 重试次数
-        state.max_attempts = max_attempts
-        total_attempts = 0
         execution_account_id: Optional[str] = None
 
         for attempt in range(1, max_attempts + 1):
-            total_attempts = attempt
-            state.attempt = attempt
-
-            # 标记为运行中
-            self.state_manager.update_state(
-                video_path,
-                status="running",
-                attempt=attempt,
-                max_attempts=max_attempts,
-            )
             self._fire_progress(
                 0, 1, video_path,
-                f"处理中 (尝试 {attempt}/{max_attempts})"
+                f"处理中 (尝试 {attempt}/{max_attempts})",
+                account_id=execution_account_id,
             )
 
             result = await self._transcribe_single_video(video_path, execution_account_id)
@@ -563,19 +532,10 @@ class OrchestratorV2:
             result.attempts = attempt
 
             if result.success:
-                # 成功：更新状态
-                self.state_manager.update_state(
-                    video_path,
-                    status="success",
-                    attempt=attempt,
-                    max_attempts=max_attempts,
-                    transcript_path=str(result.transcript_path) if result.transcript_path else "",
-                )
-
                 # 同步更新数据库
                 self._update_media_asset_transcript(video_path, result.transcript_path)
 
-                self._fire_progress(1, 1, video_path, "成功")
+                self._fire_progress(1, 1, video_path, "成功", account_id=result.account_id)
                 logger.info(f"视频处理成功: {video_path} (尝试 {attempt} 次, 耗时 {result.duration:.1f}s)")
                 return result
 
@@ -590,29 +550,14 @@ class OrchestratorV2:
                     f"视频处理失败，将在 {delay:.1f}s 后重试 ({attempt}/{max_attempts}): "
                     f"[{result.error_type.value}] {result.error}"
                 )
-                self.state_manager.update_state(
-                    video_path,
-                    status="failed",
-                    attempt=attempt,
-                    max_attempts=max_attempts,
-                    error_type=result.error_type.value,
-                    error_message=result.error or "",
-                )
                 self._fire_progress(
                     0, 1, video_path,
-                    f"失败，{delay:.0f}s 后重试 ({attempt}/{max_attempts})"
+                    f"失败，{delay:.0f}s 后重试 ({attempt}/{max_attempts})",
+                    account_id=result.account_id,
                 )
                 await asyncio.sleep(delay)
             else:
                 # 不可重试或已达最大次数
-                self.state_manager.update_state(
-                    video_path,
-                    status="failed",
-                    attempt=attempt,
-                    max_attempts=max_attempts,
-                    error_type=result.error_type.value,
-                    error_message=result.error or "",
-                )
                 # 同步把失败信息写回 media_assets，让 UI/查询能基于 DB 真相源
                 self._mark_media_asset_transcript_failed(
                     video_path,
@@ -620,10 +565,13 @@ class OrchestratorV2:
                     result.error or "",
                 )
                 # 清理云端残留的失败转写记录
-                await self._cleanup_failed_cloud_records(video_path)
+                await self._cleanup_failed_cloud_records(
+                    video_path, account_id=result.account_id
+                )
                 self._fire_progress(
                     0, 1, video_path,
-                    f"失败 [{result.error_type.value}] (已达最大尝试次数)"
+                    f"失败 [{result.error_type.value}] (已达最大尝试次数)",
+                    account_id=result.account_id,
                 )
                 if attempt < max_attempts:
                     logger.error(
@@ -643,7 +591,7 @@ class OrchestratorV2:
             video_path=video_path,
             error=f"已达最大尝试次数 ({max_attempts})",
             error_type=ErrorType.UNKNOWN,
-            attempts=total_attempts,
+            attempts=max_attempts,
         )
 
     async def transcribe_batch(
@@ -666,29 +614,15 @@ class OrchestratorV2:
             started_at=start_time,
         )
 
-        # 断点续传：过滤已成功/运行中的
-        if resume:
-            pending_paths = self.state_manager.get_pending_videos(video_paths)
-            skipped_count = len(video_paths) - len(pending_paths)
-            report.skipped = skipped_count
-            logger.info(
-                f"批量处理: 总计 {len(video_paths)} 个视频，"
-                f"跳过 {skipped_count} 个（已成功/运行中），"
-                f"待处理 {len(pending_paths)} 个"
-            )
-        else:
-            pending_paths = list(video_paths)
-            logger.info(f"批量处理: 共 {len(pending_paths)} 个视频（不启用断点续传）")
+        pending_paths = list(video_paths)
+        logger.info(f"批量处理: 共 {len(pending_paths)} 个视频")
 
-        # 如果无需处理任何视频
-        if not pending_paths:
-            report.completed_at = time.time()
-            report.total_duration = report.completed_at - report.started_at
-            logger.info("所有视频已处理完成，无需执行")
-            return report
-
-        # 并发控制
-        semaphore = asyncio.Semaphore(self.config.concurrency)
+        # 并发控制：跟随账号数（= 2×n）。account_pool 还没初始化的话先解析一次，
+        # 否则 _effective_concurrency 拿不到值，会退回 config.concurrency（旧值不准）。
+        if self._account_pool is None:
+            self._resolve_qwen_execution_accounts()
+        effective = getattr(self, "_effective_concurrency", self.config.concurrency)
+        semaphore = asyncio.Semaphore(max(1, effective))
         completed_count = 0
         total_pending = len(pending_paths)
 
@@ -706,6 +640,11 @@ class OrchestratorV2:
         # 汇总结果 - 使用 zip 保持结果与原始路径的一一对应
         for video_path, result in zip(pending_paths, results):
             pipeline_result: PipelineResultV2
+
+            # return_exceptions=True 会把 KeyboardInterrupt / CancelledError 等 BaseException
+            # 收集到 results 中；这里重新抛出，避免吞掉中断信号。
+            if isinstance(result, BaseException) and not isinstance(result, Exception):
+                raise result
 
             if isinstance(result, Exception):
                 # 异常情况 - 正确归因到具体 video_path
@@ -774,19 +713,15 @@ def create_orchestrator(
     config: Optional[PipelineConfig] = None,
     auth_state_path: Optional[Path] = None,
     retry_config: Optional[RetryConfig] = None,
-    state_file: Path | str = DEFAULT_STATE_FILE,
     on_progress: Optional[ProgressCallback] = None,
     creator_folder_override: Optional[str] = None,
-    upload_gate: Optional[asyncio.Semaphore] = None,
 ) -> OrchestratorV2:
     return OrchestratorV2(
         config=config,
         auth_state_path=auth_state_path,
         retry_config=retry_config,
-        state_file=state_file,
         on_progress=on_progress,
         creator_folder_override=creator_folder_override,
-        upload_gate=upload_gate,
     )
 
 
@@ -795,9 +730,7 @@ async def run_enhanced_pipeline(
     config: Optional[PipelineConfig] = None,
     auth_state_path: Optional[Path] = None,
     retry_config: Optional[RetryConfig] = None,
-    state_file: Path | str = DEFAULT_STATE_FILE,
     on_progress: Optional[ProgressCallback] = None,
-    resume: bool = True,
     report_path: Optional[Path] = None,
 ) -> BatchReport:
     """便捷函数：一键运行增强版 Pipeline
@@ -807,9 +740,7 @@ async def run_enhanced_pipeline(
         config: Pipeline 配置
         auth_state_path: 认证状态文件路径
         retry_config: 重试配置
-        state_file: 状态持久化文件路径
         on_progress: 进度回调函数
-        resume: 是否启用断点续传
         report_path: 报告保存路径（None则不保存）
 
     Returns:
@@ -827,7 +758,6 @@ async def run_enhanced_pipeline(
         config=config,
         auth_state_path=auth_state_path,
         retry_config=retry_config,
-        state_file=state_file,
         on_progress=on_progress,
     )
     report = await orchestrator.transcribe_batch(video_paths, resume=resume)

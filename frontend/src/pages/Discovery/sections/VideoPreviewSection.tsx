@@ -119,7 +119,7 @@ export function VideoPreviewSection({
       />
 
       {/* Floating Action Bar */}
-      <div className="fixed bottom-8 left-[calc(50%+8rem)] z-10 flex -translate-x-1/2 justify-center max-sm:bottom-20">
+      <div className="fixed bottom-8 left-1/2 z-10 flex -translate-x-1/2 justify-center max-lg:bottom-20 lg:left-[calc(50%+130px)]">
         <div className="flex items-center gap-4 rounded-lg apple-floating-bar py-3 pl-3 pr-3 apple-shadow-md">
           <Button
             variant="ghost"

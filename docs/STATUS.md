@@ -1,10 +1,25 @@
 # Media Tools — 项目现状文档
 
-> 最后更新：2026-05-05
+> 最后更新：2026-05-12
 
 ---
 
 ## 最近更新（2026-05-05）
+
+## 最近更新（2026-05-12）
+
+### 并发模型重设计 + 额度领取防御修复
+
+- ✅ **per-account 上传互斥**：全局 `Semaphore(n_accounts)` 改为 `dict[account_id, asyncio.Lock]`。Qwen 平台约束同账号仅 1 个上传活跃，客户端用 Lock 显式串行，避免占额度空等。
+- ✅ **AccountPool 简化**：去掉余额加权随机（平台已限单账号并发，余额不再影响调度），改为纯轮询 + 排除集。
+- ✅ **删除 export_gate**：导出/下载阶段取消 Semaphore 限流，平台无明显并发约束。
+- ✅ **入口闸门 = 2n**：`transcribe_batch` 的 Semaphore 大小由 `_adjust_gates_to_account_pool()` 设为 `2 * n_accounts`，跟随账号池自动伸缩。
+- ✅ **OSS part_size = 5MB**：默认分片从 1MB 调到 5MB，减少 HTTP 往返；part 级并发 benchmark 证明带宽已饱和，保持串行。
+- ✅ **额度领取 delta 兜底**：`claim_equity_quota` 触发后查 before/after 额度差，没增加就返回 `claimed=False`，避免"显示成功但未到账"。
+- ✅ **`_current_account_id` 竞态修复**：移除实例变量，改参数传递，避免并发场景下 cleanup 用错 cookie
+- ✅ **跨账号 cleanup 过滤**：`find_failed_record_ids` 增加 `account_id` 参数，只删当前账号记录
+- ✅ **不吞中断信号**：`gather(return_exceptions=True)` 后重新 raise `BaseException`
+- ✅ **resume record_id 缺失保护**：`_try_resume_export_only` 入口检查 record_id，避免孤儿记录
 
 ### Phase 4 — 可观测性（refactor 第四阶段）
 
@@ -134,7 +149,7 @@ WebSocket 广播进度更新（含 result_summary）
 | 视频抓取 | F2 库（抖音）+ yt-dlp（B站） |
 | 转写引擎 | Qwen HTTP API（已从 Playwright 迁移，2026-05-05） |
 | 实时通信 | WebSocket 推送任务进度 |
-| Python | >= 3.11 |
+| Python | 3.9（`from __future__ import annotations` 已全仓铺开，但 `pipeline/preview.py:10` 的 `Path \| str` 写法仍触发运行时 TypeError，待修） |
 | 启动方式 | `./run.sh`（后端 8000 + 前端 5173） |
 
 ### 素材来源
@@ -308,7 +323,12 @@ WebSocket 广播进度更新（含 result_summary）
 > Phase 2 通过 `_ensure_column` 加入并接通写入路径**（见 `db/core.py:507-513`），
 > 不需要再 ALTER TABLE。
 
-### P2 — UI / 体验
+### P2 — 代码质量
+
+- [ ] **Python 3.9 兼容**：`pipeline/preview.py:10` 的 `Path | str` 在 3.9 运行时触发 TypeError，需改为 `Union[Path, str]` 或加 `from __future__ import annotations`
+- [ ] **额度领取真接口**：当前 trigger 调用的是 list 查询接口（历史 bug），需替换为 `/equity` 页面的实际 POST claim 接口（delta 兜底已做，替换后更直接）
+
+### P3 — UI / 体验
 
 - [ ] **前端测试**：补充 Vitest + React Testing Library（按需，不强求覆盖率）
 - [ ] **Store 类型安全**：消除 `(taskUpdate as any).msg`

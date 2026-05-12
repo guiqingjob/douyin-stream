@@ -221,42 +221,72 @@ class TranscribeRunRepository:
         return buckets
 
     @staticmethod
-    def find_failed_record_ids(asset_id: str) -> list[str]:
-        """查找某个 asset 所有失败 run 的 record_id，用于云端清理。
+    def find_failed_record_ids(asset_id: str, account_id: str = "") -> list[str]:
+        """查找某个 asset 失败 run 的 record_id，用于云端清理。
 
         只返回 stage='failed' 且 record_id 非空的 run，
         排除已成功（saved）的 run。
+        传入 account_id 时只返回该账号下的记录，避免跨账号 cookie 删除失败。
         """
         with get_db_connection() as conn:
-            rows = conn.execute(
-                """
-                SELECT DISTINCT record_id
-                FROM transcribe_runs
-                WHERE asset_id = ?
-                  AND stage = 'failed'
-                  AND record_id IS NOT NULL
-                  AND record_id != ''
-                """,
-                (asset_id,),
-            ).fetchall()
+            if account_id:
+                rows = conn.execute(
+                    """
+                    SELECT DISTINCT record_id
+                    FROM transcribe_runs
+                    WHERE asset_id = ?
+                      AND account_id = ?
+                      AND stage = 'failed'
+                      AND record_id IS NOT NULL
+                      AND record_id != ''
+                    """,
+                    (asset_id, account_id),
+                ).fetchall()
+            else:
+                rows = conn.execute(
+                    """
+                    SELECT DISTINCT record_id
+                    FROM transcribe_runs
+                    WHERE asset_id = ?
+                      AND stage = 'failed'
+                      AND record_id IS NOT NULL
+                      AND record_id != ''
+                    """,
+                    (asset_id,),
+                ).fetchall()
         return [row[0] for row in rows if row[0]]
 
     @staticmethod
-    def find_failed_record_ids_for_video(video_path: str) -> list[str]:
-        """查找某个视频路径所有失败 run 的 record_id，用于云端清理。
+    def find_failed_record_ids_for_video(video_path: str, account_id: str = "") -> list[str]:
+        """查找某个视频路径失败 run 的 record_id，用于云端清理。
 
         当 asset_id 不可用时，通过 video_path 回退查找。
+        传入 account_id 时只返回该账号下的记录，避免跨账号 cookie 删除失败。
         """
         with get_db_connection() as conn:
-            rows = conn.execute(
-                """
-                SELECT DISTINCT record_id
-                FROM transcribe_runs
-                WHERE video_path = ?
-                  AND stage = 'failed'
-                  AND record_id IS NOT NULL
-                  AND record_id != ''
-                """,
-                (video_path,),
-            ).fetchall()
+            if account_id:
+                rows = conn.execute(
+                    """
+                    SELECT DISTINCT record_id
+                    FROM transcribe_runs
+                    WHERE video_path = ?
+                      AND account_id = ?
+                      AND stage = 'failed'
+                      AND record_id IS NOT NULL
+                      AND record_id != ''
+                    """,
+                    (video_path, account_id),
+                ).fetchall()
+            else:
+                rows = conn.execute(
+                    """
+                    SELECT DISTINCT record_id
+                    FROM transcribe_runs
+                    WHERE video_path = ?
+                      AND stage = 'failed'
+                      AND record_id IS NOT NULL
+                      AND record_id != ''
+                    """,
+                    (video_path,),
+                ).fetchall()
         return [row[0] for row in rows if row[0]]

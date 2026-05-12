@@ -120,7 +120,15 @@ async def claim_qwen_quota() -> dict:
         if result.claimed:
             before = result.before_snapshot.remaining_upload if result.before_snapshot else "?"
             after = result.after_snapshot.remaining_upload if result.after_snapshot else "?"
-            logger.info(f"[额度领取] {remark}: 领取成功（额度 {before} → {after}）")
+            delta = (
+                result.after_snapshot.remaining_upload - result.before_snapshot.remaining_upload
+                if result.before_snapshot and result.after_snapshot else "?"
+            )
+            logger.info(f"[额度领取] {remark}: 领取成功（额度 {before} → {after}, +{delta} 分钟）")
+        elif result.reason == "quota-unchanged":
+            before = result.before_snapshot.remaining_upload if result.before_snapshot else "?"
+            after = result.after_snapshot.remaining_upload if result.after_snapshot else "?"
+            logger.warning(f"[额度领取] {remark}: 未领到（额度未变化 {before} → {after}，可能 cookie 失效或 API 已变更）")
         else:
             logger.info(f"[额度领取] {remark}: 跳过（{result.reason}）")
         results.append({

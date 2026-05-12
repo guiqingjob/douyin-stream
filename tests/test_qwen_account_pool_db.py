@@ -285,7 +285,7 @@ def test_orchestrator_tries_multiple_qwen_accounts(monkeypatch, tmp_path) -> Non
         {"account_id": "a1", "auth_state_path": Path("a1.json")},
         {"account_id": "a2", "auth_state_path": Path("a2.json")},
     ]
-    orch._account_pool = AccountPool(accounts, [0, 0])
+    orch._account_pool = AccountPool(accounts)
 
     # 模拟 _get_shared_api 和 _release_shared_api（避免启动真实 Playwright）
     async def _fake_get_shared_api(auth_state_path):

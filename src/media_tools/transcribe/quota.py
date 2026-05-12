@@ -5,6 +5,7 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, Optional, Union
 import json
+import logging
 import re
 import uuid
 
@@ -12,6 +13,8 @@ from .auth_state import resolve_qwen_cookie_string
 from .config import load_config
 from .http import RequestsApiContext, api_json
 from .runtime import ensure_dir
+
+logger = logging.getLogger(__name__)
 
 
 @dataclass(frozen=True)
@@ -315,7 +318,15 @@ async def claim_equity_quota(
         referer="https://www.qianwen.com/equity",
     )
 
-    await trigger_equity_claim_via_api(cookie_string=cookie_string)
+    # trigger 接口当前指向的是 list 查询接口（历史 bug，正确的 claim 接口待替换），
+    # 因此即使返回 200 也不代表真领到。trigger 调用失败也不立刻 return —— 让下面的
+    # before/after 额度差兜底判定，避免依赖单次返回值。
+    try:
+        await trigger_equity_claim_via_api(cookie_string=cookie_string)
+    except (RuntimeError, OSError, ValueError) as e:
+        logger.warning(
+            f"[额度领取] trigger 调用异常 account_id={account_id}: {e}"
+        )
 
     after_snapshot = await get_quota_snapshot(
         auth_state_path=auth_state_path,
@@ -323,6 +334,19 @@ async def claim_equity_quota(
         cookie_string=cookie_string,
         referer="https://www.qianwen.com/equity",
     )
+
+    # 硬判定：only when 额度真的增加了，才算领到。before==after 说明 Qwen 端没发放，
+    # 不写 lastEquityClaimAt，让定时任务后续仍可重试。
+    delta = after_snapshot.remaining_upload - before_snapshot.remaining_upload
+    if delta <= 0:
+        return ClaimEquityResult(
+            claimed=False,
+            skipped=False,
+            reason="quota-unchanged",
+            before_snapshot=before_snapshot,
+            after_snapshot=after_snapshot,
+        )
+
     _write_equity_claim_record(
         account_id=account_id,
         before_snapshot=before_snapshot,
@@ -331,7 +355,7 @@ async def claim_equity_quota(
     return ClaimEquityResult(
         claimed=True,
         skipped=False,
-        reason="",
+        reason=f"claimed-{delta}min",
         before_snapshot=before_snapshot,
         after_snapshot=after_snapshot,
     )

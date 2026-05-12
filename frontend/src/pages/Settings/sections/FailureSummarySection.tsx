@@ -3,6 +3,7 @@ import { Loader2 } from 'lucide-react';
 
 import { getFailureSummary, type FailureSummary } from '@/lib/api';
 import { cn } from '@/lib/utils';
+import { Card, CardContent } from '@/components/ui/card';
 
 const WINDOW_OPTIONS = [3, 7, 14, 30] as const;
 
@@ -35,6 +36,7 @@ function formatRelativeTime(iso: string | null) {
   const minute = 60_000;
   const hour = 60 * minute;
   const day = 24 * hour;
+  if (diff < 0) return '刚刚';
   if (diff < minute) return '刚刚';
   if (diff < hour) return `${Math.floor(diff / minute)} 分钟前`;
   if (diff < day) return `${Math.floor(diff / hour)} 小时前`;
@@ -69,8 +71,9 @@ export function FailureSummarySection() {
   const total = data?.total_failed ?? 0;
 
   return (
-    <section className="rounded-lg border bg-card p-4">
-      <div className="flex items-center justify-between gap-3">
+    <Card size="default" className="w-full">
+      <CardContent className="space-y-4">
+        <div className="flex items-center justify-between gap-3">
         <div>
           <h3 className="text-sm font-semibold">最近转写失败原因 Top</h3>
           <p className="mt-0.5 text-xs text-muted-foreground">
@@ -143,6 +146,7 @@ export function FailureSummarySection() {
           </table>
         </div>
       )}
-    </section>
+      </CardContent>
+    </Card>
   );
 }

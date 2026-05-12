@@ -179,8 +179,9 @@
 
 **实现的关键机制**：
 
-- 账号池调度仍按文件状态和错误类型决策；跨账号续传**不**支持，因为 Qwen 的
-  genRecordId 与账号绑定。
+- 账号池调度纯轮询 + 排除集（历史上余额加权随机已移除，平台单账号上传限制使余额不再影响调度）。跨账号续传**不**支持，因为 Qwen 的 genRecordId 与账号绑定。
+- 上传互斥为 per-account `asyncio.Lock`（`orchestrator._upload_locks`），同账号串行、跨账号并行；导出/下载阶段取消限流。
+- 入口并发闸门 = `2 * n_accounts`，由 `_adjust_gates_to_account_pool()` 在账号池初始化后自动设置。
 - 续传 fast-path 在调用 Qwen API 之前尝试，命中时连一次外部请求都不发。
 
 **待补**（可选优化，非阻塞）：

@@ -65,7 +65,7 @@ export default function Discovery() {
   });
 
   return (
-    <PageShell variant="default">
+    <PageShell variant="wide">
       <div className="flex flex-col gap-6">
         <PageHeader
           title="发现"

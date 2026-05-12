@@ -20,7 +20,7 @@ interface UseDiscoveryActionsParams {
   tasks: Task[]
   activeTaskId: string | null
   setActiveTaskId: (id: string | null) => void
-  storeFetchCreators: () => Promise<Creator[]>
+  storeFetchCreators: (force?: boolean) => Promise<Creator[]>
 }
 
 export function useDiscoveryActions({
@@ -183,6 +183,8 @@ export function useDiscoveryActions({
       const result = await addCreator(processedUrl)
       setFollowedCreatorUids((prev) => new Set(prev).add(result.creator.uid))
       toast.success(result.status === 'created' ? '已加入创作者列表' : '该创作者已在列表中')
+      // 强制刷新创作者列表，确保切换到 Creators 页面时能看到新添加的创作者
+      await storeFetchCreators(true)
     } catch {
       // interceptor already toasts
     } finally {

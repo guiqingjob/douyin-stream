@@ -1,15 +1,29 @@
 import { useLocation, useNavigate } from 'react-router-dom';
-import { useCallback, useState } from 'react';
+import { useCallback, useState, useMemo } from 'react';
 import { Outlet } from 'react-router-dom';
-import { Menu } from 'lucide-react';
+import { Menu, Loader2, AlertTriangle } from 'lucide-react';
 import Sidebar from './Sidebar';
 import { cn } from '@/lib/utils';
 import { useShortcuts } from '@/hooks/useShortcuts';
+import { useStore } from '@/store/useStore';
+import { getTaskDisplayState } from '@/lib/task-utils';
 
 export default function AppLayout() {
   const location = useLocation();
   const navigate = useNavigate();
   const [sidebarOpen, setSidebarOpen] = useState(false);
+  const rawTasks = useStore((state) => state.tasks);
+
+  const taskSummary = useMemo(() => {
+    let active = 0;
+    let failed = 0;
+    for (const t of rawTasks) {
+      const s = getTaskDisplayState(t);
+      if (s === 'running' || s === 'paused') active++;
+      else if (s === 'failed' || s === 'stale') failed++;
+    }
+    return { active, failed };
+  }, [rawTasks]);
 
   const goTo = useCallback((path: string) => {
     navigate(path);
@@ -46,13 +60,27 @@ export default function AppLayout() {
           )}>
             {pageTitle}
           </h2>
+          <div className="ml-auto flex items-center gap-3">
+            {taskSummary.active > 0 && (
+              <span className="flex items-center gap-1.5 text-xs text-primary">
+                <Loader2 className="size-3.5 animate-spin" />
+                {taskSummary.active} 个任务
+              </span>
+            )}
+            {taskSummary.failed > 0 && taskSummary.active === 0 && (
+              <span className="flex items-center gap-1.5 text-xs text-destructive">
+                <AlertTriangle className="size-3.5" />
+                {taskSummary.failed} 个异常
+              </span>
+            )}
+          </div>
         </header>
         <div className="flex-1 min-h-0 overflow-auto" data-scroll-container="main">
           <div
             key={`${location.pathname}${location.search}`}
             className={cn(
               "h-full",
-              "apple-slide-in-right"
+              "apple-fade-in"
             )}
           >
             <Outlet />

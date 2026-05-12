@@ -22,10 +22,7 @@ async def run_local_transcribe(file_paths: list[str], update_progress_fn=None, d
         return {"success_count": 0, "failed_count": 0, "total": 0, "success_paths": [], "failed_paths": []}
 
     config = load_pipeline_config()
-    # 按 task_id 隔离 state 文件，避免并发任务共享 .pipeline_state.json 时把对方
-    # 正在跑的视频判成"上次崩溃残留"重新入队 → 同一文件双开 → 双倍 Qwen 额度
-    state_file = get_project_root() / f".pipeline_state_{task_id or 'local'}.json"
-    orchestrator = create_orchestrator(config, state_file=state_file)
+    orchestrator = create_orchestrator(config)
     if hasattr(orchestrator, '_resolve_qwen_execution_accounts'):
         orchestrator._resolve_qwen_execution_accounts()
     output_root = Path(config.output_dir).resolve()
@@ -247,9 +244,7 @@ async def run_pipeline_for_user(url: str, max_counts: int, update_progress_fn, d
 
     # 2. Transcribe (并发批量转写)
     config = load_pipeline_config()
-    from media_tools.core.config import get_project_root
-    state_file = get_project_root() / f".pipeline_state_{task_id or 'default'}.json"
-    orchestrator = create_orchestrator(config, state_file=state_file)
+    orchestrator = create_orchestrator(config)
 
     total = len(new_files)
 
@@ -370,9 +365,7 @@ async def run_batch_pipeline(video_urls: list[str], update_progress_fn, delete_a
 
     # Transcribe phase (并发批量转写)
     config = load_pipeline_config()
-    from media_tools.core.config import get_project_root
-    state_file = get_project_root() / f".pipeline_state_{task_id or 'batch_default'}.json"
-    orchestrator = create_orchestrator(config, state_file=state_file)
+    orchestrator = create_orchestrator(config)
 
     # 使用批量并发转写
     def _progress_callback(current: int, total: int, video_path: Path, status: str, account_id: Optional[str] = None):

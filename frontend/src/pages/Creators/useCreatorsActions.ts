@@ -53,7 +53,7 @@ export function useCreatorsActions({
   };
 
   useEffect(() => {
-    fetchCreators();
+    fetchCreators(true);
     fetchSchedule();
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [lastCompletedTaskTime]);

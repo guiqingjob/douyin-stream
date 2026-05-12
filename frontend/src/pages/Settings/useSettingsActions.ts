@@ -22,7 +22,7 @@ type SettingsPayload = Awaited<ReturnType<typeof getSettings>>;
 interface SettingsState {
   settings: SettingsPayload | null;
   fetchSettings: () => Promise<SettingsPayload | undefined>;
-  refreshSettings: () => void;
+  refreshSettings: (force?: boolean) => void;
   qwenCookie: string;
   setQwenCookie: (v: string) => void;
   qwenRemark: string;
@@ -122,7 +122,7 @@ export function useSettingsActions(state: SettingsState) {
       }
       state.setQwenCookie('');
       state.setQwenRemark('');
-      state.refreshSettings();
+      state.refreshSettings(true);
     } catch {
       // interceptor already toasts
     } finally {
@@ -134,7 +134,7 @@ export function useSettingsActions(state: SettingsState) {
     try {
       await deleteQwenAccount(id);
       toast.success('Qwen 账号已移除');
-      state.refreshSettings();
+      state.refreshSettings(true);
     } catch {
       // interceptor already toasts
     }
@@ -152,7 +152,7 @@ export function useSettingsActions(state: SettingsState) {
       toast.success('抖音账号已加入账号池');
       state.setDouyinCookie('');
       state.setDouyinRemark('');
-      state.refreshSettings();
+      state.refreshSettings(true);
     } catch (err) {
       const msg = err instanceof Error ? err.message : '未知错误';
       toast.error(`添加抖音账号失败: ${msg}`);
@@ -165,7 +165,7 @@ export function useSettingsActions(state: SettingsState) {
     try {
       await deleteDouyinAccount(id);
       toast.success('抖音账号已移除');
-      state.refreshSettings();
+      state.refreshSettings(true);
     } catch (err) {
       const msg = err instanceof Error ? err.message : '未知错误';
       toast.error(`移除抖音账号失败: ${msg}`);
@@ -184,7 +184,7 @@ export function useSettingsActions(state: SettingsState) {
       toast.success('B站账号已加入账号池');
       state.setBilibiliCookie('');
       state.setBilibiliRemark('');
-      state.refreshSettings();
+      state.refreshSettings(true);
     } catch {
       // interceptor already toasts
     } finally {
@@ -196,7 +196,7 @@ export function useSettingsActions(state: SettingsState) {
     try {
       await deleteBilibiliAccount(id);
       toast.success('B站账号已移除');
-      state.refreshSettings();
+      state.refreshSettings(true);
     } catch {
       // interceptor already toasts
     }
@@ -215,7 +215,7 @@ export function useSettingsActions(state: SettingsState) {
       }
       toast.success('备注已更新');
       state.setEditingRemarkId(null);
-      state.refreshSettings();
+      state.refreshSettings(true);
     } catch {
       // interceptor already toasts
     }
@@ -250,7 +250,7 @@ export function useSettingsActions(state: SettingsState) {
       const currentAutoDelete = currentSettings?.global_settings.auto_delete ?? state.autoDeleteVideo;
       await updateGlobalSettings(currentAutoDelete, value);
       toast.success(value ? '自动转写已开启' : '自动转写已关闭');
-      state.refreshSettings();
+      state.refreshSettings(true);
     } catch {
       state.setAutoTranscribe(!value);
     }
@@ -263,7 +263,7 @@ export function useSettingsActions(state: SettingsState) {
       const currentAutoTranscribe = currentSettings?.global_settings.auto_transcribe ?? state.autoTranscribe;
       await updateGlobalSettings(value, currentAutoTranscribe);
       toast.success(value ? '自动删除源视频已开启' : '自动删除源视频已关闭');
-      state.refreshSettings();
+      state.refreshSettings(true);
     } catch {
       state.setAutoDeleteVideo(!value);
     }
@@ -278,7 +278,7 @@ export function useSettingsActions(state: SettingsState) {
       const currentAutoTranscribe = currentSettings?.global_settings.auto_transcribe ?? state.autoTranscribe;
       await updateGlobalSettings(currentAutoDelete, currentAutoTranscribe, format);
       toast.success(`导出格式已切换为 ${format.toUpperCase()}`);
-      state.refreshSettings();
+      state.refreshSettings(true);
     } catch {
       state.setExportFormat(prev);
       toast.error('导出格式切换失败');

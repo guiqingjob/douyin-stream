@@ -19,11 +19,11 @@ export default function Settings() {
   const settings = useStore((state) => state.settings);
   const fetchSettings = useStore((state) => state.fetchSettings);
 
-  // 带简单去重的 settings 刷新：1 秒内重复调用会被忽略
+  // settings 刷新：操作后强制刷新，去重只在非强制时生效
   const lastFetchRef = useRef(0);
-  const refreshSettings = useCallback(async () => {
+  const refreshSettings = useCallback(async (force = false) => {
     const now = Date.now();
-    if (now - lastFetchRef.current < 1000) return;
+    if (!force && now - lastFetchRef.current < 1000) return;
     lastFetchRef.current = now;
     await fetchSettings();
   }, [fetchSettings]);

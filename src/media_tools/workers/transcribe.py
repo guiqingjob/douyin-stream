@@ -17,12 +17,9 @@ async def transcribe_files(task_id: str, _progress_fn, new_files: list, display_
 
     await _progress_fn(0.6, f"下载完成，准备转写 {len(new_files)} 个视频...", stage="transcribe")
     pipeline_config = load_pipeline_config()
-    # 按 task_id 隔离 state 文件，避免并发任务共享同一份 .pipeline_state.json
-    state_file = get_project_root() / f".pipeline_state_{task_id or 'transcribe'}.json"
     orchestrator = create_orchestrator(
         pipeline_config,
         creator_folder_override=display_name,
-        state_file=state_file,
     )
     total = len(new_files)
     subtasks: list[dict] = []

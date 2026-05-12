@@ -15,138 +15,83 @@ logger = logging.getLogger(__name__)
 
 
 class AccountPool:
-    """账号轮换池 - 按余额权重分配任务，余额多的分配更多
+    """Qwen 账号池。
 
-    Qwen 平台约束：同一账号同一时刻仅允许一个上传操作，多余请求会被服务端排队挂起。
-    我们当前**不在客户端强制 per-account 互斥**——orchestrator 用全局 `_upload_gate`
-    控制总上传并发，依赖平台端的排队行为。历史代码里曾有 `acquire_upload_slot` 等
-    per-account 槽位管理，但从未接线，已在 2026-05-12 删除。
+    Qwen 平台约束：同账号同时只允许 1 个文件上传。orchestrator 用
+    `_upload_locks: dict[account_id, asyncio.Lock]` 在客户端强制 per-account
+    互斥；账号池 acquire 时优先返回 upload 锁空闲的账号，避免把视频压到忙账号
+    的等待队列。失败/限流时 exclude 该账号，acquire 后续会跳过。
     """
 
-    DEFAULT_MAX_CONCURRENT = 10
-
-    def __init__(
-        self,
-        accounts: list[dict[str, Any]],
-        balances: list[int] | None = None,
-        max_concurrent_per_account: Optional[int] = None,
-    ):
+    def __init__(self, accounts: list[dict[str, Any]]):
         self._accounts = accounts
-        self._balances = balances or [0] * len(accounts)
-        self._current = 0
-        self._lock = asyncio.Lock()
-        self._condition = asyncio.Condition(self._lock)
-        self._max_concurrent = max_concurrent_per_account or self.DEFAULT_MAX_CONCURRENT
-        self._active_count: dict[str, int] = {}
+        self._cursor = 0
         self._excluded: set[str] = set()
-        logger.info(
-            f"初始化加权账号池，共 {len(accounts)} 个账号，"
-            f"总余额 {sum(self._balances)}，每账号最大并发 {self._max_concurrent}"
-        )
+        # orchestrator 在创建账号池后注入 upload_locks 引用，acquire 用它判断空闲
+        self._upload_locks_view: dict[str, asyncio.Lock] = {}
+        logger.info(f"初始化账号池：{len(accounts)} 个账号")
+
+    def set_upload_locks_view(self, locks: dict[str, asyncio.Lock]) -> None:
+        """orchestrator 注入 upload_locks dict 引用（共享对象，按需更新）。"""
+        self._upload_locks_view = locks
 
     @property
     def account_count(self) -> int:
         return len(self._accounts)
 
-    def _pick_account(self) -> Optional[Dict[str, Any]]:
-        import random
-
-        if not self._accounts:
-            return None
-
-        available = [
-            (i, a) for i, a in enumerate(self._accounts)
-            if self._active_count.get(str(a.get("account_id", "")), 0) < self._max_concurrent
-            and str(a.get("account_id", "")) not in self._excluded
-        ]
-
-        if not available:
-            return None
-
-        indices, accounts = zip(*available)
-        balances = [self._balances[i] for i in indices]
-        total = sum(balances)
-
-        if total > 0:
-            safe_balances = [max(b, 1) for b in balances]
-            selected = random.choices(accounts, weights=safe_balances, k=1)[0]
-        else:
-            selected = accounts[self._current % len(accounts)]
-            self._current = (self._current + 1) % len(accounts)
-
-        return selected
-
-    async def acquire(self, preferred_account_id: Optional[str] = None) -> Optional[Dict[str, Any]]:
-        async with self._condition:
-            while True:
-                if not self._accounts or len(self._excluded) >= len(self._accounts):
-                    return None
-
-                selected = None
-                if preferred_account_id and preferred_account_id not in self._excluded:
-                    for account in self._accounts:
-                        account_id = str(account.get("account_id", ""))
-                        if account_id == preferred_account_id and self._active_count.get(account_id, 0) < self._max_concurrent:
-                            selected = account
-                            break
-                if selected is None:
-                    selected = self._pick_account()
-
-                if selected is not None:
-                    account_id = str(selected.get("account_id", ""))
-                    self._active_count[account_id] = self._active_count.get(account_id, 0) + 1
-                    return selected
-
-                await self._condition.wait()
-
-    def release(self, account_id: str) -> None:
-        """释放一个并发槽位并通知等待者"""
-        cur = self._active_count.get(account_id, 0)
-        if cur > 1:
-            self._active_count[account_id] = cur - 1
-        else:
-            self._active_count.pop(account_id, None)
-        self._notify_waiters_sync()
-
-    def exclude(self, account_id: str) -> None:
-        self._excluded.add(account_id)
-        self._notify_waiters_sync()
-
     @property
     def available_count(self) -> int:
         return len(self._accounts) - len(self._excluded)
 
-    def _notify_waiters_sync(self) -> None:
-        try:
-            loop = asyncio.get_running_loop()
-            loop.call_soon(self._do_notify)
-        except RuntimeError:
-            pass
+    def _is_idle(self, account_id: str) -> bool:
+        lock = self._upload_locks_view.get(account_id)
+        return lock is None or not lock.locked()
 
-    def _do_notify(self) -> None:
-        try:
-            loop = asyncio.get_running_loop()
-            if loop.is_closed():
-                return
-            async def _inner():
-                async with self._condition:
-                    self._condition.notify_all()
-            asyncio.ensure_future(_inner(), loop=loop)
-        except RuntimeError:
-            pass
+    async def acquire(self, preferred_account_id: Optional[str] = None) -> Optional[Dict[str, Any]]:
+        """选一个可用账号。preferred 命中直接返回；否则空闲账号优先 + round-robin。
 
-    def remaining(self) -> int:
-        return sum(
-            1 for a in self._accounts
-            if self._active_count.get(str(a.get("account_id", "")), 0) < self._max_concurrent
-        )
+        acquire 后调用方还要 await upload_lock，hint 是空闲不保证拿到——但减少
+        多个视频挤到同一账号 lock 队列的概率。
+        """
+        if preferred_account_id and preferred_account_id not in self._excluded:
+            for account in self._accounts:
+                if str(account.get("account_id", "")) == preferred_account_id:
+                    return account
+
+        available = [a for a in self._accounts if str(a.get("account_id", "")) not in self._excluded]
+        if not available:
+            return None
+
+        idle = [a for a in available if self._is_idle(str(a.get("account_id", "")))]
+        candidates = idle if idle else available
+
+        selected = candidates[self._cursor % len(candidates)]
+        self._cursor += 1
+        return selected
+
+    def release(self, account_id: str) -> None:
+        """no-op：上传 lock 退出 with 块时已自动释放，账号池无需 counting。
+
+        保留接口避免大量调用方改动；逻辑上空操作。
+        """
+        return
+
+    def exclude(self, account_id: str) -> None:
+        if account_id and account_id not in self._excluded:
+            self._excluded.add(account_id)
+            logger.warning(f"账号已排除: {account_id}")
 
     def get_stats(self) -> dict[str, Any]:
+        active = sum(
+            1 for a in self._accounts
+            if str(a.get("account_id", "")) not in self._excluded
+            and not self._is_idle(str(a.get("account_id", "")))
+        )
         return {
             "total_accounts": len(self._accounts),
-            "max_concurrency_per_account": self._max_concurrent,
-            "task_available_slots": self.remaining(),
-            "active_tasks": dict(self._active_count),
+            "available_accounts": self.available_count,
+            "active_uploads": active,
+            "excluded": sorted(self._excluded),
         }
 
 

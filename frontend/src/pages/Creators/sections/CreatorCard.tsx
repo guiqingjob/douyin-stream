@@ -200,17 +200,15 @@ export function CreatorCard({
             {downloadingCreators[creator.uid] === 'full' ? <Loader2 className="size-3.5 animate-spin" /> : <HardDriveDownload className="size-3.5" />}
             <span className="text-[13px]">全量</span>
           </Button>
-          {(creator.disk_transcript_pending_count ?? 0) > 0 && (
-            <Button
-              variant="primary"
-              size="sm"
-              onClick={() => onTranscribe(creator.uid, creator.nickname, deleteAfterTranscribe)}
-              disabled={transcribingUids.has(creator.uid)}
-            >
-              {transcribingUids.has(creator.uid) ? <Loader2 className="size-3.5 animate-spin" /> : <FileText className="size-3.5" />}
-              <span className="text-[13px]">转写</span>
-            </Button>
-          )}
+          <Button
+            variant="primary"
+            size="sm"
+            onClick={() => onTranscribe(creator.uid, creator.nickname, deleteAfterTranscribe)}
+            disabled={transcribingUids.has(creator.uid) || (creator.disk_transcript_pending_count ?? 0) === 0}
+          >
+            {transcribingUids.has(creator.uid) ? <Loader2 className="size-3.5 animate-spin" /> : <FileText className="size-3.5" />}
+            <span className="text-[13px]">转写</span>
+          </Button>
         </div>
 
         {(creator.disk_transcript_pending_count ?? 0) > 0 && (

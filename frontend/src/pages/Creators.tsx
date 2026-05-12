@@ -70,7 +70,7 @@ export default function Creators() {
   }, [creators]);
 
   return (
-    <PageShell variant="default">
+    <PageShell variant="wide">
       <div className="flex flex-col gap-8">
         <PageHeader
           title="创作者"

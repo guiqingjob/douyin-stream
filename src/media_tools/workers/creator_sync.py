@@ -71,8 +71,8 @@ async def background_creator_download_worker(
       用户指定时优先使用，覆盖 mode 的默认行为
     """
 
-    async def _progress_fn(p, m, result_summary=None, subtasks=None, stage=""):
-        await update_task_progress(task_id, p, m, f"creator_sync_{mode}", result_summary, subtasks, stage)
+    async def _progress_fn(p, m, result_summary=None, subtasks=None, stage="", pipeline_progress=None):
+        await update_task_progress(task_id, p, m, f"creator_sync_{mode}", result_summary, subtasks, stage, pipeline_progress)
 
     heartbeat = asyncio.create_task(_task_heartbeat(task_id))
     try:
@@ -178,13 +178,26 @@ async def background_creator_download_worker(
                             {"title": d_.get("title", "未知")[:60], "status": d_.get("status", "unknown")}
                             for d_ in errors[-50:]
                         ]
+                        dl_info = info.get("download_progress") or {}
+                        total = dl_info.get("total", 0)
+                        current_video = dl_info.get("current_video", "")
+                        total = dl_info.get("total", 0)
+                        current_video = dl_info.get("current_video", "")
+                        progress = 0.1 + 0.6 * (min(d / total, 1.0) if total > 0 else 0.0)
                         await update_task_progress(
                             task_id,
-                            0.1 + 0.6 * min(d / 100, 1.0),
+                            progress,
                             f"已下载 {d} 个，跳过 {s} 个",
                             f"creator_sync_{mode}",
                             subtasks=subtasks,
                             stage=info.get("stage", "downloading"),
+                            pipeline_progress={
+                                "download": {
+                                    "done": d,
+                                    "total": total,
+                                    "current_title": current_video,
+                                },
+                            },
                         )
 
             poll_task = asyncio.create_task(_poll())

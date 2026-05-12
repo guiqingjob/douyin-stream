@@ -301,18 +301,18 @@ async def upload_file_to_oss(
     file_buffer: bytes | None = None,
     file_path: str | Optional[Path] = None,
     mime_type: str,
-    part_size: int = 1024 * 1024,
+    part_size: int = 5 * 1024 * 1024,
     on_progress: ProgressCallback | None = None,
     upload_mode: Optional[str] = None,
 ) -> None:
     """上传文件到OSS
-    
+
     Args:
         token: OSS令牌
         file_buffer: 文件字节缓冲区（小文件使用）
         file_path: 文件路径（大文件使用，避免OOM）
         mime_type: MIME类型
-        part_size: 分片大小
+        part_size: 分片大小（默认 5MB，OSS multipart 最小推荐值）
         on_progress: 进度回调
         upload_mode: 上传模式
     """
@@ -362,13 +362,12 @@ async def upload_file_to_oss(
     callback({"type": "multipart-started", "uploadId": upload_id})
 
     parts: list[dict[str, Any]] = []
-    part_number = 0
+    total_parts = (file_size + part_size - 1) // part_size
 
     try:
         if use_file_path:
-            # 使用文件路径进行分片上传（避免OOM）
-            total_parts = (file_size + part_size - 1) // part_size
-            with open(file_path_obj, 'rb') as f:
+            # 文件路径分片上传，避免 OOM
+            with open(file_path_obj, "rb") as f:
                 for part_number in range(1, total_parts + 1):
                     chunk = f.read(part_size)
                     if not chunk:
@@ -377,12 +376,9 @@ async def upload_file_to_oss(
                     parts.append({"partNumber": part_number, "etag": etag})
                     callback({"type": "part-uploaded", "partNumber": part_number, "totalParts": total_parts})
         else:
-            # 使用字节缓冲进行分片上传
             assert file_buffer is not None
-            total_parts = (file_size + part_size - 1) // part_size
-            buffer = file_buffer
-            for offset, part_number in zip(range(0, len(buffer), part_size), range(1, total_parts + 1), strict=True):
-                chunk = buffer[offset : offset + part_size]
+            for offset, part_number in zip(range(0, len(file_buffer), part_size), range(1, total_parts + 1), strict=True):
+                chunk = file_buffer[offset : offset + part_size]
                 etag = await asyncio.to_thread(upload_part, token["sts"], upload_id, part_number, chunk, mime_type)
                 parts.append({"partNumber": part_number, "etag": etag})
                 callback({"type": "part-uploaded", "partNumber": part_number, "totalParts": total_parts})
@@ -390,7 +386,6 @@ async def upload_file_to_oss(
         await asyncio.to_thread(complete_multipart_upload, token["sts"], upload_id, parts)
         callback({"type": "multipart-complete"})
     except (RuntimeError, OSError, ConnectionError, TimeoutError) as e:
-        # 修复：multipart上传失败时清理已上传的分片
         if upload_id:
             try:
                 await asyncio.to_thread(abort_multipart_upload, token["sts"], upload_id)

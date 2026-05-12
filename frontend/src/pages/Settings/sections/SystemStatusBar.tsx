@@ -1,3 +1,4 @@
+import { Card } from '@/components/ui/card';
 import { cn } from '@/lib/utils';
 
 interface SystemStatusBarProps {
@@ -24,8 +25,8 @@ export function SystemStatusBar({
   canDownload,
 }: SystemStatusBarProps) {
   return (
-    <div className="w-full">
-      <div className="flex flex-wrap items-center gap-4 text-sm">
+    <Card size="sm" hoverable={false} className="w-full">
+      <div className="flex flex-wrap items-center gap-4 p-4 text-sm">
         <span className="text-muted-foreground font-medium">系统状态</span>
         <span className="flex items-center gap-1.5 text-foreground">
           <span className={cn('size-2 rounded-md', douyinReady ? 'bg-success' : 'bg-destructive')} />
@@ -52,6 +53,6 @@ export function SystemStatusBar({
           {canRunPipeline ? '可下载+转写' : canDownload ? '仅可下载' : '未就绪'}
         </span>
       </div>
-    </div>
+    </Card>
   );
 }

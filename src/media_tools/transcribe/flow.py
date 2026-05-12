@@ -205,8 +205,7 @@ async def run_real_flow(
     should_delete: bool = False,
     account_id: str = "",
     cookie_string: str = "",
-    export_gate: asyncio.Semaphore | None = None,
-    upload_gate: asyncio.Semaphore | None = None,
+    account_upload_lock: asyncio.Lock | None = None,
     title: Optional[str] = None,
     shared_api: Optional[Any] = None,
     run_id: Optional[str] = None,
@@ -264,14 +263,14 @@ async def run_real_flow(
                 "tag": build_upload_tag(input_path, mime_type),
             },
         )
-        if not isinstance(token_json, dict) or "data" not in token_json:
+        if not isinstance(token_json, dict) or not isinstance(token_json.get("data"), dict):
             error_info = TranscribeErrorClassifier.classify("auth error")
             raise RuntimeError(f"{error_info.message}")
         token = token_json["data"]
         log(f"genRecordId: {token['genRecordId']}")
         log(f"recordId: {token['recordId']}")
 
-        if upload_gate is None:
+        if account_upload_lock is None:
             await upload_file_to_oss(
                 token=token,
                 file_path=input_path,
@@ -279,7 +278,7 @@ async def run_real_flow(
                 on_progress=_make_upload_progress_logger(log),
             )
         else:
-            async with upload_gate:
+            async with account_upload_lock:
                 await upload_file_to_oss(
                     token=token,
                     file_path=input_path,
@@ -313,12 +312,13 @@ async def run_real_flow(
                 "dirIdStr": "",
             },
         )
-        log(f"started batchId={start_json['data']['batchId']}")
+        batch_id = (start_json.get("data") or {}).get("batchId", "")
+        log(f"started batchId={batch_id}")
 
-        _checkpoint("transcribing", {"batch_id": start_json["data"]["batchId"]})
+        _checkpoint("transcribing", {"batch_id": batch_id})
 
         completed_record = await poll_until_done(api, token["genRecordId"])
-        log(f"record completed with status={completed_record['recordStatus']}")
+        log(f"record completed with status={completed_record.get('recordStatus', 'unknown')}")
 
         await api_json(
             api,
@@ -328,11 +328,7 @@ async def run_real_flow(
 
         _checkpoint("exporting")
 
-        if export_gate is None:
-            export_url = await export_file(api, token["genRecordId"], export_config)
-        else:
-            async with export_gate:
-                export_url = await export_file(api, token["genRecordId"], export_config)
+        export_url = await export_file(api, token["genRecordId"], export_config)
 
         _checkpoint("downloading", {"export_url": export_url})
 
@@ -412,6 +408,13 @@ async def run_real_flow(
     async def _try_resume_export_only(api: Any) -> FlowResult | None:
         if resume_state is None or not resume_state.export_url:
             return None
+        # record_id 缺失时无法回退清理，直接走完整 flow 避免孤儿记录
+        if not resume_state.record_id:
+            logger.warning(
+                f"resume[export_url] 跳过：record_id 缺失，无法回退清理，"
+                f"gen_record_id={resume_state.gen_record_id}"
+            )
+            return None
         try:
             log(f"resume[export_url]: download only, gen_record_id={resume_state.gen_record_id}")
             run_stamp = now_stamp()
@@ -474,11 +477,7 @@ async def run_real_flow(
 
             _checkpoint("exporting")
 
-            if export_gate is None:
-                export_url = await export_file(api, resume_state.gen_record_id, export_config)
-            else:
-                async with export_gate:
-                    export_url = await export_file(api, resume_state.gen_record_id, export_config)
+            export_url = await export_file(api, resume_state.gen_record_id, export_config)
 
             _checkpoint("downloading", {"export_url": export_url})
 

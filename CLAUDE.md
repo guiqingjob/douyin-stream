@@ -49,9 +49,10 @@ cd frontend && npx vitest                           # 前端测试（vitest.conf
 1. **业务真相源** = `data/media_tools.db`（SQLite, WAL）。`media_assets` 表的 `transcript_status` / `download_status` 才决定业务是否完成；任务（`task_queue`）只是"一次执行尝试"。
 2. **运行时配置真相源** = `SystemSettings` 表（KV）。`auto_transcribe`、`auto_delete`、`api_key`、`export_format` 全在这里，**不要回去读 `config.yaml`**。`config.yaml` 只剩 `cookie` / `download_path` / `naming` 这种启动期常量。
 3. **并发控制**（多层 gate，谁是瓶颈看场景）：
-   - `config.concurrency`：进 `transcribe_batch` 时再套一层 `asyncio.Semaphore`（orchestrator.py 末尾）。这个值在 `run_pipeline_for_user` / `run_batch_pipeline` 路径上**真实生效**——别以为它只是参考值。`run_local_transcribe` 不走 batch，直接用它作为协程并发上限。
-   - `_upload_gate = Semaphore(n_accounts)`：Qwen 上传层级的全局信号量，由 `_adjust_gates_to_account_pool()` 在账号池初始化后设置。**不强制 per-account 互斥**——历史上 `AccountPool` 里有过 per-account 上传槽位代码，但从未接线，已删除（2026-05-12）。Qwen 平台自己会对同账号多上传排队。
-   - `_export_gate = Semaphore(min(2*n_accounts, 8))`：导出阶段限流。
+   - `config.concurrency`：进 `transcribe_batch` 时再套一层 `asyncio.Semaphore`（orchestrator.py 末尾）。这个值在 `run_pipeline_for_user` / `run_batch_pipeline` 路径上**真实生效**。`run_local_transcribe` 不走 batch，直接用它作为协程并发上限。
+   - **入口闸门** `_effective_concurrency = 2 * n_accounts`：由 `_adjust_gates_to_account_pool()` 在账号池初始化后设置，跟随账号数量自动伸缩。
+   - **上传互斥** `_upload_locks: dict[str, asyncio.Lock]`：per-account 上传锁。Qwen 平台约束同账号同时只允许 1 个文件上传，多余请求服务端会隐式排队；客户端用 Lock 显式串行，避免占额度空等。`AccountPool` 已去掉余额加权随机，纯轮询 + 排除集。
+   - **导出不限流**：export/download 阶段取消 Semaphore，平台无明显并发约束。
 4. **转写阶段真相源** = `transcribe_runs` 表（2026-05 新加）。每行 = 某 asset 在某账号上的一次完整尝试，stage 推进序：`queued → uploaded → transcribing → exporting → downloading → saved`。
 
 ### 重构脉络
@@ -441,4 +442,24 @@ asset = asset_service.get_asset(asset_id)
 | `services/asset_service.py` / `services/creator_service.py` 也是迁移过渡层 dead code | 删除两个文件 + `tests/test_services.py` + `tests/test_exception_handling.py` 中的 `TestAssetServiceExceptionHandling` | 直接删 |
 | `AccountPool.acquire_upload_slot` / `release_upload_slot` 等 per-account 上传槽位代码定义了但从未接线 | `pipeline/models.py` + 删 `tests/test_account_pool_upload_slots.py` | 删未接线代码（保留全局 `_upload_gate`，依赖 Qwen 平台自身排队）|
 
-至此 5 个 P0-P2 bug + 4 个设计偏差全部清理完毕。
+### 第二轮（本轮）
+
+| 事项 | 文件 | 修法 |
+|------|------|------|
+| 额度领取假成功 | `quota.py`, `qwen_status.py`, `scheduler.py` | trigger 后查 before/after delta，额度没增加就返回 `claimed=False`，避免"显示领取成功但实际未到账" |
+| 并发模型重设计 | `pipeline/orchestrator.py`, `pipeline/models.py`, `transcribe/flow.py` | 全局 `Semaphore(n_accounts)` → `dict[account_id, asyncio.Lock]` per-account 上传互斥；删除 `export_gate`；入口闸门 = `2*n_accounts`；AccountPool 去掉余额加权随机，纯轮询+排除集 |
+| OSS part_size 调优 | `transcribe/oss_upload.py` | 默认 `part_size` 1MB → 5MB，减少 HTTP 往返；part 级并发 benchmark 证明带宽已饱和，回退串行 |
+| 测试适配 | `tests/test_orchestrator_transcribe_runs.py`, `tests/test_qwen_account_pool_db.py` | AccountPool 构造函数去掉余额参数；PipelineConfig 去掉已废弃的 `remove_video`/`keep_original`；`asyncio.Lock()` 懒加载避免 sync 测试实例化报错 |
+
+> 额度领取真接口（`/equity` 页面的实际 POST）仍待替换，当前 delta 兜底足够防御假成功。
+
+### 第三轮（代码审查修复）
+
+| 事项 | 文件 | 修法 |
+|------|------|------|
+| `_current_account_id` 竞态条件 | `pipeline/orchestrator.py` | 移除实例变量，改为参数传递；并发场景下避免 cleanup 用错 cookie、进度回调显示错误账号 |
+| `_cleanup_failed_cloud_records` 跨账号删除 | `pipeline/orchestrator.py` + `repositories/transcribe_run_repository.py` | `find_failed_record_ids` 增加 `account_id` 过滤；cleanup 只删当前账号记录，避免用其他账号 cookie 删失败 |
+| `KeyboardInterrupt` 被吞掉 | `pipeline/orchestrator.py` | `gather(return_exceptions=True)` 后遍历 results，遇到 `BaseException`（KeyboardInterrupt/CancelledError）重新 raise |
+| resume `record_id` 缺失孤儿记录 | `transcribe/flow.py` | `_try_resume_export_only` 入口检查 `record_id`，缺失时跳过 resume 走完整 flow，避免回退时无法清理 |
+
+至此 5 个 P0-P2 bug + 4 个设计偏差 + 本轮 3 项改动 + 代码审查 4 项修复全部清理完毕。
