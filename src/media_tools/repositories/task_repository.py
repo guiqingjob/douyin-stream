@@ -379,3 +379,26 @@ class TaskRepository:
             else:
                 deleted.append(str(row[0]))
         return deleted
+
+    @staticmethod
+    def search_by_type_or_payload(query: str, limit: int = 10) -> list[dict[str, Any]]:
+        """按任务类型或 payload 搜索任务（LIKE 匹配）。"""
+        pattern = f"%{query}%"
+        with get_db_connection() as conn:
+            conn.row_factory = sqlite3.Row
+            cursor = conn.execute(
+                """
+                SELECT
+                    'task' as type,
+                    task_id as id,
+                    task_type as title,
+                    status as subtitle,
+                    NULL as status
+                FROM task_queue
+                WHERE task_type LIKE ? OR payload LIKE ?
+                ORDER BY update_time DESC
+                LIMIT ?
+                """,
+                (pattern, pattern, limit),
+            )
+            return [dict(row) for row in cursor.fetchall()]

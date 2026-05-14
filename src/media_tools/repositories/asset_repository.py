@@ -122,6 +122,32 @@ class AssetRepository:
             return [dict(row) for row in cursor.fetchall()]
 
     @staticmethod
+    def search_fts_lite(query: str, limit: int = 10) -> list[dict[str, Any]]:
+        """FTS5 全局搜索（精简字段，用于跨类型搜索）。"""
+        safe_q = query.replace('"', '""')
+        fts_query = f'"{safe_q}"*'
+        with get_db_connection() as conn:
+            conn.row_factory = sqlite3.Row
+            cursor = conn.execute(
+                """
+                SELECT
+                    'asset' as type,
+                    ma.asset_id as id,
+                    ma.title,
+                    c.nickname as subtitle,
+                    ma.transcript_status as status
+                FROM media_assets ma
+                INNER JOIN assets_fts f ON ma.asset_id = f.asset_id
+                LEFT JOIN creators c ON ma.creator_uid = c.uid
+                WHERE assets_fts MATCH ?
+                ORDER BY ma.create_time DESC
+                LIMIT ?
+                """,
+                (fts_query, limit),
+            )
+            return [dict(row) for row in cursor.fetchall()]
+
+    @staticmethod
     def search_fts(query: str) -> list[dict[str, Any]]:
         """FTS5 全文搜索素材标题和转写内容。query 应已清洗。"""
         safe_q = query.replace('"', '""')

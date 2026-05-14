@@ -228,3 +228,26 @@ class CreatorRepository:
             conn.execute("DELETE FROM creators WHERE uid = ?", (uid,))
             conn.commit()
             return nickname, assets
+
+    @staticmethod
+    def search_by_name_or_bio(query: str, limit: int = 10) -> list[dict[str, Any]]:
+        """按昵称或简介搜索创作者（LIKE 匹配）。"""
+        pattern = f"%{query}%"
+        with get_db_connection() as conn:
+            conn.row_factory = sqlite3.Row
+            cursor = conn.execute(
+                """
+                SELECT
+                    'creator' as type,
+                    uid as id,
+                    nickname as title,
+                    platform as subtitle,
+                    sync_status as status
+                FROM creators
+                WHERE nickname LIKE ? OR bio LIKE ?
+                ORDER BY nickname
+                LIMIT ?
+                """,
+                (pattern, pattern, limit),
+            )
+            return [dict(row) for row in cursor.fetchall()]
