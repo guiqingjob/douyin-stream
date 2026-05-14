@@ -5,7 +5,6 @@ import {
   getTaskHistory,
   triggerBatchPipeline,
   triggerCreatorDownload,
-  triggerCreatorTranscribe,
   triggerDownloadBatch,
   triggerFullSyncFollowing,
   triggerLocalTranscribe,
@@ -77,9 +76,7 @@ export function useTaskActions() {
       if (task.task_type === 'creator_transcribe' && payload) {
         const uid = payload.creator_uid;
         if (typeof uid === 'string' && uid) {
-          const deleteAfter = payload.delete_after as boolean | undefined;
-          await triggerCreatorTranscribe(uid, deleteAfter);
-          toast.success('已重新提交创作者转写任务');
+          toast.info('创作者转写任务暂不支持前端重试，请从创作者页面重新发起');
           return;
         }
       }

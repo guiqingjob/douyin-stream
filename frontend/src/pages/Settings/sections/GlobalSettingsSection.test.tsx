@@ -8,10 +8,8 @@ describe('GlobalSettingsSection', () => {
     onToggleAutoTranscribe: vi.fn(),
     autoDeleteVideo: false,
     onToggleAutoDelete: vi.fn(),
-    concurrency: 3,
-    setConcurrency: vi.fn(),
-    isSavingConcurrency: false,
-    onSaveConcurrency: vi.fn(),
+    exportFormat: 'md',
+    onChangeExportFormat: vi.fn(),
     refreshSettings: vi.fn(),
   }
 
@@ -24,10 +22,9 @@ describe('GlobalSettingsSection', () => {
     expect(screen.getByText('清理不存在素材')).toBeInTheDocument()
   })
 
-  it('shows concurrency value', () => {
-    render(<GlobalSettingsSection {...defaultProps} concurrency={5} />)
-    const input = screen.getByDisplayValue('5')
-    expect(input).toBeInTheDocument()
+  it('shows export format value', () => {
+    render(<GlobalSettingsSection {...defaultProps} exportFormat="docx" />)
+    expect(screen.getByText('DOCX')).toBeInTheDocument()
   })
 
   it('calls onToggleAutoTranscribe when toggle clicked', () => {
@@ -38,10 +35,10 @@ describe('GlobalSettingsSection', () => {
     expect(onToggle).toHaveBeenCalled()
   })
 
-  it('calls onSaveConcurrency when save button clicked', () => {
-    const onSave = vi.fn()
-    render(<GlobalSettingsSection {...defaultProps} onSaveConcurrency={onSave} />)
-    fireEvent.click(screen.getByRole('button', { name: /保存并发设置/ }))
-    expect(onSave).toHaveBeenCalled()
+  it('calls onChangeExportFormat when format changed', () => {
+    const onChange = vi.fn()
+    render(<GlobalSettingsSection {...defaultProps} onChangeExportFormat={onChange} />)
+    fireEvent.click(screen.getByText('DOCX'))
+    expect(onChange).toHaveBeenCalledWith('docx')
   })
 })
