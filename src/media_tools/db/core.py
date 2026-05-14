@@ -49,14 +49,26 @@ def _check_table_name(table: str) -> str:
     return validate_identifier(table, "table_name")
 
 
+_table_columns_cache: dict[str, set[str]] = {}
+
+
 def get_table_columns(conn: sqlite3.Connection, table: str) -> set[str]:
-    """获取表的列名集合。表名经过白名单/正则校验，无 SQL 注入风险。"""
+    """获取表的列名集合。结果按表名缓存，避免重复 PRAGMA 查询。"""
+    if table in _table_columns_cache:
+        return _table_columns_cache[table]
     safe_table = _check_table_name(table)
     # PRAGMA 不支持参数化查询，但表名已通过 _check_table_name 严格校验
-    return {
+    columns = {
         row["name"] if isinstance(row, sqlite3.Row) else row[1]
         for row in conn.execute("PRAGMA table_info(" + safe_table + ")").fetchall()
     }
+    _table_columns_cache[table] = columns
+    return columns
+
+
+def _invalidate_table_columns_cache() -> None:
+    """清除表列名缓存。在 schema 变更（如 _ensure_column）后调用。"""
+    _table_columns_cache.clear()
 
 
 # --- Resolved DB path (set once at init, reused everywhere) ---
@@ -265,6 +277,7 @@ def _ensure_column(conn: sqlite3.Connection, table: str, column: str, column_def
     if safe_column not in existing:
         cursor = conn.cursor()
         cursor.execute(f"ALTER TABLE {safe_table} ADD COLUMN {safe_column} {column_def}")
+        _invalidate_table_columns_cache()
 
 
 # Re-export FTS5 functions for backward compatibility
@@ -284,6 +297,7 @@ def init_db(db_path: Union[str, Path]):
         db_path: 数据库文件路径 (通常为 media_tools.db)
     """
     global _db_path
+    _invalidate_table_columns_cache()
     db_path = Path(db_path)
     new_path = str(db_path)
 
