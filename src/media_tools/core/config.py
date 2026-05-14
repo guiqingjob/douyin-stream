@@ -428,6 +428,9 @@ class AppConfig:
                 "pipeline_output_dir": self.pipeline_output_dir,
                 "pipeline_delete_after_export": self.pipeline_delete_after_export,
                 "pipeline_account_id_set": bool(self.pipeline_account_id),
+                "bilibili_proxy_set": bool(self.bilibili_proxy),
+                "qwen_oss_upload_mode": self.qwen_oss_upload_mode,
+                "task_stale_minutes": self.task_stale_minutes,
             },
         }
 
