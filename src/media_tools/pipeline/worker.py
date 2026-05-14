@@ -164,6 +164,91 @@ async def run_local_transcribe(file_paths: list[str], update_progress_fn=None, d
     }
 
 
+def _build_progress_callback(update_progress_fn, base_progress: float):
+    """构建转写进度回调，将单视频完成事件聚合为批量进度。"""
+    _pb_done = 0
+
+    def _progress_callback(current: int, total: int, video_path: Path, status: str, account_id: Optional[str] = None):
+        nonlocal _pb_done
+        if current == 1 and total == 1:
+            _pb_done += 1
+        progress = base_progress + (1.0 - base_progress) * (_pb_done / total) if total > 0 else base_progress
+        transcribe_info: dict[str, Any] = {"done": _pb_done, "total": total}
+        if account_id:
+            transcribe_info["account_id"] = account_id
+        pp = {"transcribe": transcribe_info}
+        try:
+            result = update_progress_fn(progress, status, "transcribe", pp)
+        except TypeError:
+            try:
+                result = update_progress_fn(progress, status, "transcribe")
+            except TypeError:
+                result = update_progress_fn(progress, status)
+        if inspect.isawaitable(result):
+            create_managed_task(result)
+        elif result is not None:
+            logger.warning(f"update_progress_fn 返回非协程: {type(result)}")
+        return None
+
+    return _progress_callback
+
+
+def _extract_export_file(report) -> Optional[str]:
+    """从转写报告中提取最后一个成功的导出文件路径。"""
+    for item in reversed(getattr(report, "results", []) or []):
+        transcript_path = item.get("transcript_path") if isinstance(item, dict) else None
+        if isinstance(transcript_path, str) and transcript_path.strip():
+            return transcript_path.strip()
+    return None
+
+
+def _extract_successful_paths(report) -> set[str]:
+    """从转写报告中提取所有成功转写的视频路径（绝对路径字符串）。"""
+    return {
+        str(Path(item["video_path"]).resolve())
+        for item in getattr(report, "results", [])
+        if item.get("success") and item.get("video_path")
+    }
+
+
+def _delete_transcribed_videos(video_paths: list[Path], successful_paths: set[str]) -> None:
+    """删除已成功转写的视频文件。"""
+    for path in video_paths:
+        if str(path.resolve()) not in successful_paths:
+            continue
+        if path.exists():
+            try:
+                path.unlink()
+            except FileNotFoundError:
+                pass
+            except OSError as e:
+                logger.error(f"删除视频失败 (DB已更新): {path}, {e}")
+
+
+def _build_subtasks(video_paths: list[Path], report) -> list[dict[str, Any]]:
+    """从转写报告构建子任务列表（O(N) Map 查找）。"""
+    result_by_path: dict[str, dict] = {}
+    for r in getattr(report, "results", []) or []:
+        vp = r.get("video_path", "") if isinstance(r, dict) else ""
+        if vp:
+            result_by_path[str(Path(vp).resolve())] = r
+
+    subtasks: list[dict[str, Any]] = []
+    for video_path in video_paths:
+        result_item = result_by_path.get(str(video_path.resolve()))
+        status = "completed" if result_item and result_item.get("success") else "failed"
+        error = result_item.get("error") if result_item else None
+        transcript_path = result_item.get("transcript_path") if result_item and result_item.get("success") else None
+        transcript_path = transcript_path if isinstance(transcript_path, str) and transcript_path.strip() else None
+        subtasks.append({
+            "title": video_path.stem,
+            "status": status,
+            "error": error,
+            **({"transcript_path": transcript_path} if transcript_path else {}),
+        })
+    return subtasks
+
+
 async def run_pipeline_for_user(url: str, max_counts: int, update_progress_fn, delete_after: bool = True, task_id: Optional[str] = None):
     from media_tools.pipeline.download_router import download_by_url as download_router
     from media_tools.pipeline.download_router import resolve_platform
@@ -223,31 +308,7 @@ async def run_pipeline_for_user(url: str, max_counts: int, update_progress_fn, d
     # _fire_progress 在 transcribe_with_retry 内按单视频语义上报 (current=0/1, total=1)，
     # 但前端需要批量进度。闭包内自己维护 done 计数，按 "current==1 and total==1"
     # 识别单个视频完成，从而把进度平滑推进到 0.4→1.0。
-    _pb_done = 0
-
-    def _progress_callback(current: int, total: int, video_path: Path, status: str, account_id: Optional[str] = None):
-        nonlocal _pb_done
-        if current == 1 and total == 1:
-            _pb_done += 1
-        progress = 0.4 + 0.6 * (_pb_done / total) if total > 0 else 0.4
-        transcribe_info: dict[str, Any] = {"done": _pb_done, "total": total}
-        if account_id:
-            transcribe_info["account_id"] = account_id
-        pp = {"transcribe": transcribe_info}
-        try:
-            result = update_progress_fn(progress, status, "transcribe", pp)
-        except TypeError:
-            try:
-                result = update_progress_fn(progress, status, "transcribe")
-            except TypeError:
-                result = update_progress_fn(progress, status)
-        if inspect.isawaitable(result):
-            create_managed_task(result)
-        elif result is not None:
-            logger.warning(f"update_progress_fn 返回非协程: {type(result)}")
-        return None
-
-    orchestrator.on_progress = _progress_callback
+    orchestrator.on_progress = _build_progress_callback(update_progress_fn, 0.4)
 
     # 转换为 Path 对象
     video_paths = [Path(f) for f in new_files]
@@ -257,54 +318,16 @@ async def run_pipeline_for_user(url: str, max_counts: int, update_progress_fn, d
 
     success_count = report.success
     failed_count = report.failed
-    export_file: Optional[str] = None
-    for item in reversed(getattr(report, "results", []) or []):
-        transcript_path = item.get("transcript_path") if isinstance(item, dict) else None
-        if isinstance(transcript_path, str) and transcript_path.strip():
-            export_file = transcript_path.strip()
-            break
-    successful_paths = {
-        str(Path(item["video_path"]).resolve())
-        for item in getattr(report, "results", [])
-        if item.get("success") and item.get("video_path")
-    }
+    export_file = _extract_export_file(report)
+    successful_paths = _extract_successful_paths(report)
 
     # 删除已转写的视频（如果配置了 delete_after）
     if delete_after:
-        for path in video_paths:
-            if str(path.resolve()) not in successful_paths:
-                continue
-            if path.exists():
-                try:
-                    path.unlink()
-                except FileNotFoundError:
-                    pass
-                except OSError as e:
-                    logger.error(f"删除视频失败 (DB已更新): {path}, {e}")
+        _delete_transcribed_videos(video_paths, successful_paths)
 
     await call_progress(update_progress_fn, 1.0, f"流水线完成: 成功 {success_count}, 失败 {failed_count}", stage="done")
 
-    # 构建子任务列表（O(N) Map 查找替代 O(N*M) 双重循环）
-    subtasks = []
-    total = len(new_files)
-    result_by_path: dict[str, dict] = {}
-    for r in report.results:
-        vp = r.get("video_path", "")
-        if vp:
-            result_by_path[str(Path(vp).resolve())] = r
-
-    for video_path in video_paths:
-        result_item = result_by_path.get(str(video_path.resolve()))
-        status = "completed" if result_item and result_item.get("success") else "failed"
-        error = result_item.get("error") if result_item else None
-        transcript_path = result_item.get("transcript_path") if result_item and result_item.get("success") else None
-        transcript_path = transcript_path if isinstance(transcript_path, str) and transcript_path.strip() else None
-        subtasks.append({
-            "title": video_path.stem,
-            "status": status,
-            "error": error,
-            **({"transcript_path": transcript_path} if transcript_path else {}),
-        })
+    subtasks = _build_subtasks(video_paths, report)
 
     return {
         "success_count": success_count,
@@ -351,83 +374,23 @@ async def run_batch_pipeline(video_urls: list[str], update_progress_fn, delete_a
     # 使用批量并发转写
     # 与 run_pipeline_for_user 同理：_fire_progress 按单视频语义上报，
     # 闭包内维护 done 计数，把进度平滑推进。
-    _pb_done = 0
-
-    def _progress_callback(current: int, total: int, video_path: Path, status: str, account_id: Optional[str] = None):
-        nonlocal _pb_done
-        if current == 1 and total == 1:
-            _pb_done += 1
-        progress = 0.4 + 0.6 * (_pb_done / total) if total > 0 else 0.4
-        transcribe_info: dict[str, Any] = {"done": _pb_done, "total": total}
-        if account_id:
-            transcribe_info["account_id"] = account_id
-        pp = {"transcribe": transcribe_info}
-        try:
-            result = update_progress_fn(progress, status, "transcribe", pp)
-        except TypeError:
-            try:
-                result = update_progress_fn(progress, status, "transcribe")
-            except TypeError:
-                result = update_progress_fn(progress, status)
-        if inspect.isawaitable(result):
-            create_managed_task(result)
-        elif result is not None:
-            logger.warning(f"update_progress_fn 返回非协程: {type(result)}")
-        return None
-
-    orchestrator.on_progress = _progress_callback
+    orchestrator.on_progress = _build_progress_callback(update_progress_fn, 0.4)
 
     video_paths = [Path(f) for f in new_files]
     report = await orchestrator.transcribe_batch(video_paths, resume=False)
 
     success_count = report.success
     failed_count = report.failed
-    export_file: Optional[str] = None
-    for item in reversed(getattr(report, "results", []) or []):
-        transcript_path = item.get("transcript_path") if isinstance(item, dict) else None
-        if isinstance(transcript_path, str) and transcript_path.strip():
-            export_file = transcript_path.strip()
-            break
-    successful_paths = {
-        str(Path(item["video_path"]).resolve())
-        for item in getattr(report, "results", [])
-        if item.get("success") and item.get("video_path")
-    }
+    export_file = _extract_export_file(report)
+    successful_paths = _extract_successful_paths(report)
 
     # 删除已转写的视频
     if delete_after:
-        for path in video_paths:
-            if str(path.resolve()) not in successful_paths:
-                continue
-            if path.exists():
-                try:
-                    path.unlink()
-                except FileNotFoundError:
-                    pass
-                except OSError as e:
-                    logger.error(f"删除视频失败 (DB已更新): {path}, {e}")
+        _delete_transcribed_videos(video_paths, successful_paths)
 
     await call_progress(update_progress_fn, 1.0, f"批量流水线完成: 成功 {success_count}, 失败 {failed_count}", stage="done")
 
-    subtasks: list[dict[str, object]] = []
-    result_by_path: dict[str, dict] = {}
-    for r in getattr(report, "results", []) or []:
-        vp = r.get("video_path", "") if isinstance(r, dict) else ""
-        if vp:
-            result_by_path[str(Path(vp).resolve())] = r
-
-    for video_path in video_paths:
-        result_item = result_by_path.get(str(video_path.resolve()))
-        status = "completed" if result_item and result_item.get("success") else "failed"
-        error = result_item.get("error") if result_item else None
-        transcript_path = result_item.get("transcript_path") if result_item and result_item.get("success") else None
-        transcript_path = transcript_path if isinstance(transcript_path, str) and transcript_path.strip() else None
-        subtasks.append({
-            "title": video_path.stem,
-            "status": status,
-            "error": error,
-            **({"transcript_path": transcript_path} if transcript_path else {}),
-        })
+    subtasks = _build_subtasks(video_paths, report)
 
     return {
         "success_count": success_count,
