@@ -37,7 +37,7 @@ def _build_interval_from_last_fetch(last_fetch_time: Optional[str]) -> Optional[
         now = datetime.now(timezone.utc)
 
         if (now - fetch_dt) > timedelta(days=180):
-            logger.info(f"last_fetch_time 距今超过 180 天，退化为全量模式")
+            logger.info("last_fetch_time 距今超过 180 天，退化为全量模式")
             return None
 
         start_date = fetch_dt.strftime("%Y-%m-%d")

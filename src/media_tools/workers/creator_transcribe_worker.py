@@ -2,13 +2,12 @@ from __future__ import annotations
 
 import asyncio
 import logging
-import os
 import re
 import sqlite3
 import uuid as _uuid
 from datetime import datetime
 from pathlib import Path
-from typing import Optional
+from typing import Any, Optional
 
 from media_tools.common.paths import get_download_path, get_project_root
 from media_tools.core.config import get_runtime_setting_bool

@@ -3,7 +3,7 @@ from __future__ import annotations
 import asyncio
 import sqlite3
 from datetime import datetime
-from typing import Any, Optional
+from typing import Optional
 
 from media_tools.db.core import get_db_connection
 from media_tools.douyin.core.cancel_registry import clear_download_progress, get_download_progress
@@ -37,7 +37,6 @@ class FullSyncWorker(BaseWorker):
         creator_failed = 0
         new_video_count = 0
         skip_existing = True
-        task_type_label = f"full_sync_{mode}"
 
         for index, user in enumerate(users, 1):
             uid = user.get("uid") or ""
@@ -153,11 +152,6 @@ class FullSyncWorker(BaseWorker):
             s = info.get("download_progress", {}).get("skipped", 0)
             details = info.get("details", [])
             errors = info.get("errors", [])
-            combined = details + errors
-            subtasks = [
-                {"title": d_.get("title", "未知")[:60], "status": d_.get("status", "unknown")}
-                for d_ in combined[-50:]
-            ]
             progress = (index - 1) / total + 0.5 / total * min(
                 d / max(batch_size or 50, 1), 1.0
             )

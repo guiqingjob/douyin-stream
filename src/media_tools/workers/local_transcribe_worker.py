@@ -4,8 +4,6 @@ import logging
 from typing import Any
 
 from media_tools.pipeline.worker import run_local_transcribe
-from media_tools.services.task_ops import update_task_progress, _complete_task
-from media_tools.services.task_state import _task_heartbeat
 from media_tools.workers.base import BaseWorker, register_worker
 
 logger = logging.getLogger(__name__)
