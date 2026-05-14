@@ -226,7 +226,6 @@ app.include_router(metrics.router)
 app.include_router(search.router)
 
 import shutil
-import sqlite3
 
 from media_tools.db.core import get_db_connection
 from media_tools.repositories.task_repository import TaskRepository

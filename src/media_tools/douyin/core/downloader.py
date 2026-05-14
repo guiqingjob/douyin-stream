@@ -1259,7 +1259,7 @@ def download_sample(auto_confirm=False):
         logger.info(info("关注列表为空"))
         return 0, 0
 
-    logger.info(info(f"每个博主只下载 1 个视频"))
+    logger.info(info("每个博主只下载 1 个视频"))
     logger.info(info(f"共 {len(users)} 位博主"))
     logger.info("")
 

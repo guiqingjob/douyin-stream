@@ -65,8 +65,3 @@ def _resolve_sec_user_id(url: str) -> Optional[str]:
 def _get_skill_dir() -> Path:
     """获取项目根目录"""
     return get_config().project_root
-
-
-def _clean_nickname(name: str) -> str:
-    """清洗昵称，移除非法字符"""
-    return re.sub(r'[<>"/\\|?*]', '', name).strip()
