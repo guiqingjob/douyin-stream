@@ -56,7 +56,7 @@ class OrchestratorV2:
         self.retry_config = retry_config or RetryConfig()
         self.on_progress = on_progress
         self._creator_folder_override = creator_folder_override
-        from media_tools.services.account_pool_service import AccountPoolService
+        from media_tools.accounts.service import AccountPoolService
         self._account_pool_service = AccountPoolService(
             auth_state_path=self.auth_state_path,
             default_account_id=self.config.pipeline_account_id,

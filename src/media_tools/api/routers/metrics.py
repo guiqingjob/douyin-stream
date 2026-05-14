@@ -43,7 +43,7 @@ def _collect_task_counts() -> dict[str, int]:
 
 def _collect_account_pool_stats() -> dict:
     try:
-        from media_tools.services.account_pool_service import AccountPoolService
+        from media_tools.accounts.service import AccountPoolService
         from media_tools.pipeline.config import load_pipeline_config
         config = load_pipeline_config()
         service = AccountPoolService(
@@ -165,7 +165,7 @@ async def get_dashboard():
         failure_summary = {"window_days": 7, "total_failed": 0, "buckets": []}
 
     # quota status
-    from media_tools.services.qwen_status import get_qwen_account_status
+    from media_tools.accounts.status import get_qwen_account_status
     try:
         quota_status = await get_qwen_account_status()
     except (RuntimeError, OSError, ValueError) as e:

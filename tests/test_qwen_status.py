@@ -5,7 +5,7 @@ def test_qwen_account_status_does_not_mark_invalid_when_snapshot_fails(monkeypat
     import sqlite3
     import asyncio
 
-    from media_tools.services import qwen_status
+    from media_tools.accounts import status as qwen_status
 
     conn = sqlite3.connect(":memory:")
     conn.row_factory = sqlite3.Row
@@ -18,12 +18,12 @@ def test_qwen_account_status_does_not_mark_invalid_when_snapshot_fails(monkeypat
     )
     conn.commit()
 
-    monkeypatch.setattr("media_tools.services.qwen_status.get_db_connection", lambda: conn)
+    monkeypatch.setattr("media_tools.accounts.status.get_db_connection", lambda: conn)
 
     async def _fail_snapshot(*args, **kwargs):  # noqa: ANN001,ARG001
         raise RuntimeError("connection reset by peer")
 
-    monkeypatch.setattr("media_tools.services.qwen_status.get_quota_snapshot", _fail_snapshot)
+    monkeypatch.setattr("media_tools.accounts.status.get_quota_snapshot", _fail_snapshot)
 
     result = asyncio.run(qwen_status.get_qwen_account_status())
     assert result["status"] == "success"
