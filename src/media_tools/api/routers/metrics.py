@@ -54,7 +54,7 @@ def _collect_account_pool_stats() -> dict:
         pool = service.account_pool
         if pool is not None:
             return pool.get_stats()
-    except Exception as e:
+    except (RuntimeError, OSError, ValueError) as e:
         logger.warning(f"metrics: collect account pool stats failed: {e}")
     return {}
 
@@ -168,7 +168,7 @@ async def get_dashboard():
     from media_tools.services.qwen_status import get_qwen_account_status
     try:
         quota_status = await get_qwen_account_status()
-    except Exception as e:
+    except (RuntimeError, OSError, ValueError) as e:
         logger.warning(f"dashboard: quota status failed: {e}")
         quota_status = {"status": "unavailable", "accounts": []}
 

@@ -57,5 +57,5 @@ class CloudCleanupService:
                     logger.warning(f"云端清理返回失败：{len(record_ids)} 条记录 ({video_path})")
             finally:
                 await api.dispose()
-        except Exception as e:
+        except (RuntimeError, OSError, ValueError) as e:
             logger.warning(f"云端清理异常（不影响主流程）: {video_path} - {e}")

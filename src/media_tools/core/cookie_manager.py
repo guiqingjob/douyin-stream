@@ -77,7 +77,7 @@ class CookieManager:
                     (platform, account_id),
                 )
                 conn.commit()
-        except Exception as e:
+        except (sqlite3.Error, OSError) as e:
             logger.warning(f"标记账号使用失败: platform={platform}, account_id={account_id}, error={e}")
 
     def mark_account_status(self, platform: str, account_id: str, status: str) -> None:
@@ -90,7 +90,7 @@ class CookieManager:
                     (status, platform, account_id),
                 )
                 conn.commit()
-        except Exception as e:
+        except (sqlite3.Error, OSError) as e:
             logger.warning(f"标记账号状态失败: platform={platform}, account_id={account_id}, error={e}")
 
     def list_accounts(self, platform: str) -> list[CookieAccount]:

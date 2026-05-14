@@ -799,7 +799,7 @@ async def _download_with_stats(
                                 increment_downloaded(task_id, video_title)
 
                             logger.info(info(f"[成功] {video_title[:50]}..."))
-                        except Exception as e:
+                        except (RuntimeError, OSError, ValueError) as e:
                             logger.error(f"下载视频失败 {video_title}: {e}")
                             logger.info(error(f"[失败] {video_title[:50]}..."))
                             if task_id:

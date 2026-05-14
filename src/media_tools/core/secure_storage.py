@@ -52,7 +52,7 @@ class SecureStorage:
         try:
             f = Fernet(SecureStorage._get_or_create_key())
             return f.encrypt(data.encode()).decode()
-        except Exception as e:
+        except (TypeError, ValueError) as e:
             logger.error(f"加密失败: {e}")
             raise
 
@@ -78,7 +78,7 @@ class SecureStorage:
         except InvalidToken:
             logger.error("解密失败：无效的令牌或密钥不匹配")
             raise ValueError("解密失败：无效的令牌或密钥不匹配")
-        except Exception as e:
+        except (TypeError, ValueError) as e:
             logger.error(f"解密失败: {e}")
             raise
 

@@ -42,7 +42,7 @@ class TranscribeRunService:
                 logger.warning("缓存的转录文件为空，重新转录")
             else:
                 logger.warning("缓存的转录文件已丢失，重新转录")
-        except Exception as exc:
+        except (OSError, ValueError) as exc:
             logger.warning(f"find_saved_for_asset 失败 (asset={asset_id}): {exc}")
         return None
 
@@ -64,7 +64,7 @@ class TranscribeRunService:
         resumable_run: Optional[dict[str, Any]] = None
         try:
             resumable_run = TranscribeRunRepository.find_resumable(asset_id, account_id)
-        except Exception as exc:
+        except (OSError, ValueError) as exc:
             logger.warning(f"transcribe_runs.find_resumable 失败 (asset={asset_id}): {exc}")
 
         if resumable_run:
@@ -84,7 +84,7 @@ class TranscribeRunService:
                 account_id=account_id,
             )
             return run_id, None
-        except Exception as exc:
+        except (OSError, ValueError) as exc:
             logger.warning(f"transcribe_runs.create 失败 (asset={asset_id}): {exc}")
             return None, None
 
@@ -95,7 +95,7 @@ class TranscribeRunService:
             return
         try:
             TranscribeRunRepository.mark_saved(run_id, transcript_path)
-        except Exception as exc:
+        except (OSError, ValueError) as exc:
             logger.warning(f"transcribe_runs.mark_saved 失败 (run_id={run_id}): {exc}")
 
     @staticmethod
@@ -112,7 +112,7 @@ class TranscribeRunService:
                 error_type=error_type,
                 last_error=error,
             )
-        except Exception as exc:
+        except (OSError, ValueError) as exc:
             logger.warning(f"transcribe_runs.mark_failed 失败 (run_id={run_id}): {exc}")
 
     @staticmethod
@@ -127,11 +127,11 @@ class TranscribeRunService:
                 record_ids = TranscribeRunRepository.find_failed_record_ids(asset_id, account_id=account_id)
                 if record_ids:
                     return record_ids
-            except Exception as exc:
+            except (OSError, ValueError) as exc:
                 logger.warning(f"find_failed_record_ids 失败: {exc}")
 
         try:
             return TranscribeRunRepository.find_failed_record_ids_for_video(video_path, account_id=account_id)
-        except Exception as exc:
+        except (OSError, ValueError) as exc:
             logger.warning(f"find_failed_record_ids_for_video 失败: {exc}")
             return []

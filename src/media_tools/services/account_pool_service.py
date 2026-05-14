@@ -117,7 +117,7 @@ class AccountPoolService:
             get_cookie_manager().mark_account_status("qwen", account_id, status)
             if status in ("expired", "rate_limited") and self._account_pool:
                 self._account_pool.exclude(account_id)
-        except Exception as e:
+        except (RuntimeError, OSError, ValueError) as e:
             logger.warning(f"标记Qwen账号状态失败: {e}")
 
     def mark_used(self, account_id: str) -> None:
@@ -127,5 +127,5 @@ class AccountPoolService:
         try:
             from media_tools.core.cookie_manager import get_cookie_manager
             get_cookie_manager().mark_account_used("qwen", account_id)
-        except Exception as e:
+        except (RuntimeError, OSError, ValueError) as e:
             logger.warning(f"标记Qwen账号使用失败: {e}")

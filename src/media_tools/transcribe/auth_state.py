@@ -275,7 +275,7 @@ def _get_active_qwen_cookie_from_pool() -> str:
             ).fetchone()
             if row and row[0]:
                 return str(row[0]).strip()
-    except Exception as e:
+    except (sqlite3.Error, OSError) as e:
         logger.warning(f"从账号池读取Qwen Cookie失败: {e}")
     return ""
 

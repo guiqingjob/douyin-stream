@@ -55,7 +55,7 @@ class BaseWorker:
         except asyncio.CancelledError:
             await self._handle_cancelled()
             raise
-        except Exception as exc:
+        except (RuntimeError, OSError, ValueError, TypeError) as exc:
             await self._handle_exception(exc)
         finally:
             await self._cleanup_heartbeat()

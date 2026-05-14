@@ -280,7 +280,7 @@ def _patch_f2_console_for_non_interactive() -> None:
         RichConsoleManager.rich_console = patched_rich_console
         logger.debug("已重定向 F2 Console 输出到日志系统（非交互式终端）")
 
-    except Exception as e:
+    except (ImportError, AttributeError, RuntimeError, OSError) as e:
         logger.debug(f"Failed to patch F2 console output: {e}")
 
 
@@ -306,7 +306,7 @@ def _patch_f2_live_for_non_interactive() -> None:
         live.Live.update = noop_update
         logger.debug("已禁用 F2 Live 动态刷新（非交互式终端）")
 
-    except Exception as e:
+    except (ImportError, AttributeError, RuntimeError, OSError) as e:
         logger.debug(f"Failed to patch F2 live output: {e}")
 
 
@@ -349,7 +349,7 @@ def _clean_f2_trace_logs(max_age_days: int = 7) -> None:
         if cleaned:
             logger.debug(f"清理了 {cleaned} 个过期 f2-trace 日志文件")
 
-    except Exception as e:
+    except (OSError, ValueError) as e:
         logger.debug(f"清理 f2-trace 日志失败: {e}")
 
 

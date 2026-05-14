@@ -454,7 +454,7 @@ def notify_config_change(key: str, old_value: Any, new_value: Any) -> None:
     for listener in _config_listeners:
         try:
             listener(key, old_value, new_value)
-        except Exception as e:
+        except (TypeError, ValueError, RuntimeError, OSError) as e:
             logger.error(f"配置变更监听器执行失败: {e}")
 
 

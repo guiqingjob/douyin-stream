@@ -228,7 +228,7 @@ async def run_real_flow(
         try:
             from media_tools.repositories.transcribe_run_repository import TranscribeRunRepository
             TranscribeRunRepository.update_stage(run_id, stage, extra)
-        except Exception as exc:
+        except (sqlite3.Error, OSError) as exc:
             logger.warning(f"transcribe_runs 打卡失败 (run_id={run_id}, stage={stage}): {exc}")
 
     async def _safe_cleanup_old_record(api: Any, old_record_id: Optional[str]) -> None:
@@ -242,7 +242,7 @@ async def run_real_flow(
                 log(f"resume 回退：已清理云端旧记录 record_id={old_record_id}")
             else:
                 logger.warning(f"resume 回退清理云端记录返回失败 record_id={old_record_id}")
-        except Exception as exc:
+        except (RuntimeError, OSError, ValueError) as exc:
             logger.warning(f"resume 回退清理云端记录异常 record_id={old_record_id}: {exc}")
 
     async def _do_flow(api: Any) -> FlowResult:
@@ -435,7 +435,7 @@ async def run_real_flow(
                 export_path=export_out,
                 remote_deleted=False,
             )
-        except Exception as exc:
+        except (RuntimeError, OSError, ValueError) as exc:
             logger.warning(
                 f"resume[export_url] 失败，回退到完整 flow: {exc}",
                 exc_info=True,
@@ -472,7 +472,7 @@ async def run_real_flow(
                     "https://api.qianwen.com/assistant/api/record/read?c=tongyi-web",
                     {"recordIds": [resume_state.record_id]},
                 )
-            except Exception as exc:
+            except (RuntimeError, OSError, ValueError) as exc:
                 logger.debug(f"resume: record/read 失败但不影响后续: {exc}")
 
             _checkpoint("exporting")
@@ -500,7 +500,7 @@ async def run_real_flow(
                 export_path=export_out,
                 remote_deleted=False,
             )
-        except Exception as exc:
+        except (RuntimeError, OSError, ValueError) as exc:
             logger.warning(
                 f"resume[gen_record_id] 失败，回退到完整 flow: {exc}",
                 exc_info=True,

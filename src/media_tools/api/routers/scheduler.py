@@ -168,7 +168,7 @@ def _register_system_jobs() -> None:
                     CreatorSyncWorker().execute(task_id, uid=uid, mode="incremental")
                 )
                 synced_count += 1
-            except Exception as e:
+            except (RuntimeError, OSError, ValueError) as e:
                 logger.error(f"[自动同步] 创作者同步失败 {uid}: {e}")
             finally:
                 asyncio.set_event_loop(None)
