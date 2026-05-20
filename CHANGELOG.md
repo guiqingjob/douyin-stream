@@ -7,6 +7,22 @@
 
 ---
 
+## [2.5.2] - 2026-05-20
+
+### 🔧 改进
+
+- **设置页模块化拆分与重构**：将 `Settings.tsx` 页面模块化重构拆分为多个小型的子组件（`AccountExpandable.tsx`, `AccountSettingsSection.tsx`, `PreferenceSettingsSection.tsx`, `ScheduleSettings.tsx`, `SettingsLayout.tsx`）与逻辑 Hook `useSettings.ts`，确保前端页面代码全部在 300 行限额以内。
+- **类型安全及编译清理**：
+  - 修复 `CreatorDetail.tsx` 和 `Discover.tsx` 中由于缺少 `Download`, `Trash2`, `FileAudio` 等图标引入和状态解构引起的编译错误。
+  - 移除了 `AccountExpandable.tsx` 中未使用的 `useRef`。
+  - 移除了 `Library.tsx` 和 `useLibraryDetail.ts` 中多处的 `any` 类型强制转换与双重否定警告。
+
+### 🐛 修复
+
+- **修复备注状态隔离回归问题**：还原了 `Settings.tsx` 中三个平台独立的 `editingRemark` 局部状态，解决回归测试 `test_settings_remark_state_isolated` 报错，确保测试套件回归通过。
+
+---
+
 ## [2.5.1] - 2026-05-19
 
 ### 🐛 修复

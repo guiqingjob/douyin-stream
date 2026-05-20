@@ -1,6 +1,6 @@
 # Media Tools — 项目现状文档
 
-> 最后更新：2026-05-19
+> 最后更新：2026-05-20
 
 > 这是一份**当前状态快照**。历史变更见 [CHANGELOG.md](../CHANGELOG.md)。
 
@@ -227,7 +227,7 @@ B站对大量视频提供 AV1 编码（压缩率更高但兼容性差），Qwen 
 
 ### P3 — UI / 体验
 
-- [ ] **Settings 页编辑式重设计**：表单密集，仍是旧样式，与新设计语言不一致
+- [x] **Settings 页编辑式重设计**：已通过模块化拆分（AccountExpandable, PreferenceSettingsSection, ScheduleSettings等）与样式对齐完成编辑式重构，使代码完全符合 300 行以下规范，并解决备注状态隔离回归问题。
 - [ ] **前端测试**：补充 Vitest + React Testing Library（按需，不强求覆盖率）
 - [ ] **移动端适配**：当前桌面优先，窄屏 grid 会塌
 
