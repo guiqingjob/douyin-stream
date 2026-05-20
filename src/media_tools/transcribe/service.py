@@ -307,13 +307,15 @@ class OrchestratorV2:
 
     def _should_switch_account(self, exc: Exception, error_type: ErrorType) -> bool:
         """判断失败后是否应该切换账号重试。"""
-        if error_type not in (ErrorType.AUTH, ErrorType.QUOTA, ErrorType.SERVICE_UNAVAILABLE):
+        # SERVICE_UNAVAILABLE 是平台级问题（如 recordStatus=40），切换账号无意义
+        if error_type == ErrorType.SERVICE_UNAVAILABLE:
+            return False
+        if error_type not in (ErrorType.AUTH, ErrorType.QUOTA):
             return False
         from media_tools.transcribe.error_classifier import TranscribeError
         if isinstance(exc, TranscribeError):
             return exc.error_info.retryable
-        # 非 TranscribeError 的异常，只要是 AUTH/SERVICE_UNAVAILABLE 就切换账号
-        return error_type in (ErrorType.AUTH, ErrorType.SERVICE_UNAVAILABLE)
+        return error_type == ErrorType.AUTH
 
     async def transcribe_with_retry(
         self,
@@ -331,6 +333,13 @@ class OrchestratorV2:
         execution_account_id: Optional[str] = None
 
         for attempt in range(1, max_attempts + 1):
+            # 外层重试前重置账号排除状态，给所有账号新的尝试机会
+            # （指数退避期间平台可能已经恢复）
+            if attempt > 1:
+                pool = self._account_pool_service.account_pool
+                if pool:
+                    pool.reset_excluded()
+
             self._fire_progress(
                 0, 1, video_path,
                 f"处理中 (尝试 {attempt}/{max_attempts})",

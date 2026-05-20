@@ -3,667 +3,316 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>Media Tools - iOS Widget 风格原型</title>
+<title>Media Tools</title>
 <style>
-  :root {
-    --bg-primary: #F2F2F7;
-    --bg-widget: #FFFFFF;
-    --bg-widget-secondary: #F2F2F7;
-    --text-primary: #000000;
-    --text-secondary: #8E8E93;
-    --text-tertiary: #C7C7CC;
-    --accent-blue: #007AFF;
-    --accent-green: #34C759;
-    --accent-orange: #FF9500;
-    --accent-red: #FF3B30;
-    --accent-purple: #AF52DE;
-    --accent-teal: #5AC8FA;
-    --separator: rgba(0,0,0,0.08);
-    --shadow: 0 2px 12px rgba(0,0,0,0.06), 0 0 1px rgba(0,0,0,0.04);
-    --radius-widget: 22px;
-    --radius-button: 12px;
-    --radius-pill: 9999px;
-    --radius-icon: 14px;
-    --sidebar-bg: rgba(255,255,255,0.72);
-    --sidebar-active: #007AFF;
-    --glass: rgba(255,255,255,0.7);
-  }
-  @media (prefers-color-scheme: dark) {
-    :root {
-      --bg-primary: #000000;
-      --bg-widget: #1C1C1E;
-      --bg-widget-secondary: #2C2C2E;
-      --text-primary: #FFFFFF;
-      --text-secondary: #8E8E93;
-      --accent-blue: #0A84FF;
-      --accent-green: #30D158;
-      --accent-orange: #FF9F0A;
-      --accent-red: #FF453A;
-      --accent-purple: #BF5AF2;
-      --accent-teal: #64D2FF;
-      --shadow: 0 2px 12px rgba(0,0,0,0.3), 0 0 1px rgba(255,255,255,0.04);
-      --sidebar-bg: rgba(28,28,30,0.72);
-      --glass: rgba(28,28,30,0.7);
-    }
-  }
-  * { margin:0; padding:0; box-sizing:border-box; }
-  html, body {
-    height:100%; font-family: -apple-system, BlinkMacSystemFont, "SF Pro Display", "SF Pro Text", "PingFang SC", "Helvetica Neue", sans-serif;
-    background: var(--bg-primary); color: var(--text-primary);
-    -webkit-font-smoothing: antialiased;
-  }
-  body { display:flex; overflow:hidden; }
+*{margin:0;padding:0;box-sizing:border-box}
+html,body{height:100%;font-family:-apple-system,'Helvetica Neue','PingFang SC',sans-serif;background:#fff;color:#000;overflow:hidden;line-height:1.4}
+a{color:#007aff;text-decoration:none}
+.app{display:flex;flex-direction:column;height:100vh}
 
-  /* Sidebar */
-  .sidebar {
-    width:200px; flex-shrink:0;
-    background: var(--sidebar-bg);
-    backdrop-filter: blur(20px) saturate(180%);
-    -webkit-backdrop-filter: blur(20px) saturate(180%);
-    border-right:1px solid var(--separator);
-    display:flex; flex-direction:column; padding:20px 12px; gap:4px;
-  }
-  .sidebar-logo {
-    font-size:20px; font-weight:700; padding:12px 12px 20px; letter-spacing:-0.5px;
-    display:flex; align-items:center; gap:8px;
-  }
-  .sidebar-logo .icon { width:32px; height:32px; background:linear-gradient(135deg, var(--accent-blue), var(--accent-purple)); border-radius:10px; display:flex; align-items:center; justify-content:center; color:white; font-size:16px; }
-  .nav-item {
-    display:flex; align-items:center; gap:10px; padding:10px 14px; border-radius:10px; cursor:pointer;
-    font-size:15px; font-weight:500; color: var(--text-secondary); transition: all 0.2s;
-    text-decoration:none;
-  }
-  .nav-item:hover { background: rgba(128,128,128,0.08); color: var(--text-primary); }
-  .nav-item.active { background: var(--accent-blue); color: white; }
-  .nav-item .nav-icon { width:22px; height:22px; display:flex; align-items:center; justify-content:center; font-size:16px; }
-  .sidebar-bottom { margin-top:auto; padding-top:16px; border-top:1px solid var(--separator); }
+/* ── Top Bar ── */
+.top{height:48px;display:flex;align-items:center;padding:0 24px;border-bottom:1px solid #eee;flex-shrink:0;gap:20px;background:#fff}
+.top .logo{font-size:16px;font-weight:600;display:flex;align-items:center;gap:8px}
+.top .logo .icon{width:22px;height:22px;background:#007aff;border-radius:5px;display:flex;align-items:center;justify-content:center;color:#fff;font-size:10px}
+.nav a{font-size:14px;color:#888;margin-right:16px;cursor:pointer;padding:4px 0}
+.nav a:hover{color:#000}
+.nav a.active{color:#007aff;font-weight:500}
+.top-right{margin-left:auto;display:flex;gap:12px;align-items:center}
+.search-trigger{font-size:13px;color:#888;cursor:pointer;display:flex;align-items:center;gap:6px;padding:4px 10px;border:1px solid #eee;border-radius:5px}
+.search-trigger:hover{color:#000;border-color:#ccc}
+.search-trigger kbd{font-size:10px;color:#bbb;border:1px solid #eee;border-radius:3px;padding:1px 4px}
 
-  /* Main content */
-  .main { flex:1; overflow-y:auto; padding:28px 32px; }
-  .page { display:none; animation: fadeIn 0.3s ease; }
-  .page.active { display:block; }
-  @keyframes fadeIn { from { opacity:0; transform:translateY(8px);} to { opacity:1; transform:translateY(0);} }
+/* ── Main ── */
+.main{flex:1;overflow-y:auto;padding:32px 40px}
 
-  /* Page title */
-  .page-title { font-size:28px; font-weight:700; margin-bottom:24px; letter-spacing:-0.5px; }
+.page{display:none}
+.page.active{display:block}
 
-  /* Widget Grid */
-  .widget-grid {
-    display:grid; grid-template-columns: repeat(4, 1fr); gap:16px;
-  }
-  .widget {
-    background: var(--bg-widget); border-radius: var(--radius-widget);
-    box-shadow: var(--shadow); padding:20px;
-    display:flex; flex-direction:column; gap:12px;
-    cursor:pointer; transition: transform 0.2s, box-shadow 0.2s;
-    position:relative; overflow:hidden;
-  }
-  .widget:hover { transform: scale(0.98); box-shadow: 0 4px 20px rgba(0,0,0,0.1); }
-  .widget-small { grid-column: span 1; min-height:140px; }
-  .widget-medium { grid-column: span 2; min-height:160px; }
-  .widget-large { grid-column: span 4; min-height:180px; }
-  .widget-header { display:flex; align-items:center; gap:8px; }
-  .widget-icon {
-    width:28px; height:28px; border-radius:8px; display:flex; align-items:center; justify-content:center;
-    font-size:14px; flex-shrink:0;
-  }
-  .widget-title { font-size:15px; font-weight:600; color: var(--text-secondary); }
-  .widget-body { flex:1; display:flex; flex-direction:column; justify-content:center; }
-  .widget-footer { font-size:12px; color: var(--text-secondary); }
-  .widget-value {
-    font-size:34px; font-weight:700; letter-spacing:-1px; line-height:1;
-    color: var(--text-primary);
-  }
-  .widget-value-sm { font-size:22px; font-weight:600; }
+/* ── Dashboard ── */
+h1{font-size:28px;font-weight:700;margin-bottom:28px;letter-spacing:-.5px}
+.stats{display:grid;grid-template-columns:repeat(4,1fr);gap:16px;margin-bottom:36px}
+.stat{padding:0}
+.stat .num{font-size:40px;font-weight:700;letter-spacing:-1.5px;line-height:1;margin-bottom:6px}
+.stat .lbl{font-size:15px;color:#888}
+.stat .sub{font-size:13px;color:#bbb;margin-top:4px}
 
-  /* Widget color accents */
-  .accent-blue { background: rgba(10,132,255,0.12); color: var(--accent-blue); }
-  .accent-green { background: rgba(48,209,88,0.12); color: var(--accent-green); }
-  .accent-orange { background: rgba(255,159,10,0.12); color: var(--accent-orange); }
-  .accent-red { background: rgba(255,69,58,0.12); color: var(--accent-red); }
-  .accent-purple { background: rgba(175,82,222,0.12); color: var(--accent-purple); }
-  .accent-teal { background: rgba(90,200,250,0.12); color: var(--accent-teal); }
+.list-head{display:flex;justify-content:space-between;align-items:center;margin-bottom:16px}
+.list-head h2{font-size:18px;font-weight:600}
+.list-head a{font-size:14px}
 
-  .widget-blue-tint { background: linear-gradient(135deg, var(--bg-widget), rgba(10,132,255,0.06)); }
-  .widget-green-tint { background: linear-gradient(135deg, var(--bg-widget), rgba(48,209,88,0.06)); }
-  .widget-red-tint { background: linear-gradient(135deg, var(--bg-widget), rgba(255,69,58,0.06)); }
+.list-item{padding:14px 0;display:flex;align-items:center;gap:14px;border-bottom:1px solid #f0f0f0;cursor:pointer}
+.list-item:hover{border-bottom-color:#007aff}
+.list-item:last-child{border-bottom:none}
+.list-item .ico{font-size:18px;width:32px;flex-shrink:0;color:#888}
+.list-item .info{flex:1;min-width:0}
+.list-item .info .t{font-size:15px;font-weight:500}
+.list-item .info .m{font-size:13px;color:#888;margin-top:2px}
+.list-item .act{font-size:14px;color:#007aff;font-weight:500;cursor:pointer;flex-shrink:0}
+.list-item .act:hover{text-decoration:underline}
 
-  /* Health status */
-  .health-dot { width:10px; height:10px; border-radius:50%; display:inline-block; margin-right:6px; }
-  .health-dot.green { background: var(--accent-green); box-shadow: 0 0 8px var(--accent-green); }
-  .health-dot.red { background: var(--accent-red); box-shadow: 0 0 8px var(--accent-red); }
+/* ── Library ── */
+.top-bar{display:flex;gap:12px;margin-bottom:24px;align-items:center;flex-wrap:wrap}
+.search-box{flex:1;display:flex;align-items:center;gap:8px;padding:8px 14px;border:1px solid #eee;border-radius:8px;min-width:180px}
+.search-box input{flex:1;border:none;font-size:14px;outline:none;background:transparent}
+.search-box input::placeholder{color:#bbb}
+.btn{padding:8px 18px;font-size:14px;border-radius:8px;cursor:pointer;border:1px solid #eee;background:#fff;white-space:nowrap}
+.btn:hover{border-color:#ccc}
+.btn-blue{background:#007aff;color:#fff;border-color:#007aff}
+.btn-blue:hover{background:#0066d6}
 
-  /* Progress bar */
-  .progress-bar-bg { height:6px; background: var(--bg-widget-secondary); border-radius:3px; overflow:hidden; }
-  .progress-bar-fill { height:100%; border-radius:3px; transition: width 0.5s ease; }
+.filters{margin-bottom:20px;display:flex;gap:4px}
+.filters a{font-size:14px;color:#888;padding:4px 12px;cursor:pointer;border-radius:5px}
+.filters a:hover{color:#000;background:#f5f5f5}
+.filters a.active{color:#007aff;background:rgba(0,122,255,.08)}
 
-  /* Task list in widget */
-  .task-list-item { display:flex; align-items:center; gap:10px; padding:6px 0; }
-  .task-list-item:not(:last-child) { border-bottom:1px solid var(--separator); }
-  .task-thumb { width:36px; height:36px; border-radius:8px; background: var(--bg-widget-secondary); display:flex; align-items:center; justify-content:center; font-size:14px; flex-shrink:0; }
-  .task-info { flex:1; min-width:0; }
-  .task-name { font-size:14px; font-weight:500; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
-  .task-meta { font-size:12px; color: var(--text-secondary); }
+.creator-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(160px,1fr));gap:14px}
+.creator-card{border:1px solid #eee;border-radius:10px;overflow:hidden;cursor:pointer}
+.creator-card:hover{border-color:#ccc}
+.creator-card .av{aspect-ratio:1;display:flex;align-items:center;justify-content:center;font-size:28px;font-weight:700;color:#fff}
+.creator-card .info{padding:12px}
+.creator-card .info .name{font-size:14px;font-weight:600;margin-bottom:2px}
+.creator-card .info .sub{font-size:12px;color:#888}
+.creator-add{border:2px dashed #eee;border-radius:10px;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:8px;cursor:pointer;aspect-ratio:1;color:#bbb}
+.creator-add:hover{border-color:#007aff;color:#007aff}
+.creator-add .plus{font-size:24px;font-weight:300}
 
-  /* Activity items */
-  .activity-item { display:flex; align-items:center; gap:10px; padding:6px 0; }
-  .activity-item:not(:last-child) { border-bottom:1px solid var(--separator); }
-  .activity-icon { width:28px; height:28px; border-radius:8px; display:flex; align-items:center; justify-content:center; font-size:13px; flex-shrink:0; }
-  .activity-text { flex:1; font-size:14px; }
-  .activity-time { font-size:12px; color: var(--text-secondary); flex-shrink:0; }
+/* ── Creator Detail ── */
+.bread{font-size:13px;color:#bbb;margin-bottom:16px;display:flex;gap:6px}
+.bread span{cursor:pointer}
+.bread span:hover{color:#000}
+.cr-head{display:flex;align-items:center;gap:18px;margin-bottom:24px}
+.cr-head .av{width:48px;height:48px;border-radius:10px;display:flex;align-items:center;justify-content:center;font-size:20px;font-weight:700;color:#fff;flex-shrink:0}
+.cr-head .ci{flex:1}
+.cr-head .ci h2{font-size:20px;font-weight:700;margin-bottom:2px}
+.cr-head .ci .sub{font-size:14px;color:#888}
+.cr-head .acts{display:flex;gap:8px}
+.toolbar{display:flex;align-items:center;gap:12px;margin-bottom:14px;flex-wrap:wrap}
+.toolbar .cb-all{font-size:13px;color:#888;cursor:pointer}
+.toolbar .batch{display:flex;gap:4px}
+.toolbar .batch a{font-size:12px;padding:4px 10px;border:1px solid #eee;border-radius:5px;cursor:pointer}
+.toolbar .batch a:hover{border-color:#ccc}
+.toolbar input{border:1px solid #eee;border-radius:6px;padding:6px 12px;font-size:13px;flex:1;min-width:100px;outline:none}
+.toolbar input:focus{border-color:#007aff}
+.vlist{display:flex;flex-direction:column;gap:2px}
+.vitem{display:flex;align-items:center;gap:12px;padding:10px 0;border-bottom:1px solid #f5f5f5}
+.vitem:hover{border-bottom-color:#ddd}
+.vitem .cb{width:16px;height:16px;border:1.5px solid #ccc;border-radius:4px;cursor:pointer;display:flex;align-items:center;justify-content:center;flex-shrink:0;font-size:8px}
+.vitem .cb.chk{background:#007aff;border-color:#007aff}
+.vitem .cb.chk::after{content:'✓';color:#fff;font-weight:700}
+.vitem .tt{flex:1;font-size:14px;min-width:0;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.vitem .tags{display:flex;gap:4px;flex-shrink:0}
+.vitem .tags span{font-size:11px;padding:2px 10px;border-radius:12px;font-weight:500}
+.tag-done{background:rgba(52,199,89,.1);color:#34c759}
+.tag-going{background:rgba(0,122,255,.1);color:#007aff}
+.tag-wait{background:rgba(200,200,200,.2);color:#888}
+.vitem .act{font-size:12px;padding:4px 10px;border-radius:5px;cursor:pointer;border:1px solid #eee;background:#fff}
+.vitem .act:hover{border-color:#007aff;color:#007aff}
 
-  /* Quick action buttons */
-  .quick-actions { display:flex; gap:12px; flex-wrap:wrap; }
-  .quick-btn {
-    display:flex; align-items:center; gap:8px; padding:12px 18px;
-    background: var(--bg-widget-secondary); border-radius: var(--radius-button);
-    font-size:15px; font-weight:500; cursor:pointer; border:none;
-    color: var(--text-primary); transition: all 0.15s;
-  }
-  .quick-btn:hover { background: var(--accent-blue); color: white; transform: scale(0.97); }
-  .quick-btn .icon { font-size:18px; }
+/* ── Settings ── */
+.sg{margin-bottom:28px}
+.sgt{font-size:12px;font-weight:600;color:#888;text-transform:uppercase;letter-spacing:.3px;margin-bottom:10px}
+.sc{border:1px solid #eee;border-radius:10px;overflow:hidden}
+.si{display:flex;align-items:center;padding:12px 16px;gap:12px;border-bottom:1px solid #f0f0f0;cursor:pointer}
+.si:last-child{border-bottom:none}
+.si:hover{background:#fafafa}
+.si .icon{font-size:16px;width:24px;text-align:center;flex-shrink:0}
+.si .label{flex:1;font-size:14px;font-weight:500}
+.si .value{font-size:13px;color:#888}
+.si .chev{color:#ccc;font-size:14px}
+.se{max-height:0;overflow:hidden;transition:max-height .2s}
+.se.open{max-height:400px}
+.sei{padding:0 16px 12px}
+.arow{display:flex;align-items:center;gap:10px;padding:8px 10px;border-radius:6px;background:#f8f8f8;margin-bottom:4px;font-size:13px}
+.arow .nm{flex:1;font-weight:500}
+.arow .id{color:#bbb;font-size:12px}
+.arow .st{font-size:12px;color:#34c759}
+.arow .del{color:#ccc;cursor:pointer;background:none;border:none;font-size:14px;padding:2px}
+.arow .del:hover{color:#ff3b30}
+.add-row{display:flex;gap:8px;margin-top:8px}
+.add-row input{flex:1;padding:6px 10px;border:1px solid #eee;border-radius:6px;font-size:13px;outline:none}
+.add-row input:focus{border-color:#007aff}
+.add-row .btn{font-size:12px;padding:6px 12px}
+.claim{font-size:12px;padding:8px 0;color:#888}
+.tgl{width:36px;height:20px;border-radius:10px;background:#e8e8e8;cursor:pointer;position:relative;flex-shrink:0;transition:all .2s}
+.tgl.on{background:#34c759}
+.tgl::after{content:'';position:absolute;top:2px;left:2px;width:16px;height:16px;border-radius:50%;background:#fff;transition:all .2s;box-shadow:0 1px 2px rgba(0,0,0,.1)}
+.tgl.on::after{transform:translateX(16px)}
 
-  /* Creator cards (Library) */
-  .library-grid { display:grid; grid-template-columns: repeat(4, 1fr); gap:20px; }
-  .creator-card {
-    background: var(--bg-widget); border-radius: var(--radius-widget);
-    box-shadow: var(--shadow); overflow:hidden; cursor:pointer;
-    transition: transform 0.2s;
-  }
-  .creator-card:hover { transform: scale(0.98); }
-  .creator-cover {
-    aspect-ratio: 1; background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
-    display:flex; align-items:center; justify-content:center; font-size:48px; color:white;
-  }
-  .creator-card:nth-child(2) .creator-cover { background: linear-gradient(135deg, #f093fb 0%, #f5576c 100%); }
-  .creator-card:nth-child(3) .creator-cover { background: linear-gradient(135deg, #4facfe 0%, #00f2fe 100%); }
-  .creator-card:nth-child(4) .creator-cover { background: linear-gradient(135deg, #43e97b 0%, #38f9d7 100%); }
-  .creator-card:nth-child(5) .creator-cover { background: linear-gradient(135deg, #fa709a 0%, #fee140 100%); }
-  .creator-card:nth-child(6) .creator-cover { background: linear-gradient(135deg, #a8edea 0%, #fed6e3 100%); }
-  .creator-card:nth-child(7) .creator-cover { background: linear-gradient(135deg, #ff9a9e 0%, #fecfef 100%); }
-  .creator-card:nth-child(8) .creator-cover { background: linear-gradient(135deg, #667eea 0%, #764ba2 100%); }
-  .creator-info { padding:16px; }
-  .creator-name { font-size:16px; font-weight:600; margin-bottom:4px; }
-  .creator-meta { font-size:13px; color: var(--text-secondary); }
-
-  /* Segmented control */
-  .segmented-control {
-    display:inline-flex; background: var(--bg-widget-secondary); border-radius:8px; padding:3px; margin-bottom:20px;
-  }
-  .segment-btn {
-    padding:7px 20px; border-radius:6px; font-size:14px; font-weight:500; cursor:pointer;
-    border:none; background:transparent; color: var(--text-secondary); transition: all 0.2s;
-  }
-  .segment-btn.active { background: var(--bg-widget); color: var(--text-primary); box-shadow: 0 1px 3px rgba(0,0,0,0.1); }
-
-  /* Search bar */
-  .search-bar {
-    display:flex; align-items:center; gap:8px; padding:10px 16px;
-    background: var(--bg-widget-secondary); border-radius:10px; margin-bottom:20px;
-  }
-  .search-bar input { border:none; background:transparent; font-size:15px; outline:none; color: var(--text-primary); width:100%; }
-  .search-bar input::placeholder { color: var(--text-secondary); }
-
-  /* Settings */
-  .settings-group { margin-bottom:32px; }
-  .settings-group-title { font-size:13px; font-weight:600; text-transform:uppercase; color: var(--text-secondary); margin-bottom:8px; padding-left:12px; letter-spacing:0.3px; }
-  .settings-list {
-    background: var(--bg-widget); border-radius: var(--radius-widget);
-    box-shadow: var(--shadow); overflow:hidden;
-  }
-  .settings-item {
-    display:flex; align-items:center; padding:14px 18px; cursor:pointer; transition: background 0.15s;
-  }
-  .settings-item:hover { background: rgba(128,128,128,0.04); }
-  .settings-item:not(:last-child) { border-bottom:1px solid var(--separator); }
-  .settings-icon { width:30px; height:30px; border-radius:8px; display:flex; align-items:center; justify-content:center; font-size:15px; margin-right:14px; flex-shrink:0; }
-  .settings-label { flex:1; font-size:16px; }
-  .settings-value { color: var(--text-secondary); font-size:15px; margin-right:4px; }
-  .settings-chevron { color: var(--text-tertiary); font-size:14px; }
-
-  /* Toggle switch */
-  .toggle { width:50px; height:30px; background: var(--text-tertiary); border-radius:15px; position:relative; cursor:pointer; transition: background 0.2s; flex-shrink:0; }
-  .toggle.on { background: var(--accent-green); }
-  .toggle::after { content:''; position:absolute; top:2px; left:2px; width:26px; height:26px; background:white; border-radius:50%; transition: transform 0.2s; box-shadow:0 1px 3px rgba(0,0,0,0.2); }
-  .toggle.on::after { transform: translateX(20px); }
-
-  /* Mobile bottom nav */
-  .bottom-nav {
-    display:none; position:fixed; bottom:0; left:0; right:0; height:64px;
-    background: var(--sidebar-bg); backdrop-filter: blur(20px) saturate(180%);
-    -webkit-backdrop-filter: blur(20px) saturate(180%);
-    border-top:1px solid var(--separator); justify-content:space-around; align-items:center;
-    padding-bottom: env(safe-area-inset-bottom, 0);
-  }
-  .bottom-nav-item { display:flex; flex-direction:column; align-items:center; gap:2px; font-size:10px; color: var(--text-secondary); text-decoration:none; padding:8px 20px; }
-  .bottom-nav-item .icon { font-size:22px; }
-  .bottom-nav-item.active { color: var(--accent-blue); }
-
-  /* Empty state */
-  .empty-state {
-    display:flex; flex-direction:column; align-items:center; justify-content:center; padding:60px 20px; text-align:center; gap:16px;
-  }
-  .empty-icon { font-size:64px; opacity:0.4; }
-  .empty-title { font-size:20px; font-weight:600; color: var(--text-secondary); }
-  .empty-btn {
-    padding:12px 24px; background: var(--accent-blue); color:white; border-radius: var(--radius-button);
-    font-size:16px; font-weight:600; border:none; cursor:pointer;
-  }
-
-  /* Responsive */
-  @media (max-width: 1024px) {
-    .widget-grid { grid-template-columns: repeat(2, 1fr); }
-    .widget-large { grid-column: span 2; }
-    .library-grid { grid-template-columns: repeat(3, 1fr); }
-  }
-  @media (max-width: 640px) {
-    body { flex-direction:column; }
-    .sidebar { display:none; }
-    .main { padding:16px; padding-bottom:80px; }
-    .widget-grid { grid-template-columns: repeat(2, 1fr); gap:12px; }
-    .widget { padding:14px; border-radius:18px; }
-    .widget-medium, .widget-large { grid-column: span 2; }
-    .widget-value { font-size:28px; }
-    .bottom-nav { display:flex; }
-    .library-grid { grid-template-columns: repeat(2, 1fr); gap:12px; }
-    .page-title { font-size:24px; margin-bottom:16px; }
-  }
-
-  /* Stage indicator */
-  .stage-indicator { display:flex; align-items:center; gap:6px; margin-top:8px; }
-  .stage { display:flex; align-items:center; gap:4px; font-size:12px; color: var(--text-secondary); }
-  .stage-dot { width:8px; height:8px; border-radius:50%; background: var(--text-tertiary); }
-  .stage-dot.active { background: var(--accent-blue); }
-  .stage-line { width:20px; height:2px; background: var(--bg-widget-secondary); border-radius:1px; }
-  .stage-line.done { background: var(--accent-blue); }
-
-  /* Gradient backgrounds for live task */
-  .live-task-bg { background: linear-gradient(135deg, rgba(10,132,255,0.08), rgba(175,82,222,0.08)); }
+/* ─── Responsive ─── */
+@media(max-width:768px){
+  .main{padding:20px}
+  .stats{grid-template-columns:repeat(2,1fr);gap:12px}
+  .creator-grid{grid-template-columns:repeat(2,1fr);gap:12px}
+}
 </style>
 </head>
 <body>
 
-<!-- Sidebar (Desktop) -->
-<nav class="sidebar">
-  <div class="sidebar-logo"><div class="icon">&#9654;</div>Media Tools</div>
-  <a href="#" class="nav-item active" data-page="home"><span class="nav-icon">&#8962;</span>工作台</a>
-  <a href="#" class="nav-item" data-page="library"><span class="nav-icon">&#128193;</span>内容库</a>
-  <a href="#" class="nav-item" data-page="settings"><span class="nav-icon">&#9881;</span>设置</a>
-  <div class="sidebar-bottom">
-    <div class="nav-item"><span class="nav-icon">&#9788;</span>浅色 / 深色</div>
+<div class="app">
+  <!-- Top Bar -->
+  <div class="top">
+    <div class="logo"><div class="icon">▶</div>Media Tools</div>
+    <div class="nav">
+      <a class="active" onclick="go('dashboard')">工作台</a>
+      <a onclick="go('library')">内容库</a>
+      <a onclick="go('settings')">设置</a>
+    </div>
+    <div class="top-right">
+      <div class="search-trigger" onclick="alert('⌘K 打开搜索')">⌕ 搜索 <kbd>⌘K</kbd></div>
+    </div>
   </div>
-</nav>
 
-<!-- Main Content -->
-<main class="main">
+  <!-- Main -->
+  <div class="main">
 
-<!-- ===== HOME PAGE ===== -->
-<div class="page active" id="page-home">
-  <div class="page-title">工作台</div>
-  <div class="widget-grid">
+    <!-- ═══ DASHBOARD ═══ -->
+    <div class="page active" id="p-dashboard">
+      <h1>工作台</h1>
+      <div class="stats">
+        <div><div class="num" style="color:#007aff">2</div><div class="lbl">运行中任务</div><div class="sub">海林 · 马杰雪</div></div>
+        <div><div class="num" style="color:#34c759">12</div><div class="lbl">今日完成</div><div class="sub">转写 8 · 下载 4</div></div>
+        <div><div class="num" style="color:#ff9500">8</div><div class="lbl">创作者</div><div class="sub">抖音 6 · B站 2</div></div>
+        <div><div class="num" style="color:#af52de">12h</div><div class="lbl">Qwen 额度</div><div class="sub">4 账号 · <a onclick="go('settings')">领取</a></div></div>
+      </div>
 
-    <!-- Small: Task Count -->
-    <div class="widget widget-small widget-blue-tint">
-      <div class="widget-header">
-        <div class="widget-icon accent-blue">&#9654;</div>
-        <span class="widget-title">运行中任务</span>
-      </div>
-      <div class="widget-body">
-        <div class="widget-value">3</div>
-      </div>
-      <div class="widget-footer">3 个任务正在处理</div>
-    </div>
-
-    <!-- Small: Health Status -->
-    <div class="widget widget-small widget-green-tint">
-      <div class="widget-header">
-        <div class="widget-icon accent-green">&#9829;</div>
-        <span class="widget-title">系统状态</span>
-      </div>
-      <div class="widget-body">
-        <div class="widget-value-sm"><span class="health-dot green"></span>正常</div>
-      </div>
-      <div class="widget-footer">所有服务运行中</div>
-    </div>
-
-    <!-- Small: Qwen Quota -->
-    <div class="widget widget-small widget-blue-tint">
-      <div class="widget-header">
-        <div class="widget-icon accent-purple">&#9733;</div>
-        <span class="widget-title">Qwen 额度</span>
-      </div>
-      <div class="widget-body">
-        <div class="widget-value">12h</div>
-      </div>
-      <div class="widget-footer">3 个账号可用</div>
-    </div>
-
-    <!-- Small: Creator Count -->
-    <div class="widget widget-small">
-      <div class="widget-header">
-        <div class="widget-icon accent-orange">&#9733;</div>
-        <span class="widget-title">创作者</span>
-      </div>
-      <div class="widget-body">
-        <div class="widget-value">8</div>
-      </div>
-      <div class="widget-footer">8 个创作者 &#183; 3 个自动同步</div>
-    </div>
-
-    <!-- Large: Live Task Progress -->
-    <div class="widget widget-large live-task-bg">
-      <div class="widget-header">
-        <div class="widget-icon accent-blue">&#9654;</div>
-        <span class="widget-title">实时任务进度</span>
-      </div>
-      <div class="widget-body">
-        <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:8px;">
-          <span style="font-size:17px; font-weight:600;">创作者同步：李子柒</span>
-          <span style="font-size:15px; font-weight:600; color:var(--accent-blue);">80%</span>
+      <div class="list-head"><h2>正在处理</h2></div>
+      <div style="padding:16px 20px;background:#f8f8f8;border-radius:10px;margin-bottom:28px;display:flex;align-items:center;gap:16px;flex-wrap:wrap">
+        <div style="width:10px;height:10px;border-radius:50%;background:#007aff;flex-shrink:0;animation:pulse 1.5s infinite"></div>
+        <span style="font-weight:600;font-size:15px">海林爱读书_</span>
+        <span style="color:#888;font-size:14px">转写中</span>
+        <div style="flex:1;height:5px;background:#e8e8e8;border-radius:3px;overflow:hidden;min-width:100px">
+          <div style="height:100%;width:62%;border-radius:3px;background:linear-gradient(90deg,#007aff,#5856d6);transition:width .8s"></div>
         </div>
-        <div class="progress-bar-bg"><div class="progress-bar-fill" style="width:80%; background:linear-gradient(90deg, var(--accent-blue), var(--accent-purple));"></div></div>
-        <div style="font-size:13px; color:var(--text-secondary); margin-top:6px;">预计剩余 4 分钟 &#183; 已下载 12/15 个视频</div>
-        <div class="stage-indicator">
-          <div class="stage"><div class="stage-dot active"></div>下载</div>
-          <div class="stage-line done"></div>
-          <div class="stage"><div class="stage-dot active"></div>转写</div>
-          <div class="stage-line"></div>
-          <div class="stage"><div class="stage-dot"></div>导出</div>
-        </div>
+        <span style="font-weight:600;color:#007aff;font-size:14px">62%</span>
+        <span style="color:#888;font-size:13px">2/3</span>
+      </div>
+      <style>
+        @keyframes pulse{0%,100%{opacity:1}50%{opacity:.4}}
+      </style>
+
+      <div class="list-head"><h2>最近文稿</h2><a onclick="go('library')">查看全部 →</a></div>
+      <div class="list-item" onclick="alert('打开阅读器')"><div class="ico">📄</div><div class="info"><div class="t">40分钟精读认知觉醒_周岭</div><div class="m">海林爱读书_ · 2 分钟前 · 14k 字</div></div><span class="act">阅读</span></div>
+      <div class="list-item" onclick="alert('打开阅读器')"><div class="ico">📄</div><div class="info"><div class="t">我们为什么摆脱不了贫穷_贫穷的本质</div><div class="m">海林爱读书_ · 5 分钟前 · 8k 字</div></div><span class="act">阅读</span></div>
+      <div class="list-item" onclick="alert('打开阅读器')"><div class="ico">📄</div><div class="info"><div class="t">0帧起手  一见钟情</div><div class="m">马杰雪 · 昨天</div></div><span class="act">阅读</span></div>
+    </div>
+
+    <!-- ═══ LIBRARY ═══ -->
+    <div class="page" id="p-library">
+      <h1>内容库</h1>
+      <div class="top-bar">
+        <div class="search-box"><span style="color:#bbb">⌕</span><input placeholder="搜索创作者..."></div>
+        <div class="btn" onclick="alert('本地转写对话框')">📁 本地转写</div>
+        <div class="btn btn-blue" onclick="alert('添加创作者对话框')">+ 添加创作者</div>
+      </div>
+      <div class="filters"><a class="active">全部</a><a>有文稿</a><a>待处理</a></div>
+      <div class="creator-grid">
+        <div class="creator-card" onclick="ocd('海林爱读书_','linear-gradient(135deg,#007aff,#5856d6)')"><div class="av" style="background:linear-gradient(135deg,#007aff,#5856d6)">海</div><div class="info"><div class="name">海林爱读书_</div><div class="sub">3 视频 · 2 文稿</div></div></div>
+        <div class="creator-card" onclick="ocd('马杰雪','linear-gradient(135deg,#ff3b30,#af52de)')"><div class="av" style="background:linear-gradient(135deg,#ff3b30,#af52de)">马</div><div class="info"><div class="name">马杰雪</div><div class="sub">154 视频 · 0 文稿</div></div></div>
+        <div class="creator-card" onclick="ocd('张三说电影','linear-gradient(135deg,#34c759,#5ac8fa)')"><div class="av" style="background:linear-gradient(135deg,#34c759,#5ac8fa)">张</div><div class="info"><div class="name">张三说电影</div><div class="sub">234 视频 · 12 文稿</div></div></div>
+        <div class="creator-card" onclick="ocd('手工耿','linear-gradient(135deg,#ff9500,#ff3b30)')"><div class="av" style="background:linear-gradient(135deg,#ff9500,#ff3b30)">手</div><div class="info"><div class="name">手工耿</div><div class="sub">89 视频 · 3 文稿</div></div></div>
+        <div class="creator-card" onclick="ocd('罗翔说刑法','linear-gradient(135deg,#af52de,#007aff)')"><div class="av" style="background:linear-gradient(135deg,#af52de,#007aff)">罗</div><div class="info"><div class="name">罗翔说刑法</div><div class="sub">189 视频 · 45 文稿</div></div></div>
+        <div class="creator-card" onclick="ocd('科技美学','linear-gradient(135deg,#5ac8fa,#34c759)')"><div class="av" style="background:linear-gradient(135deg,#5ac8fa,#34c759)">科</div><div class="info"><div class="name">科技美学</div><div class="sub">567 视频 · 23 文稿</div></div></div>
+        <div class="creator-card" onclick="ocd('半佛仙人','linear-gradient(135deg,#ff3b30,#ff9500)')"><div class="av" style="background:linear-gradient(135deg,#ff3b30,#ff9500)">半</div><div class="info"><div class="name">半佛仙人</div><div class="sub">312 视频 · 18 文稿</div></div></div>
+        <div class="creator-add" onclick="alert('添加创作者对话框')"><div class="plus">+</div><span>添加创作者</span></div>
       </div>
     </div>
 
-    <!-- Medium: Active Tasks -->
-    <div class="widget widget-medium">
-      <div class="widget-header">
-        <div class="widget-icon accent-blue">&#9654;</div>
-        <span class="widget-title">活跃任务</span>
+    <!-- ═══ CREATOR DETAIL ═══ -->
+    <div class="page" id="p-creator">
+      <div class="bread"><span onclick="go('library')">内容库</span><span style="color:#ccc">›</span><span id="cn">海林爱读书_</span></div>
+      <div class="cr-head">
+        <div class="av" id="ca" style="background:linear-gradient(135deg,#007aff,#5856d6)">海</div>
+        <div class="ci"><h2 id="cname">海林爱读书_</h2><div class="sub" id="cmeta">218 万粉丝 · 122 视频 · 2 文稿</div></div>
+        <div class="acts"><div class="btn" onclick="alert('增量下载')">下载增量</div><div class="btn btn-blue" onclick="alert('全量下载')">下载全部</div></div>
       </div>
-      <div class="widget-body">
-        <div class="task-list-item">
-          <div class="task-thumb accent-blue" style="color:var(--accent-blue);">&#9654;</div>
-          <div class="task-info">
-            <div class="task-name">同步：李子柒</div>
-            <div class="task-meta">下载中 &#183; 80%</div>
-          </div>
-          <div style="width:60px;"><div class="progress-bar-bg"><div class="progress-bar-fill" style="width:80%; background:var(--accent-blue);"></div></div></div>
-        </div>
-        <div class="task-list-item">
-          <div class="task-thumb accent-purple" style="color:var(--accent-purple);">&#9733;</div>
-          <div class="task-info">
-            <div class="task-name">转写： gardening_video.mp4</div>
-            <div class="task-meta">转写中 &#183; 45%</div>
-          </div>
-          <div style="width:60px;"><div class="progress-bar-bg"><div class="progress-bar-fill" style="width:45%; background:var(--accent-purple);"></div></div></div>
-        </div>
-        <div class="task-list-item">
-          <div class="task-thumb accent-teal" style="color:var(--accent-teal);">&#8690;</div>
-          <div class="task-info">
-            <div class="task-name">导出：美食合集</div>
-            <div class="task-meta">导出中 &#183; 20%</div>
-          </div>
-          <div style="width:60px;"><div class="progress-bar-bg"><div class="progress-bar-fill" style="width:20%; background:var(--accent-teal);"></div></div></div>
-        </div>
+      <div class="toolbar">
+        <span class="cb-all" onclick="ta(this)">☐ 全选</span>
+        <div class="batch"><a onclick="alert('已标记')">已读</a><a onclick="alert('已收藏')">收藏</a><a onclick="if(confirm('确定？'))alert('已删除')">删除</a></div>
+        <input placeholder="搜索视频...">
+        <div class="filters" style="margin:0"><a class="active">全部</a><a>已下载</a><a>待转写</a><a>已转写</a></div>
       </div>
-      <div class="widget-footer">还有 2 个任务排队中</div>
-    </div>
-
-    <!-- Medium: Recent Activity -->
-    <div class="widget widget-medium">
-      <div class="widget-header">
-        <div class="widget-icon accent-green">&#10003;</div>
-        <span class="widget-title">最近动态</span>
-      </div>
-      <div class="widget-body">
-        <div class="activity-item">
-          <div class="activity-icon accent-green" style="color:var(--accent-green);">&#10003;</div>
-          <span class="activity-text">下载完成：李子柒 3 个视频</span>
-          <span class="activity-time">2 分钟前</span>
-        </div>
-        <div class="activity-item">
-          <div class="activity-icon accent-red" style="color:var(--accent-red);">&#33;</div>
-          <span class="activity-text">转写失败：cooking_video.mp4</span>
-          <span class="activity-time">15 分钟前</span>
-        </div>
-        <div class="activity-item">
-          <div class="activity-icon accent-blue" style="color:var(--accent-blue);">&#8634;</div>
-          <span class="activity-text">同步完成：手工耿</span>
-          <span class="activity-time">1 小时前</span>
-        </div>
-      </div>
-      <div class="widget-footer">过去 24 小时 12 条动态</div>
-    </div>
-
-    <!-- Large: Quick Actions -->
-    <div class="widget widget-large">
-      <div class="widget-header">
-        <div class="widget-icon accent-blue">&#43;</div>
-        <span class="widget-title">快捷操作</span>
-      </div>
-      <div class="widget-body">
-        <div class="quick-actions">
-          <button class="quick-btn"><span class="icon">&#128203;</span>粘贴链接下载</button>
-          <button class="quick-btn"><span class="icon">&#43;</span>添加创作者</button>
-          <button class="quick-btn"><span class="icon">&#9733;</span>本地转写</button>
-          <button class="quick-btn"><span class="icon">&#128465;</span>清理历史任务</button>
-        </div>
+      <div class="vlist">
+        <div class="vitem"><div class="cb" onclick="tc(this)"></div><span class="tt">40分钟精读认知觉醒_周岭</span><div class="tags"><span class="tag-done">已下载</span><span class="tag-done">已转写</span></div><div class="act" onclick="alert('打开阅读器')">阅读</div></div>
+        <div class="vitem"><div class="cb" onclick="tc(this)"></div><span class="tt">我们为什么摆脱不了贫穷</span><div class="tags"><span class="tag-done">已下载</span><span class="tag-done">已转写</span></div><div class="act" onclick="alert('打开阅读器')">阅读</div></div>
+        <div class="vitem"><div class="cb" onclick="tc(this)"></div><span class="tt">为什么越努力越焦虑</span><div class="tags"><span class="tag-done">已下载</span><span class="tag-going">转写中</span></div><div class="act">下载</div></div>
+        <div class="vitem"><div class="cb" onclick="tc(this)"></div><span class="tt">如何高效阅读一本书</span><div class="tags"><span class="tag-going">下载中</span></div><div class="act">下载</div></div>
+        <div class="vitem"><div class="cb" onclick="tc(this)"></div><span class="tt">2025年读书计划</span><div class="tags"><span class="tag-wait">等待</span></div><div class="act">下载</div></div>
       </div>
     </div>
 
-    <!-- Large: Creator Overview -->
-    <div class="widget widget-large">
-      <div class="widget-header">
-        <div class="widget-icon accent-orange">&#9733;</div>
-        <span class="widget-title">创作者概览</span>
+    <!-- ═══ SETTINGS ═══ -->
+    <div class="page" id="p-settings">
+      <h1>设置</h1>
+      <div class="sg"><div class="sgt">账号管理</div>
+        <div class="sc">
+          <div class="si" onclick="te(this,'a1')"><span class="icon" style="color:#ff9500">◆</span><span class="label">抖音账号</span><span class="value">2 个</span><span class="chev">›</span></div>
+          <div class="se" id="a1"><div class="sei">
+            <div class="arow"><span class="nm">主账号</span><span class="id">1bbea4...8ec3</span><span class="st">活跃</span><button class="del" onclick="this.closest('.arow').remove()">✕</button></div>
+            <div class="arow"><span class="nm">小号</span><span class="id">a9539d...725b</span><span class="st">活跃</span><button class="del" onclick="this.closest('.arow').remove()">✕</button></div>
+            <div class="add-row"><input placeholder="Cookie"><input placeholder="备注" style="width:80px;flex:none"><div class="btn btn-blue" style="font-size:12px;padding:5px 12px" onclick="alert('已添加')">添加</div></div>
+          </div></div>
+          <div class="si" onclick="te(this,'a2')"><span class="icon" style="color:#af52de">◆</span><span class="label">B站 Cookie</span><span class="value">1 个</span><span class="chev">›</span></div>
+          <div class="se" id="a2"><div class="sei">
+            <div class="arow"><span class="nm">B站主号</span><span class="id">bili_..._001</span><span class="st">活跃</span><button class="del" onclick="this.closest('.arow').remove()">✕</button></div>
+            <div class="add-row"><input placeholder="Cookie"><input placeholder="备注" style="width:80px;flex:none"><div class="btn btn-blue" style="font-size:12px;padding:5px 12px" onclick="alert('已添加')">添加</div></div>
+          </div></div>
+          <div class="si" onclick="te(this,'a3')"><span class="icon" style="color:#007aff">★</span><span class="label">Qwen 账号池</span><span class="value">4 个 · 12h</span><span class="chev">›</span></div>
+          <div class="se" id="a3"><div class="sei">
+            <div class="arow"><span class="nm">guiqing</span><span class="id">8341ab...0653</span><span class="st">6h</span><button class="del" onclick="this.closest('.arow').remove()">✕</button></div>
+            <div class="arow"><span class="nm">qingyin</span><span class="id">2bf5e1...594</span><span class="st">4h</span><button class="del" onclick="this.closest('.arow').remove()">✕</button></div>
+            <div class="arow"><span class="nm">addision</span><span class="id">a9539d...25b</span><span class="st" style="color:#ff9500">1h</span><button class="del" onclick="this.closest('.arow').remove()">✕</button></div>
+            <div class="arow"><span class="nm">qinggui</span><span class="id">fafaf9...279</span><span class="st" style="color:#ff9500">1h</span><button class="del" onclick="this.closest('.arow').remove()">✕</button></div>
+            <div class="claim"><a onclick="alert('已领取')">领取每日额度</a></div>
+            <div class="add-row"><input placeholder="Qwen Cookie"><input placeholder="备注" style="width:80px;flex:none"><div class="btn btn-blue" style="font-size:12px;padding:5px 12px" onclick="alert('已添加')">添加</div></div>
+          </div></div>
+        </div>
       </div>
-      <div class="widget-body">
-        <div class="task-list-item">
-          <div class="task-thumb" style="background:linear-gradient(135deg,#667eea,#764ba2); color:white; font-size:14px;">李</div>
-          <div class="task-info"><div class="task-name">李子柒</div><div class="task-meta">156 个视频 &#183; 昨天同步</div></div>
-          <span style="font-size:13px; color:var(--text-secondary);">自动同步</span>
-        </div>
-        <div class="task-list-item">
-          <div class="task-thumb" style="background:linear-gradient(135deg,#f093fb,#f5576c); color:white; font-size:14px;">手</div>
-          <div class="task-info"><div class="task-name">手工耿</div><div class="task-meta">89 个视频 &#183; 3 天前</div></div>
-          <span style="font-size:13px; color:var(--text-secondary);">手动</span>
-        </div>
-        <div class="task-list-item">
-          <div class="task-thumb" style="background:linear-gradient(135deg,#4facfe,#00f2fe); color:white; font-size:14px;">张</div>
-          <div class="task-info"><div class="task-name">张三说电影</div><div class="task-meta">234 个视频 &#183; 今天</div></div>
-          <span style="font-size:13px; color:var(--accent-green);">同步中...</span>
+      <div class="sg"><div class="sgt">全局设置</div>
+        <div class="sc">
+          <div class="si"><span class="icon" style="color:#34c759">↻</span><span class="label">自动转写</span><div class="tgl on" onclick="this.classList.toggle('on')"></div></div>
+          <div class="si"><span class="icon" style="color:#ff3b30">✕</span><span class="label">转写后删除原视频</span><div class="tgl" onclick="this.classList.toggle('on')"></div></div>
+          <div class="si"><span class="icon" style="color:#007aff">⚡</span><span class="label">并发数</span><span class="value">2</span><span class="chev">›</span></div>
+          <div class="si"><span class="icon" style="color:#af52de">📄</span><span class="label">导出格式</span><span class="value">Markdown</span><span class="chev">›</span></div>
+          <div class="si" onclick="te(this,'a4')"><span class="icon" style="color:#ff9500">⏰</span><span class="label">定时同步</span><span class="value">1 个任务</span><span class="chev">›</span></div>
+          <div class="se" id="a4"><div class="sei">
+            <div class="arow"><span style="font-size:13px">0 */30 * * * *</span><span style="font-size:12px;color:#888;margin-left:6px">每 30 分钟</span><div class="tgl on" style="margin-left:auto;transform:scale(.8);transform-origin:right" onclick="this.classList.toggle('on')"></div><button class="del" onclick="this.closest('.arow').remove()">✕</button></div>
+            <div class="add-row"><input placeholder="Cron 表达式"><div class="btn btn-blue" style="font-size:12px;padding:5px 12px" onclick="alert('已添加')">新增</div></div>
+          </div></div>
         </div>
       </div>
-      <div class="widget-footer">8 个创作者 &#183; 查看全部</div>
+      <div class="sg"><div class="sgt">系统</div>
+        <div class="sc">
+          <div class="si" onclick="alert('失败统计:\n认知觉醒 - 下载失败 ×2\n烹饪视频 - 转写超时 ×1')"><span class="icon" style="color:#ff3b30">⚠</span><span class="label">失败统计</span><span class="value">3 个失败</span><span class="chev">›</span></div>
+          <div class="si" onclick="if(confirm('确定清除？'))alert('已清除')"><span class="icon" style="color:#888">✕</span><span class="label">清理历史</span><span class="chev">›</span></div>
+          <div class="si"><span class="icon" style="color:#007aff">ℹ</span><span class="label">关于</span><span class="value">v2.0</span></div>
+        </div>
+      </div>
     </div>
 
   </div>
 </div>
-
-<!-- ===== LIBRARY PAGE ===== -->
-<div class="page" id="page-library">
-  <div class="page-title">内容库</div>
-  <div class="segmented-control">
-    <button class="segment-btn active">全部</button>
-    <button class="segment-btn">视频</button>
-    <button class="segment-btn">转写文本</button>
-  </div>
-  <div class="search-bar">
-    <span style="color:var(--text-secondary);">&#128269;</span>
-    <input type="text" placeholder="搜索创作者或视频...">
-  </div>
-  <div class="library-grid">
-    <div class="creator-card">
-      <div class="creator-cover">李</div>
-      <div class="creator-info">
-        <div class="creator-name">李子柒</div>
-        <div class="creator-meta">156 个视频 &#183; 昨天同步</div>
-      </div>
-    </div>
-    <div class="creator-card">
-      <div class="creator-cover">手</div>
-      <div class="creator-info">
-        <div class="creator-name">手工耿</div>
-        <div class="creator-meta">89 个视频 &#183; 3 天前</div>
-      </div>
-    </div>
-    <div class="creator-card">
-      <div class="creator-cover">张</div>
-      <div class="creator-info">
-        <div class="creator-name">张三说电影</div>
-        <div class="creator-meta">234 个视频 &#183; 今天</div>
-      </div>
-    </div>
-    <div class="creator-card">
-      <div class="creator-cover">科</div>
-      <div class="creator-info">
-        <div class="creator-name">科技美学</div>
-        <div class="creator-meta">567 个视频 &#183; 1 周前</div>
-      </div>
-    </div>
-    <div class="creator-card">
-      <div class="creator-cover">何</div>
-      <div class="creator-info">
-        <div class="creator-name">何同学</div>
-        <div class="creator-meta">45 个视频 &#183; 2 周前</div>
-      </div>
-    </div>
-    <div class="creator-card">
-      <div class="creator-cover">半</div>
-      <div class="creator-info">
-        <div class="creator-name">半佛仙人</div>
-        <div class="creator-meta">312 个视频 &#183; 5 天前</div>
-      </div>
-    </div>
-    <div class="creator-card">
-      <div class="creator-cover">罗</div>
-      <div class="creator-info">
-        <div class="creator-name">罗翔说刑法</div>
-        <div class="creator-meta">189 个视频 &#183; 昨天</div>
-      </div>
-    </div>
-    <div class="creator-card">
-      <div class="creator-cover">+</div>
-      <div class="creator-info">
-        <div class="creator-name">添加创作者</div>
-        <div class="creator-meta">粘贴主页链接</div>
-      </div>
-    </div>
-  </div>
-</div>
-
-<!-- ===== SETTINGS PAGE ===== -->
-<div class="page" id="page-settings">
-  <div class="page-title">设置</div>
-
-  <div class="settings-group">
-    <div class="settings-group-title">账号配置</div>
-    <div class="settings-list">
-      <div class="settings-item">
-        <div class="settings-icon accent-orange" style="color:var(--accent-orange);">&#9830;</div>
-        <span class="settings-label">抖音 Cookie</span>
-        <span class="settings-value">已配置</span>
-        <span class="settings-chevron">&#8250;</span>
-      </div>
-      <div class="settings-item">
-        <div class="settings-icon accent-blue" style="color:var(--accent-blue);">&#9830;</div>
-        <span class="settings-label">B 站 Cookie</span>
-        <span class="settings-value">未配置</span>
-        <span class="settings-chevron">&#8250;</span>
-      </div>
-      <div class="settings-item">
-        <div class="settings-icon accent-purple" style="color:var(--accent-purple);">&#9733;</div>
-        <span class="settings-label">Qwen 账号池</span>
-        <span class="settings-value">3 个账号</span>
-        <span class="settings-chevron">&#8250;</span>
-      </div>
-    </div>
-  </div>
-
-  <div class="settings-group">
-    <div class="settings-group-title">全局偏好</div>
-    <div class="settings-list">
-      <div class="settings-item">
-        <div class="settings-icon accent-green" style="color:var(--accent-green);">&#9851;</div>
-        <span class="settings-label">自动转写</span>
-        <div class="toggle on"></div>
-      </div>
-      <div class="settings-item">
-        <div class="settings-icon accent-red" style="color:var(--accent-red);">&#128465;</div>
-        <span class="settings-label">转写后删除视频</span>
-        <div class="toggle"></div>
-      </div>
-      <div class="settings-item">
-        <div class="settings-icon accent-blue" style="color:var(--accent-blue);">&#128196;</div>
-        <span class="settings-label">导出格式</span>
-        <span class="settings-value">Markdown</span>
-        <span class="settings-chevron">&#8250;</span>
-      </div>
-      <div class="settings-item">
-        <div class="settings-icon accent-teal" style="color:var(--accent-teal);">&#9632;</div>
-        <span class="settings-label">并发数</span>
-        <span class="settings-value">2</span>
-        <span class="settings-chevron">&#8250;</span>
-      </div>
-    </div>
-  </div>
-
-  <div class="settings-group">
-    <div class="settings-group-title">系统</div>
-    <div class="settings-list">
-      <div class="settings-item">
-        <div class="settings-icon accent-red" style="color:var(--accent-red);">&#128465;</div>
-        <span class="settings-label">清理历史任务</span>
-        <span class="settings-chevron">&#8250;</span>
-      </div>
-      <div class="settings-item">
-        <div class="settings-icon accent-blue" style="color:var(--accent-blue);">&#128194;</div>
-        <span class="settings-label">日志目录</span>
-        <span class="settings-value">~/logs</span>
-        <span class="settings-chevron">&#8250;</span>
-      </div>
-      <div class="settings-item">
-        <div class="settings-icon accent-teal" style="color:var(--accent-teal);">&#8505;</div>
-        <span class="settings-label">关于</span>
-        <span class="settings-value">v2.0</span>
-        <span class="settings-chevron">&#8250;</span>
-      </div>
-    </div>
-  </div>
-</div>
-
-</main>
-
-<!-- Mobile Bottom Nav -->
-<nav class="bottom-nav">
-  <a href="#" class="bottom-nav-item active" data-page="home"><span class="icon">&#8962;</span>工作台</a>
-  <a href="#" class="bottom-nav-item" data-page="library"><span class="icon">&#128193;</span>内容库</a>
-  <a href="#" class="bottom-nav-item" data-page="settings"><span class="icon">&#9881;</span>设置</a>
-</nav>
 
 <script>
-  // Page switching
-  function switchPage(pageId) {
-    document.querySelectorAll('.page').forEach(p => p.classList.remove('active'));
-    document.getElementById('page-' + pageId).classList.add('active');
-    document.querySelectorAll('.nav-item, .bottom-nav-item').forEach(n => n.classList.remove('active'));
-    document.querySelectorAll('[data-page="' + pageId + '"]').forEach(n => n.classList.add('active'));
-  }
-  document.querySelectorAll('[data-page]').forEach(el => {
-    el.addEventListener('click', e => { e.preventDefault(); switchPage(el.dataset.page); });
-  });
-
-  // Toggle switches
-  document.querySelectorAll('.toggle').forEach(t => {
-    t.addEventListener('click', () => t.classList.toggle('on'));
-  });
-
-  // Segmented control
-  document.querySelectorAll('.segment-btn').forEach(btn => {
-    btn.addEventListener('click', () => {
-      btn.parentElement.querySelectorAll('.segment-btn').forEach(b => b.classList.remove('active'));
-      btn.classList.add('active');
-    });
-  });
+function go(p){
+  document.querySelectorAll('.page').forEach(x=>x.classList.remove('active'))
+  document.getElementById('p-'+p).classList.add('active')
+  document.querySelectorAll('.nav a').forEach(x=>x.classList.remove('active'))
+  document.querySelectorAll(`.nav a[onclick*="${p}"]`).forEach(x=>x.classList.add('active'))
+}
+function tc(el){el.classList.toggle('chk')}
+function ta(el){const a=el.textContent.includes('☑');document.querySelectorAll('#p-creator .cb').forEach(x=>{if(a)x.classList.remove('chk');else x.classList.add('chk')});el.textContent=a?'☐ 全选':'☑ 全选'}
+function ocd(n,g){
+  document.getElementById('cn').textContent=n
+  document.getElementById('cname').textContent=n
+  const a=document.getElementById('ca')
+  a.textContent=n[0];a.style.background=g
+  go('creator')
+}
+function te(el,id){
+  const e=document.getElementById(id)
+  const ch=el.querySelector('.chev')
+  if(e){e.classList.toggle('open');if(ch)ch.textContent=e.classList.contains('open')?'⌃':'›'}
+}
 </script>
 </body>
 </html>

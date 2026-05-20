@@ -162,7 +162,7 @@ def _fetch_user_info_via_f2(url, sec_user_id):
     """
 
     async def _fetch_profile():
-        from .downloader import _get_f2_kwargs
+        from media_tools.platform.douyin import _get_f2_kwargs
         from f2.apps.douyin.handler import DouyinHandler
 
         kwargs = _get_f2_kwargs()

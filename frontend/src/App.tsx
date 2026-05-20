@@ -11,6 +11,7 @@ const Home = lazy(() => import('./pages/Home'));
 const Discover = lazy(() => import('./pages/Discover'));
 const Library = lazy(() => import('./pages/Library'));
 const CreatorDetail = lazy(() => import('./pages/CreatorDetail'));
+const Transcripts = lazy(() => import('./pages/Transcripts'));
 const Tasks = lazy(() => import('./pages/Tasks'));
 const Settings = lazy(() => import('./pages/Settings'));
 
@@ -50,11 +51,14 @@ function App() {
   const disconnectWebSocket = useStore((state) => state.disconnectWebSocket);
   const lastCompletedTaskTime = useStore((state) => state.lastCompletedTaskTime);
   const fetchCreators = useStore((state) => state.fetchCreators);
+  const fetchSettings = useStore((state) => state.fetchSettings);
 
   useEffect(() => {
     connectWebSocket();
+    fetchCreators();
+    fetchSettings();
     return () => { disconnectWebSocket(); };
-  }, [connectWebSocket, disconnectWebSocket]);
+  }, [connectWebSocket, disconnectWebSocket, fetchCreators, fetchSettings]);
 
   // 全局监听任务完成，任意页面都能触发创作者数据刷新
   useEffect(() => {
@@ -64,7 +68,7 @@ function App() {
   }, [lastCompletedTaskTime, fetchCreators]);
 
   return (
-    <ThemeProvider attribute="class" defaultTheme="light">
+    <ThemeProvider attribute="class" defaultTheme="dark" forcedTheme="dark">
       <ErrorBoundary>
         <BrowserRouter>
           <Routes>
@@ -88,6 +92,11 @@ function App() {
               <Route path="/library/:creatorUid" element={
                 <Suspense fallback={<SkeletonScreen />}>
                   <CreatorDetail />
+                </Suspense>
+              } />
+              <Route path="/transcripts" element={
+                <Suspense fallback={<SkeletonScreen />}>
+                  <Transcripts />
                 </Suspense>
               } />
               <Route path="/tasks" element={

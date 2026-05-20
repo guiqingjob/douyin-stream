@@ -157,6 +157,12 @@ async def get_quota_snapshot(
     finally:
         await api.dispose()
 
+    # API 返回登录错误时直接抛出，让上层识别为 AUTH 错误
+    if isinstance(quota_json, dict) and quota_json.get("errorCode") == "NOT_LOGIN":
+        from media_tools.transcribe.error_classifier import TranscribeErrorClassifier
+        error_info = TranscribeErrorClassifier.classify("账号权限不足")
+        raise RuntimeError(f"{error_info.message}: {quota_json.get('errorMsg', '未登录')}")
+
     data = quota_json.get("data", []) if isinstance(quota_json, dict) else []
     tingwu_benefit = {}
     if isinstance(data, list):

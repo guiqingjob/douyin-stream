@@ -81,6 +81,12 @@ class AccountPool:
             self._excluded.add(account_id)
             logger.warning(f"账号已排除: {account_id}")
 
+    def reset_excluded(self) -> None:
+        """重置排除状态，在外层重试前调用，给所有账号新的尝试机会。"""
+        if self._excluded:
+            logger.info(f"重置账号排除状态，恢复 {len(self._excluded)} 个账号")
+            self._excluded.clear()
+
     def get_stats(self) -> dict[str, Any]:
         active = sum(
             1 for a in self._accounts

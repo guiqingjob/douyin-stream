@@ -4,7 +4,9 @@ from pathlib import Path
 from typing import Any, Dict, Tuple, Optional, Union
 
 import yaml
-from .logger import logger
+from media_tools.logger import get_logger
+
+logger = get_logger(__name__)
 from media_tools.douyin.core.config_mgr import get_config
 
 PROJECT_ROOT = get_config().project_root

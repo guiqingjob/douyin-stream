@@ -139,9 +139,21 @@ def _persist_bilibili_assets_to_db(
             entry.get("uploader_id") or entry.get("channel_id") or entry.get("mid")
             or (uploader_info.mid if uploader_info else "")
         )
+
+        # fallback：从 uploader_url / channel_url / webpage_url 提取 mid
         if not mid:
-            # 没 mid 就没法挂创作者，跳过而非乱写
-            continue
+            for key in ("uploader_url", "channel_url", "webpage_url"):
+                url_val = entry.get(key) or ""
+                m = re.search(r'space\.bilibili\.com/(\d+)', str(url_val))
+                if m:
+                    mid = m.group(1)
+                    break
+
+        # 最后手段：使用占位符，确保视频能入库而不是丢失
+        if not mid:
+            logger.warning(f"视频 {bvid} 无法获取 UP 主 ID，使用占位符 'unknown'")
+            mid = "unknown"
+
         creator_uid = build_bilibili_creator_uid(str(mid))
 
         p_index_raw = entry.get("playlist_index")
@@ -254,6 +266,12 @@ def download_up_by_url(
             if entry:
                 uploader = entry.get("uploader") or entry.get("uploader_name") or entry.get("channel") or entry.get("channel_id")
                 mid = entry.get("uploader_id") or entry.get("channel_id") or entry.get("mid")
+                # fallback：从 uploader_url 提取 mid
+                if not mid:
+                    uploader_url = entry.get("uploader_url") or ""
+                    m = re.search(r'space\.bilibili\.com/(\d+)', str(uploader_url))
+                    if m:
+                        mid = m.group(1)
                 if uploader and mid:
                     uploader_info = UploaderInfo(
                         nickname=uploader,
@@ -271,7 +289,8 @@ def download_up_by_url(
         "continuedl": True,
         "consoletitle": False,
         "outtmpl": _build_output_template(downloads_path, "bilibili", "全部投稿"),
-        "format": "best/bestvideo+bestaudio",
+        # 优先选择 H.264(AVC) 编码，避免 AV1/HEVC 导致 Qwen 转写返回 recordStatus=40
+        "format": "best[vcodec~='^avc']/bestvideo[vcodec~='^avc']+bestaudio/best/bestvideo+bestaudio",
         "merge_output_format": "mp4",
         "retries": 5,
         "extractor_retries": 5,
@@ -335,6 +354,12 @@ def download_up_by_url(
     if uploader_info is None and isinstance(info, dict):
         uploader = info.get("uploader") or info.get("channel") or info.get("uploader_name")
         mid = info.get("uploader_id") or info.get("channel_id") or info.get("mid")
+        # fallback：从 uploader_url 提取 mid
+        if not mid:
+            uploader_url = info.get("uploader_url") or ""
+            m = re.search(r'space\.bilibili\.com/(\d+)', str(uploader_url))
+            if m:
+                mid = m.group(1)
         if uploader and mid:
             uploader_info = UploaderInfo(
                 nickname=uploader,

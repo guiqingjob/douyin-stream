@@ -1028,7 +1028,13 @@ async def download_aweme_by_url(url: str):
         return False
 
     aweme_dict = aweme_data._to_dict()
-    uid = str(aweme_dict.get("uid") or aweme_dict.get("author", {}).get("uid") or "")
+    uid = str(
+        aweme_dict.get("uid")
+        or aweme_dict.get("author", {}).get("uid")
+        or aweme_dict.get("sec_user_id")
+        or aweme_dict.get("author", {}).get("sec_user_id")
+        or ""
+    )
     nickname = str(aweme_dict.get("nickname") or aweme_dict.get("author", {}).get("nickname") or "")
 
     async with AsyncUserDB(str(config.get_db_path())) as db:

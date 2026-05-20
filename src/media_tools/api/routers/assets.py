@@ -1,7 +1,7 @@
 from fastapi import APIRouter, Query, HTTPException
 from fastapi.responses import StreamingResponse, FileResponse
 from pydantic import BaseModel, field_validator
-from media_tools.common.paths import get_download_path, get_transcripts_path
+from media_tools.common.paths import get_download_path, get_transcripts_path, get_project_root
 from media_tools.store.db import get_db_connection, resolve_safe_path, resolve_query_value
 from media_tools.assets.file_ops import (
     delete_asset_files,
@@ -20,7 +20,69 @@ import os
 from pathlib import Path
 
 router = APIRouter(prefix="/api/v1/assets", tags=["assets"], redirect_slashes=False)
+transcripts_router = APIRouter(prefix="/api/v1/transcripts", tags=["transcripts"], redirect_slashes=False)
 logger = logging.getLogger(__name__)
+
+
+@transcripts_router.get("")
+def list_transcripts(
+    status: Optional[str] = Query(default="all", description="all / unread / starred"),
+    limit: int = Query(default=50, ge=1, le=200),
+    offset: int = Query(default=0, ge=0),
+):
+    """获取全局文稿列表，支持按阅读状态和收藏状态过滤"""
+    try:
+        with get_db_connection() as conn:
+            conn.row_factory = sqlite3.Row
+            base_sql = """
+                SELECT 
+                    a.asset_id, a.title, a.creator_uid, a.create_time, 
+                    a.is_read, a.is_starred, a.transcript_status, a.transcript_path,
+                    c.nickname as creator_name
+                FROM media_assets a
+                LEFT JOIN creators c ON a.creator_uid = c.uid
+                WHERE LOWER(a.transcript_status) = 'completed' 
+                  AND a.transcript_path IS NOT NULL
+                  AND a.transcript_path != ''
+            """
+            params = []
+            
+            if status == "unread":
+                base_sql += " AND (a.is_read = 0 OR a.is_read IS NULL)"
+            elif status == "starred":
+                base_sql += " AND a.is_starred = 1"
+            
+            base_sql += " ORDER BY a.create_time DESC LIMIT ? OFFSET ?"
+            params.extend([limit, offset])
+            
+            rows = conn.execute(base_sql, params).fetchall()
+            
+            # 获取总条数用于分页
+            count_sql = base_sql.split(" ORDER BY")[0].replace("SELECT ...", "SELECT COUNT(*)")
+            # 简化计数查询
+            count_base = """
+                SELECT COUNT(*) FROM media_assets a
+                WHERE LOWER(a.transcript_status) = 'completed' 
+                  AND a.transcript_path IS NOT NULL
+                  AND a.transcript_path != ''
+            """
+            count_params = []
+            if status == "unread":
+                count_base += " AND (a.is_read = 0 OR a.is_read IS NULL)"
+            elif status == "starred":
+                count_base += " AND a.is_starred = 1"
+            
+            total = conn.execute(count_base, count_params).fetchone()[0]
+            
+            return {
+                "items": [dict(r) for r in rows],
+                "total": total,
+                "limit": limit,
+                "offset": offset
+            }
+    except (sqlite3.Error, OSError, RuntimeError) as e:
+        logger.exception("list_transcripts failed")
+        raise HTTPException(status_code=500, detail=str(e))
 
 
 @router.get("")
@@ -130,13 +192,18 @@ def get_transcript(asset_id: str):
         if not transcript_file or not transcript_file.exists():
             raise HTTPException(status_code=404, detail="Transcript file not found on disk")
 
-        if transcript_file.suffix.lower() == ".docx":
+        suffix = transcript_file.suffix.lower()
+        if suffix == ".docx" or suffix == ".pdf":
             from media_tools.transcribe.preview import extract_transcript_text
-
             content = extract_transcript_text(transcript_file)
         else:
             content = transcript_file.read_text(encoding="utf-8", errors="replace")
-        return {"content": content}
+        
+        return {
+            "content": content,
+            "format": "markdown" if suffix == ".md" else "text",
+            "file_path": str(transcript_file.relative_to(transcripts_dir)) if transcript_file else None
+        }
 
     except HTTPException:
         raise

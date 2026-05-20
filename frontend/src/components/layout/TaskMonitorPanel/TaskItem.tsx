@@ -46,6 +46,8 @@ type TaskPayload = {
   cleanup_retry_at?: unknown;
   uid?: string;
   creator_uid?: string;
+  url?: string;
+  file_paths?: string[];
 };
 
 function formatDoneTotal(done: unknown, total: unknown) {
@@ -239,7 +241,7 @@ function TaskCenterCleanupSummary({ parsed, taskId }: { parsed: TaskPayload | nu
   const isDisabled = !canRetry || isRetrying;
 
   return (
-    <div className="rounded-[var(--radius-card)] border border-border/60 bg-secondary/20 px-3 py-3">
+    <div className=" border border-border/60 bg-secondary/20 px-3 py-3">
       <div className="flex items-center justify-between gap-3">
         <div className="text-[12px] font-semibold text-foreground/80">清理汇总</div>
         <button
@@ -266,7 +268,7 @@ function TaskCenterCleanupSummary({ parsed, taskId }: { parsed: TaskPayload | nu
             }
           }}
           className={cn(
-            'flex h-7 items-center gap-1 rounded-md px-2 text-[11px] font-medium transition-colors duration-200',
+            'flex h-7 items-center gap-1  px-2 text-[11px] font-medium transition-colors duration-200',
             isDisabled
               ? 'text-muted-foreground/70 cursor-not-allowed opacity-60'
               : 'text-primary hover:bg-primary/10',
@@ -289,7 +291,7 @@ function TaskCenterCleanupSummary({ parsed, taskId }: { parsed: TaskPayload | nu
           {reasonCounts.map(({ label, count }) => (
             <span
               key={label}
-              className="rounded-md border border-border/60 bg-background/60 px-2 py-1 text-[11px] text-foreground/70"
+              className=" border border-border/60 bg-background/60 px-2 py-1 text-[11px] text-foreground/70"
             >
               {label} × {count}
             </span>
@@ -308,7 +310,6 @@ interface TaskItemProps {
 }
 
 export const TaskItem = memo(function TaskItem({ task, onRetry, isExpanded, onToggleExpand }: TaskItemProps) {
-  const navigate = useNavigate();
   const state = getTaskDisplayState(task);
   const message = getTaskMessage(task);
   const error = getTaskError(task);
@@ -393,15 +394,33 @@ export const TaskItem = memo(function TaskItem({ task, onRetry, isExpanded, onTo
           ? Math.max(downloadTotal - downloadDone, 0)
           : 0;
     const exportStatus = exportStatusLabel(pp?.export?.status);
-    const transcribeAccountId = pp?.transcribe?.account_id;
 
     const subtitleParts = [
       pp?.download ? `下载 ${formatDoneTotal(downloadDone, downloadTotal)}` : '',
-      pp?.transcribe ? `转写 ${formatDoneTotal(transcribeDone, transcribeTotal)}${transcribeAccountId ? ` [${transcribeAccountId}]` : ''}` : '',
+      pp?.transcribe ? `转写 ${formatDoneTotal(transcribeDone, transcribeTotal)}` : '',
       currentTitle,
       missingCount > 0 ? `缺失 ${missingCount}` : '',
       pp?.export ? `导出 ${exportStatus}` : '',
     ].filter(Boolean);
+
+    // Show context from payload (e.g. creator URL)
+    const taskContext = (() => {
+      if (parsed?.url) {
+        const u = String(parsed.url);
+        return u.replace(/^https?:\/\//, '').slice(0, 40);
+      }
+      if (parsed?.uid) {
+        return `创作者 ${String(parsed.uid).slice(0, 12)}...`;
+      }
+      if (parsed?.file_paths && Array.isArray(parsed.file_paths)) {
+        const count = parsed.file_paths.length;
+        return `${count} 个本地文件`;
+      }
+      return '';
+    })();
+    if (taskContext) {
+      subtitleParts.unshift(taskContext);
+    }
 
     const subtitle = subtitleParts.join(' · ') || message;
     const drawerId = `task-center-${task.task_id}`;
@@ -419,7 +438,7 @@ export const TaskItem = memo(function TaskItem({ task, onRetry, isExpanded, onTo
       );
 
     return (
-      <div className="overflow-hidden rounded-[var(--radius-card)] border border-border/60 bg-card apple-shadow-md">
+      <div className="overflow-hidden  border border-border/60 bg-card">
         <button
           type="button"
           aria-expanded={isExpanded}
@@ -427,9 +446,9 @@ export const TaskItem = memo(function TaskItem({ task, onRetry, isExpanded, onTo
           onClick={() => onToggleExpand(task.task_id)}
           className="group flex w-full items-center gap-3 px-3 py-3 text-left transition-colors hover:bg-secondary/40"
         >
-          <div className="relative flex size-9 shrink-0 items-center justify-center rounded-xl bg-secondary/70">
+          <div className="relative flex size-8 shrink-0 items-center justify-center border border-[var(--color-hairline-strong)]">
             {icon}
-            {isRunning && <span className="absolute right-1.5 top-1.5 size-2 rounded-md bg-primary animate-pulse" />}
+            {isRunning && <span className="absolute right-[3px] top-[3px] size-1.5 rounded-full bg-[var(--color-rust)] animate-pulse" />}
           </div>
           <div className="min-w-0 flex-1">
             <div className="flex items-center gap-2">
@@ -442,12 +461,12 @@ export const TaskItem = memo(function TaskItem({ task, onRetry, isExpanded, onTo
             </div>
             <div className="mt-0.5 truncate text-[12px] text-muted-foreground">{subtitle}</div>
           </div>
-          <div className="flex items-center gap-2">
-            <span className="rounded-full border border-border/60 bg-background/60 px-2.5 py-1 text-[12px] font-medium text-foreground/80">
-              剩余 {remaining} 条
+          <div className="flex items-center gap-3">
+            <span className="text-[11px] text-[var(--color-ash)]">
+              剩余 <span className="font-display text-[16px] text-[var(--color-rust)] tabular ml-0.5">{remaining}</span>
             </span>
             <TaskCenterStageDots stage={stage} />
-            <span className="text-[12px] text-muted-foreground">{getTaskStatusLabel(task)}</span>
+            <span className="text-[11px] tracking-[0.14em] uppercase text-[var(--color-smoke)]">{getTaskStatusLabel(task)}</span>
             <ChevronDown className={cn('size-4 text-muted-foreground transition-transform', isExpanded ? 'rotate-180' : '')} />
           </div>
         </button>
@@ -485,11 +504,11 @@ export const TaskItem = memo(function TaskItem({ task, onRetry, isExpanded, onTo
             )}
 
             {isServerRestart && (
-              <div className="mt-3 flex items-center gap-3 rounded-[var(--radius-card)] border border-amber-500/30 bg-amber-500/10 px-3 py-2.5">
+              <div className="mt-3 flex items-center gap-3  border border-amber-500/30 bg-amber-500/10 px-3 py-2.5">
                 <span className="text-xs font-medium text-amber-600 dark:text-amber-400">服务重启导致任务中断</span>
                 <button
                   onClick={() => onRetry(task)}
-                  className="flex h-7 items-center gap-1 rounded-md bg-primary px-3 text-[11px] font-semibold text-primary-foreground hover:bg-primary/90"
+                  className="flex h-7 items-center gap-1  bg-primary px-3 text-[11px] font-semibold text-primary-foreground hover:bg-primary/90"
                 >
                   <RotateCw className="size-3" />
                   一键重试
@@ -498,7 +517,7 @@ export const TaskItem = memo(function TaskItem({ task, onRetry, isExpanded, onTo
             )}
 
             {error && !isServerRestart && (
-              <div className="mt-3 rounded-[var(--radius-card)] border border-destructive/20 bg-destructive/10 p-3 text-xs leading-6 text-destructive whitespace-pre-wrap">
+              <div className="mt-3  border border-destructive/20 bg-destructive/10 p-3 text-xs leading-6 text-destructive whitespace-pre-wrap">
                 {error}
               </div>
             )}
@@ -526,7 +545,7 @@ export const TaskItem = memo(function TaskItem({ task, onRetry, isExpanded, onTo
   }
 
   return (
-    <div className="rounded-[var(--radius-card)] border border-border/60 bg-card p-4 apple-shadow-md">
+    <div className=" border border-border/60 bg-card p-4">
       <div className="flex items-start justify-between gap-3">
         <div className="min-w-0 flex-1">
           <div className="flex flex-wrap items-center gap-2">
@@ -571,9 +590,9 @@ export const TaskItem = memo(function TaskItem({ task, onRetry, isExpanded, onTo
                 <span className="text-muted-foreground">{message}</span>
                 <span className="font-medium text-primary tabular-nums">{Math.round((task.progress || 0) * 100)}%</span>
               </div>
-              <div className="h-1.5 w-full overflow-hidden rounded-full bg-muted">
+              <div className="h-px w-full overflow-hidden bg-[var(--color-hairline-strong)]">
                 <div
-                  className="relative h-full rounded-full bg-primary transition-all duration-500 ease-out apple-progress-bar"
+                  className="relative h-[2px] -mt-px bg-[var(--color-rust)] transition-all duration-500 ease-out"
                   style={{ width: `${Math.max(2, (task.progress || 0) * 100)}%` }}
                 />
               </div>
@@ -585,11 +604,11 @@ export const TaskItem = memo(function TaskItem({ task, onRetry, isExpanded, onTo
       {!isRunning && <div className="mt-3 text-sm leading-6 text-muted-foreground">{message}</div>}
 
       {isServerRestart && (
-        <div className="mt-3 flex items-center gap-3 rounded-[var(--radius-card)] border border-amber-500/30 bg-amber-500/10 px-3 py-2.5">
+        <div className="mt-3 flex items-center gap-3  border border-amber-500/30 bg-amber-500/10 px-3 py-2.5">
           <span className="text-xs font-medium text-amber-600 dark:text-amber-400">服务重启导致任务中断</span>
           <button
             onClick={() => onRetry(task)}
-            className="flex h-7 items-center gap-1 rounded-md bg-primary px-3 text-[11px] font-semibold text-primary-foreground hover:bg-primary/90"
+            className="flex h-7 items-center gap-1  bg-primary px-3 text-[11px] font-semibold text-primary-foreground hover:bg-primary/90"
           >
             <RotateCw className="size-3" />
             一键重试
@@ -598,7 +617,7 @@ export const TaskItem = memo(function TaskItem({ task, onRetry, isExpanded, onTo
       )}
 
       {error && !isServerRestart && (
-        <div className="mt-3 rounded-[var(--radius-card)] border border-destructive/20 bg-destructive/10 p-3 text-xs leading-6 text-destructive whitespace-pre-wrap">
+        <div className="mt-3  border border-destructive/20 bg-destructive/10 p-3 text-xs leading-6 text-destructive whitespace-pre-wrap">
           {error}
         </div>
       )}
@@ -638,9 +657,9 @@ function TaskActions({
         <button
           onClick={() => onRetry(task)}
           className={cn(
-            'flex h-8 items-center gap-1 rounded-md px-3 text-xs font-medium text-primary transition-colors duration-200 hover:bg-primary/10',
+            'flex h-8 items-center gap-1  px-3 text-xs font-medium text-primary transition-colors duration-200 hover:bg-primary/10',
             variant === 'macos' &&
-              'h-auto rounded-[8px] border-[0.5px] border-[#3C3C43]/[0.18] bg-white/40 px-3 py-1.5 text-[13px] font-semibold text-[#007AFF] hover:bg-white/60',
+              'h-auto  border-[0.5px] border-[#3C3C43]/[0.18] bg-white/40 px-3 py-1.5 text-[13px] font-semibold text-[#007AFF] hover:bg-white/60',
           )}
           title="重试（重新提交一个新任务）"
         >
@@ -667,9 +686,9 @@ function TaskActions({
             }
           }}
           className={cn(
-            'flex h-8 items-center gap-1 rounded-md px-3 text-xs font-medium text-primary transition-colors duration-200 hover:bg-primary/10',
+            'flex h-8 items-center gap-1  px-3 text-xs font-medium text-primary transition-colors duration-200 hover:bg-primary/10',
             variant === 'macos' &&
-              'h-auto rounded-[8px] border-[0.5px] border-[#3C3C43]/[0.18] bg-white/40 px-3 py-1.5 text-[13px] font-semibold text-[#007AFF] hover:bg-white/60',
+              'h-auto  border-[0.5px] border-[#3C3C43]/[0.18] bg-white/40 px-3 py-1.5 text-[13px] font-semibold text-[#007AFF] hover:bg-white/60',
             retryingFailed ? 'cursor-not-allowed opacity-50' : '',
           )}
           title={`只针对失败视频派发新任务（共 ${failedRetryableCount} 个）`}
@@ -692,9 +711,9 @@ function TaskActions({
             }
           }}
           className={cn(
-            'flex h-8 items-center gap-1 rounded-md px-3 text-xs font-medium text-primary transition-colors duration-200 hover:bg-primary/10',
+            'flex h-8 items-center gap-1  px-3 text-xs font-medium text-primary transition-colors duration-200 hover:bg-primary/10',
             variant === 'macos' &&
-              'h-auto rounded-[8px] border-[0.5px] border-[#3C3C43]/[0.18] bg-white/40 px-3 py-1.5 text-[13px] font-semibold text-[#007AFF] hover:bg-white/60',
+              'h-auto  border-[0.5px] border-[#3C3C43]/[0.18] bg-white/40 px-3 py-1.5 text-[13px] font-semibold text-[#007AFF] hover:bg-white/60',
           )}
           title="恢复此任务（继续使用同一任务ID）"
         >
@@ -717,9 +736,9 @@ function TaskActions({
             }
           }}
           className={cn(
-            'flex h-8 items-center rounded-md px-3 text-xs font-medium text-primary transition-colors duration-200 hover:bg-primary/10',
+            'flex h-8 items-center  px-3 text-xs font-medium text-primary transition-colors duration-200 hover:bg-primary/10',
             variant === 'macos' &&
-              'h-auto rounded-[8px] border-[0.5px] border-[#3C3C43]/[0.18] bg-white/40 px-3 py-1.5 text-[13px] font-semibold text-[#000]/70 hover:bg-white/60',
+              'h-auto  border-[0.5px] border-[#3C3C43]/[0.18] bg-white/40 px-3 py-1.5 text-[13px] font-semibold text-[#000]/70 hover:bg-white/60',
           )}
           title="失败/过期后自动重试"
         >
@@ -740,9 +759,9 @@ function TaskActions({
             }
           }}
           className={cn(
-            'flex h-8 items-center rounded-md px-3 text-xs font-medium text-muted-foreground transition-colors duration-200 hover:bg-muted hover:text-foreground',
+            'flex h-8 items-center  px-3 text-xs font-medium text-muted-foreground transition-colors duration-200 hover:bg-muted hover:text-foreground',
             variant === 'macos' &&
-              'h-auto rounded-[8px] border-[0.5px] border-[#3C3C43]/[0.18] bg-white/40 px-3 py-1.5 text-[13px] font-semibold text-[#3C3C43]/60 hover:bg-white/60',
+              'h-auto  border-[0.5px] border-[#3C3C43]/[0.18] bg-white/40 px-3 py-1.5 text-[13px] font-semibold text-[#3C3C43]/60 hover:bg-white/60',
           )}
           title="停止任务"
         >
@@ -764,9 +783,9 @@ function TaskActions({
           }
         }}
         className={cn(
-          'flex h-8 items-center gap-1 rounded-md px-3 text-xs font-medium text-destructive transition-colors duration-200 hover:bg-destructive/10',
+          'flex h-8 items-center gap-1  px-3 text-xs font-medium text-destructive transition-colors duration-200 hover:bg-destructive/10',
           variant === 'macos' &&
-            'ml-4 h-auto rounded-[8px] border-[0.5px] border-[#FF3B30]/20 bg-[#FF3B30]/[0.06] px-3 py-1.5 text-[13px] font-semibold text-[#FF3B30] hover:bg-[#FF3B30]/10',
+            'ml-4 h-auto  border-[0.5px] border-[#FF3B30]/20 bg-[#FF3B30]/[0.06] px-3 py-1.5 text-[13px] font-semibold text-[#FF3B30] hover:bg-[#FF3B30]/10',
         )}
         title={variant === 'macos' ? '删除记录（不可恢复）' : '删除任务（不可恢复）'}
       >
@@ -809,6 +828,7 @@ function TaskSubtasks({
   onToggleExpand: (taskId: string) => void;
   showToggle?: boolean;
 }) {
+  const navigate = useNavigate();
   const parsed = useMemo(() => parsePayload(task.payload), [task.payload]);
   const [retryingTask, setRetryingTask] = useState(false);
   const subtasks = useMemo(() => {
@@ -914,7 +934,7 @@ function TaskSubtasks({
         </div>
       )}
       {isExpanded && (
-        <div className="mt-2 space-y-1 max-h-48 overflow-y-auto rounded-[var(--radius-card)] border border-border/40 bg-muted/30 p-2">
+        <div className="mt-2 space-y-1 max-h-48 overflow-y-auto  border border-border/40 bg-muted/30 p-2">
           {enhancedSubtasks.map((sub, idx) => {
             const canRecover = sub.status === 'manual_required' && !!sub.creator_uid && !!sub.aweme_id;
             const isRecovering = !!sub.aweme_id && recoveringAwemeId === sub.aweme_id;
@@ -936,7 +956,7 @@ function TaskSubtasks({
             return (
             <div
               key={idx}
-              className="flex items-start gap-2 px-2 py-1.5 rounded-md text-xs"
+              className="flex items-start gap-2 px-2 py-1.5  text-xs"
               title={sub.error || ''}
             >
               {sub.status === 'completed' ? (
@@ -965,7 +985,7 @@ function TaskSubtasks({
                     {sub.title || '未命名'}
                   </span>
                   {reasonLabel && (
-                    <span className="shrink-0 rounded-md bg-destructive/10 px-1.5 py-0.5 text-[10px] font-medium text-destructive">
+                    <span className="shrink-0  bg-destructive/10 px-1.5 py-0.5 text-[10px] font-medium text-destructive">
                       {reasonLabel}
                     </span>
                   )}
@@ -995,7 +1015,7 @@ function TaskSubtasks({
                           }
                         }}
                         className={cn(
-                          'mt-1 inline-flex h-7 items-center rounded-md px-2 text-[11px] font-medium text-primary transition-colors duration-200 hover:bg-primary/10',
+                          'mt-1 inline-flex h-7 items-center  px-2 text-[11px] font-medium text-primary transition-colors duration-200 hover:bg-primary/10',
                           retryingTask ? 'cursor-not-allowed opacity-50' : ''
                         )}
                       >
@@ -1030,7 +1050,7 @@ function TaskSubtasks({
                     }
                   }}
                   className={cn(
-                    'flex h-7 items-center gap-1 rounded-md px-2 text-[11px] font-medium text-primary transition-colors duration-200',
+                    'flex h-7 items-center gap-1  px-2 text-[11px] font-medium text-primary transition-colors duration-200',
                     canRecover && !isRecovering ? 'hover:bg-primary/10' : 'cursor-not-allowed opacity-50'
                   )}
                   title={canRecover ? actionTitle : '缺少 aweme_id 或 creator_uid，无法创建补齐任务'}

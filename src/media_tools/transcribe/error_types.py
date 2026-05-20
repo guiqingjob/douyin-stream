@@ -26,7 +26,7 @@ def classify_error(error: Exception) -> ErrorType:
     if "token-get" in error_msg or "get token" in error_msg:
         return ErrorType.NETWORK
 
-    if any(kw in error_msg for kw in ["auth", "unauthorized", "401", "403", "credential", "permission denied"]):
+    if any(kw in error_msg for kw in ["auth", "unauthorized", "401", "403", "credential", "permission denied", "账号权限不足", "权限不足"]):
         return ErrorType.AUTH
     if "token" in error_msg and any(kw in error_msg for kw in ["expired", "invalid", "unauthorized", "401", "403"]):
         return ErrorType.AUTH

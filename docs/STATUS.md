@@ -1,161 +1,33 @@
 # Media Tools — 项目现状文档
 
-> 最后更新：2026-05-14
+> 最后更新：2026-05-19
 
----
-
-## 最近更新（2026-05-05）
-
-## 最近更新（2026-05-12）
-
-### 并发模型重设计 + 额度领取防御修复
-
-- ✅ **per-account 上传互斥**：全局 `Semaphore(n_accounts)` 改为 `dict[account_id, asyncio.Lock]`。Qwen 平台约束同账号仅 1 个上传活跃，客户端用 Lock 显式串行，避免占额度空等。
-- ✅ **AccountPool 简化**：去掉余额加权随机（平台已限单账号并发，余额不再影响调度），改为纯轮询 + 排除集。
-- ✅ **删除 export_gate**：导出/下载阶段取消 Semaphore 限流，平台无明显并发约束。
-- ✅ **入口闸门 = 2n**：`transcribe_batch` 的 Semaphore 大小由 `_adjust_gates_to_account_pool()` 设为 `2 * n_accounts`，跟随账号池自动伸缩。
-- ✅ **OSS part_size = 5MB**：默认分片从 1MB 调到 5MB，减少 HTTP 往返；part 级并发 benchmark 证明带宽已饱和，保持串行。
-- ✅ **额度领取 delta 兜底**：`claim_equity_quota` 触发后查 before/after 额度差，没增加就返回 `claimed=False`，避免"显示成功但未到账"。
-- ✅ **`_current_account_id` 竞态修复**：移除实例变量，改参数传递，避免并发场景下 cleanup 用错 cookie
-- ✅ **跨账号 cleanup 过滤**：`find_failed_record_ids` 增加 `account_id` 参数，只删当前账号记录
-- ✅ **不吞中断信号**：`gather(return_exceptions=True)` 后重新 raise `BaseException`
-- ✅ **resume record_id 缺失保护**：`_try_resume_export_only` 入口检查 record_id，避免孤儿记录
-
-### Phase 4 — 可观测性（refactor 第四阶段）
-
-- ✅ **失败原因聚合视图**：`/api/v1/metrics/failure-summary?days=N` + Settings 页 `FailureSummarySection`，按 error_type/error_stage 分桶；Top 错误一目了然
-- ✅ **健康检查脚本**：`scripts/health_check.py` 检 4 类一致性问题；JSON 输出 + 退出码可接 cron
-- ✅ **PARTIAL_FAILED 任务状态**：区分全失败/部分失败；前端 badge 中文化；UI"重试失败子任务"按钮在 PARTIAL 任务上正确显示
-- ✅ **logs/ 归档机制**：`services.log_rotation.archive_old_logs()` mv 到 archive 子目录，不删
-- ✅ **Ghost transcripts 清理**：`reconcile_transcripts()` 新增 prune 逻辑，清理 DB 中已完成但文件已不存在的"幽灵"记录
-
-### Phase 3 — 可恢复转写流水线（重构第三阶段）
-
-> 详细设计见 [pipeline_reliability_refactor.md](pipeline_reliability_refactor.md) 第 156–189 行。
-
-**已落地：**
-
-| 项目 | 内容 |
-|------|------|
-| `transcribe_runs` 表 | 每行 = 某 asset 在某账号上的一次完整转写尝试 |
-| stage 推进序 | `queued → uploaded → transcribing → exporting → downloading → saved` |
-| `find_resumable()` | gen_record_id 已持久化 + stage ∈ RESUMABLE，**或** stage='failed' 但 error_stage ∈ RESUMABLE |
-| 续传 fast-path A | 已有 `export_url` → 直接 download，**0 调用 Qwen API** |
-| 续传 fast-path B | 已有 `gen_record_id` → 跳过 token/upload/heartbeat/start，从 poll 继续 |
-| 保险丝 | 续传任何异常 → stage 重置 `queued` → 完整 flow 接管 |
-| 测试覆盖 | 13 个单元/集成测试（建表、stage 推进、续传命中、各级 fallback、E2E 失败 → 重试复用） |
-| Ghost transcripts 清理 | reconciler 新增 prune 逻辑：completed 但文件已不存在时自动清理 DB 记录 |
-
-**关键不变量**：跨账号续传**不**支持（Qwen `genRecordId` 与账号绑定）。
-
-### Qwen 转写引擎完成迁移：Playwright → HTTP API
-
-- 转写流程从 Playwright + Chromium 改为纯 HTTP 调用 `RequestsApiContext`
-- 全仓清理 Playwright/Chromium 残留描述（README / CONTRIBUTING / FAQ / INSTALLATION / 用户手册 / 源代码注释）
-- `tests/test_no_playwright_dependency.py` 强制守护，pyproject/requirements/src import 任一处出现 `playwright` 都 fail
-
-### 文档与配置
-
-- 新增 [CLAUDE.md](../CLAUDE.md) — 给 Claude Code 与未来贡献者的项目向导
-- `_auto_*.json` per-creator 状态文件归档至 `.archive/pipeline_state_2026-04-26/`（无业务影响，全 ghost 状态）
-
----
-
-## 最近更新（2026-04-20）
-
-### 任务中心重构
-
-**已完成的改进：**
-
-| 功能 | 描述 |
-|------|------|
-| 清除历史优化 | 清除后不再从数据库恢复（前端 historyCleared 标记） |
-| WebSocket 断连提示 | 红色提示条 + 侧边栏红点 |
-| 简化重试按钮 | 失败任务只显示一个"重试"按钮 |
-| 展开详情面板 | 点击任务卡片展开，显示详细信息 |
-| 子任务列表 | 展示成功/失败/进行中的视频列表 |
-| 状态标签友好化 | "可能中断"替代"已过期"等 |
-| 后端 payload 结构化 | 支持 `result_summary` 和 `subtasks` 字段 |
-
-**数据流架构：**
-
-```
-用户创建任务
-     ↓
-后端存储 payload（含 subtasks 列表）
-     ↓
-WebSocket 广播进度更新（含 result_summary）
-     ↓
-前端展示：成功 X / 失败 Y / 子任务列表
-```
-
-### 代码质量优化
-
-**异常处理改进：**
-
-| 指标 | 改进前 | 改进后 |
-|------|--------|--------|
-| 宽泛异常捕获 | 56 处 | 9 处 |
-| 减少比例 | - | 84% |
-
-**改进的异常类型：**
-
-| 文件 | 改进 |
-|------|------|
-| `tasks.py` | sqlite3.Error, json.JSONDecodeError |
-| `assets.py` | OSError, ValueError |
-| `creators.py` | sqlite3.Error, OSError, ValueError |
-| `db/core.py` | sqlite3.Error |
-| `orchestrator_v2.py` | sqlite3.Error |
-| `preview.py` | OSError, zipfile.BadZipFile, ET.ParseError |
-| `downloader*.py` | OSError, ImportError, IOError |
-
-**剩余 9 处合理保留：**
-- Playwright 自动化（多种浏览器/网络异常）
-- 数据库事务回滚（需要捕获所有异常确保回滚）
-- 后台任务日志记录（已有 logger.exception）
-
-### Inbox 三栏布局
-
-- Apple Mail Pro 风格：创作者列表 + 素材列表 + 即时预览
-- **本地素材独立入口**：黄色徽章标识，与博主列表分离
-- 本地文件夹分组显示，支持展开/折叠
-- 进入页面自动同步文件系统与数据库
-- 主题切换按钮（深色/浅色模式）
-
-### 素材来源
-
-| 来源 | 说明 |
-|------|------|
-| 抖音创作者 | 通过主页 URL 添加，自动下载该创作者的视频 |
-| B站 UP 主 | 通过空间链接添加，自动下载视频 |
-| 本地素材 | 通过「本地转写」上传，**独立入口显示**，按文件夹分组 |
+> 这是一份**当前状态快照**。历史变更见 [CHANGELOG.md](../CHANGELOG.md)。
 
 ---
 
 ## 一、项目概况
 
-抖音/B站视频批量下载 + 通义千问（Qwen）自动转写的 **Web 工作站**。
-
-> **注意**：项目已完全迁移到 Web 界面，不再提供 CLI 交互模式。
+抖音/B站视频批量下载 + 通义千问（Qwen）自动转写的 **Web 工作站**（单机本地部署，不提供 CLI 交互模式）。
 
 | 维度 | 现状 |
 |------|------|
-| 后端 | FastAPI + Uvicorn，SQLite3（无 ORM），APScheduler 定时任务 |
-| 前端 | React 19 + Vite 8 + Tailwind 4 + shadcn/ui + Zustand 5 |
-| 视频抓取 | F2 库（抖音）+ yt-dlp（B站） |
-| 转写引擎 | Qwen HTTP API（已从 Playwright 迁移，2026-05-05） |
-| 实时通信 | WebSocket 推送任务进度 |
-| Python | 3.9（`from __future__ import annotations` 已全仓铺开，但 `pipeline/preview.py:10` 的 `Path \| str` 写法仍触发运行时 TypeError，待修） |
+| 后端 | FastAPI + Uvicorn、SQLite3（WAL，无 ORM）、APScheduler 定时任务 |
+| 前端 | React 19 + Vite 8 + Tailwind CSS v4 + shadcn/ui + Zustand 5 + Framer Motion + @number-flow/react |
+| 视频抓取 | f2（抖音）+ yt-dlp（B站） |
+| 转写引擎 | Qwen HTTP API（已从 Playwright 迁移） |
+| 实时通信 | WebSocket 推送任务进度（含心跳保活） |
+| Python | 3.11+（`from __future__ import annotations` 全仓铺开） |
 | 启动方式 | `./run.sh`（后端 8000 + 前端 5173） |
 
 ### 素材来源
 
 | 来源 | 说明 |
 |------|------|
-| 抖音创作者 | 通过主页 URL 添加，自动下载该创作者的视频 |
-| B站 UP 主 | 通过空间链接添加，自动下载视频 |
-| 本地文件 | 通过「本地转写」上传，**独立存储于文件夹分组中**，不归属于创作者 |
+| 抖音创作者 | 通过主页 URL 添加，批量下载视频 |
+| B站 UP 主 | 通过空间链接添加，批量下载视频 |
+| 直接视频链接 | Discover 页面粘贴单个视频 URL（抖音/B站），直接下载/转写 |
+| 本地文件 | 通过「本地转写」上传，独立存储于文件夹分组中，不归属于创作者 |
 
 ---
 
@@ -206,7 +78,7 @@ WebSocket 广播进度更新（含 result_summary）
 | DELETE | `/api/v1/settings/douyin/{account_id}` | 移除抖音账号 |
 | POST | `/api/v1/settings/bilibili/accounts` | 添加B站账号 |
 | POST | `/api/v1/settings/qwen` | 保存 Qwen Cookie |
-| POST | `/api/v1/settings/global` | 更新全局设置（并发/自动删除/自动转写） |
+| POST | `/api/v1/settings/global` | 更新全局设置（自动删除/自动转写/导出格式） |
 
 ### 2.5 抖音元数据 `/api/v1/douyin`
 
@@ -223,118 +95,143 @@ WebSocket 广播进度更新（含 result_summary）
 | PUT | `/api/v1/scheduler/{task_id}/toggle` | 启用/禁用定时任务 |
 | DELETE | `/api/v1/scheduler/{task_id}` | 删除定时任务 |
 
+### 2.7 仪表盘 / 指标
+
+| 方法 | 路径 | 用途 |
+|------|------|------|
+| GET | `/api/v1/dashboard` | 工作台综合数据（健康、任务、配额、失败摘要） |
+| GET | `/api/v1/metrics/failure-summary?days=N` | 最近 N 天失败原因聚合 |
+| GET | `/api/v1/transcripts` | 全局文稿列表（支持 `?status=all|unread|starred`） |
+
 ---
 
-## 三、前端页面/路由清单
+## 三、前端页面 / 路由清单
 
 | 路由 | 页面组件 | 功能 |
 |------|---------|------|
 | `/` | → 重定向到 `/home` | — |
-| `/home` | `Home.tsx` | 工作台：iOS Widget 风格仪表盘，实时任务进度、创作者概览、快捷操作 |
-| `/library` | `Library.tsx` | 内容库：创作者网格、搜索、添加创作者 |
-| `/settings` | `Settings.tsx` | 设置页：账号池（抖音/B站/Qwen）、Cookie、全局偏好、导出格式 |
+| `/home` | `Home.tsx` | 工作台：刊头 + 4 个 hero 数字（NumberFlow 滚动）+ 动态/快捷操作 + 创作者名册 + 失败摘要 + 最近文稿 |
+| `/discover` | `Discover.tsx` | 发现：粘贴主页链接预览视频，勾选下载/转写 |
+| `/library` | `Library.tsx` | 内容库：名册网格、搜索过滤、添加创作者、本地上传 |
+| `/library/:creatorUid` | `CreatorDetail.tsx` | 创作者详情：素材列表（虚拟滚动）、转写阅读、批量操作、文件夹浏览 |
+| `/transcripts` | `Transcripts.tsx` | 文稿库：左侧列表（未读/收藏过滤）+ 右侧阅读器 |
+| `/tasks` | `Tasks.tsx` | 任务中心：4 个 hero 数字、tab 筛选、TaskItem 列表 |
+| `/settings` | `Settings.tsx` | 账号池、Cookie、全局偏好、定时任务、系统清理 |
 
-### 布局组件
+### 布局与组件
 
 | 组件 | 位置 | 功能 |
 |------|------|------|
-| `Sidebar` | 全局左侧（桌面端） | 导航 + 主题切换 |
-| `BottomNav` | 全局底部（移动端） | 导航 + 任务徽章 |
-| `Widget` | Home 页面 | Small/Medium/Large 三种 iOS 风格卡片 |
-| `WidgetGrid` | Home 页面 | 2×2/4 列自适应网格 |
-| `AppleEmptyState` | 各页面 | 苹果风格空状态占位 |
+| `AppLayout` | 全局布局 | 76px 字体导航栏（媒 logomark + 单字导航 + 时钟）+ 实时任务 ticker + Command Palette |
+| `TranscriptReader` | 全屏阅读 | 文稿阅读器：TOC 侧栏、字号切换、上下篇导航、搜索、收藏、导出 |
+| `TaskItem` | 任务中心 / 全局 | 任务行：状态点、阶段指示、进度 hairline、展开详情、重试 |
+| `SkeletonScreen` | 路由 lazy fallback | 通用骨架屏 |
 
 ---
 
-## 四、数据库表结构（SQLite3）
+## 四、UI 设计语言
+
+**Editorial Operations Studio** — 编辑式杂志风格的运营控制台。
+
+| 维度 | 决策 |
+|------|------|
+| 色板 | 暖色近黑底 `#0c0b09` / 奶白文字 `#f3eedb` / 单一氧化铜锈色强调 `#c66b3e` |
+| 状态色 | 古铜绿 `#87a878`（成功）/ 芥末黄 `#d4a850`（警告）/ 铁锈红 `#b25950`（失败） |
+| 字体栈 | **Fraunces**（衬线显示，可变字重 + SOFT 轴）/ **Geist**（技术正文）/ **JetBrains Mono**（数据、ID、时间戳）/ **Noto Serif SC**（中文衬线） |
+| 边角 | `--radius-card: 0` 锐利，分隔靠毛细线条（`rgba(243, 238, 219, 0.04 / 0.08 / 0.14)`）|
+| 数字 | `@number-flow/react` 滚动动画，所有 hero 大数字（Home / Tasks）实时滚动 |
+| 视觉密度 | 单语言（中文）、删除装饰性英文眉头；动作列表无序号；分隔靠 hairline + 留白 |
+| 主题 | 仅暗色，不切换 |
+| 字符 logomark | 衬线「**媒**」字（favicon 同款 SVG） |
+
+---
+
+## 五、数据库表结构（SQLite3）
 
 | 表名 | 说明 |
 |------|------|
 | `creators` | 创作者信息（UID、昵称、平台、同步状态） |
-| `media_assets` | 素材（视频/转写状态、本地路径、已读/收藏） |
-| `transcribe_runs` | 每个 asset 在某账号上的一次转写尝试，支持续传（2026-05） |
+| `media_assets` | 素材（视频/转写状态、本地路径、已读/收藏、失败追踪字段） |
+| `transcribe_runs` | 每个 asset 在某账号上的一次转写尝试，支持断点续传 |
 | `task_queue` | 任务队列（类型、进度、状态、payload） |
-| `auth_credentials` | 平台认证数据 |
-| `Accounts_Pool` | 账号池（抖音/B站/Qwen Cookie） |
+| `auth_credentials` | 平台认证数据（兼容回退层，逐步废弃） |
+| `Accounts_Pool` | 统一账号池（抖音/B站/Qwen Cookie + 状态） |
 | `SystemSettings` | KV 形式全局设置 |
 | `scheduled_tasks` | 定时任务（Cron 表达式、启用状态） |
 | `assets_fts` | FTS5 全文搜索索引 |
 
 ---
 
-## 五、已完成的改进
+## 六、关键设计决策
 
-### 2026-05-05
+### 6.1 可恢复转写流水线
 
-- [x] Phase 4 可观测性：失败聚合 API + Settings 表格 / 健康检查脚本 / PARTIAL_FAILED 状态机
-- [x] Ghost transcripts 清理：reconcile_transcripts() 新增 prune 逻辑
-- [x] Phase 3 可恢复转写流水线（transcribe_runs 表 + find_resumable + 两条续传 fast-path）
-- [x] Qwen 转写引擎完全迁移到 HTTP（去 Playwright/Chromium 依赖）
-- [x] 全仓清理 Playwright 残留描述（5 个文档 + 4 个源/测试文件）
-- [x] logs/ 改为归档不删（services/log_rotation.py + lifespan 接入）
-- [x] 新增 CLAUDE.md 项目向导
-- [x] 归档 4 个 Phase 2 之前的 _auto_*.json 孤儿状态文件
+- **`transcribe_runs` 表**：每行 = 某 asset 在某账号上的一次完整转写尝试
+- **Stage 推进**：`queued → uploaded → transcribing → exporting → downloading → saved`
+- **续传 fast-path A**：已有 `export_url` → 直接 download，**0 调用 Qwen API**
+- **续传 fast-path B**：已有 `gen_record_id` → 跳过 token/upload/heartbeat/start，从 poll 继续
+- **保险丝**：续传任何异常 → stage 重置 `queued` → 完整 flow 接管
+- **关键不变量**：跨账号续传**不**支持（Qwen `genRecordId` 与账号绑定）
+- 13 个单元/集成测试覆盖
 
-### 2026-04-20
+### 6.2 并发控制
 
-- [x] 任务中心重构（清除历史、断连提示、子任务列表）
-- [x] 异常处理优化（56 → 9 处，减少 84%）
-- [x] Inbox 三栏布局 + 自动同步
-- [x] 主题切换功能
-- [x] 清理未使用文件
+| 层级 | 信号量 | 初始值 | 作用 |
+|------|--------|--------|------|
+| L1 | `_effective_concurrency` | Qwen 活跃账号数 | 同时处理的视频数 |
+| L2 | `upload_gate` | 活跃账号数 | 同时上传到 Qwen 的数量 |
+| L3 | per-account `asyncio.Lock` | 1 / 账号 | 同账号上传串行（平台约束） |
 
-### 2026-04-15
+- AccountPool 纯轮询 + 排除集（余额加权已移除）
+- OSS part_size = 5MB
 
-- [x] 收件箱三栏布局重构
-- [x] 本地文件夹分组
-- [x] 数据库自动同步
-- [x] Apple 设计语言
-- [x] 双向同步完善
-- [x] 批量操作优化
+### 6.3 错误重试策略
 
-### 更早期
+| 错误类型 | 行为 | 原因 |
+|----------|------|------|
+| `AUTH` | 切换账号，标记原账号 `expired` | Cookie 失效，需换号 |
+| `QUOTA` | 切换账号，标记原账号 `rate_limited` | 额度耗尽，临时状态 |
+| `SERVICE_UNAVAILABLE` (`recordStatus=40`) | **不切换账号**，保留原账号链路重试 | 平台级服务抖动，换号无用 |
+| 其他 | 同账号重试（指数退避） | 网络/超时等瞬时问题 |
 
-- [x] 统一数据库层
-- [x] 清理 orchestrator（移除 V1）
-- [x] 用 logger 替换 print
-- [x] 修复双重 Toast
-- [x] 清理死代码
-- [x] CORS 收紧
-- [x] 用 lifespan 替换 on_event
+- 每次 `transcribe_with_retry` 重试前调用 `pool.reset_excluded()` 恢复被排除的账号
+- `rate_limited` 状态的账号仍可被加载到账号池，不会被永久封禁
+
+### 6.4 B站下载格式选择
+
+yt-dlp 的 `format` 参数优先选择 H.264(AVC) 编码：
+
+```
+best[vcodec~='^avc']/bestvideo[vcodec~='^avc']+bestaudio/best/bestvideo+bestaudio
+```
+
+B站对大量视频提供 AV1 编码（压缩率更高但兼容性差），Qwen 听悟对 AV1 返回 `recordStatus=40`，因此强制 fallback 到 AVC。
+
+### 6.5 任务三态
+
+- `COMPLETED`：全部成功
+- `PARTIAL_FAILED`：部分子任务失败（前端显示「只重试失败」按钮）
+- `FAILED`：全失败
 
 ---
 
-## 六、待改进项
+## 七、待改进项
 
 > 优先级原则：**业务可靠性 > 工程规范**（详见 [CLAUDE.md](../CLAUDE.md)）。
 > 这是单机本地工作台，不引入 CI/CD、Docker、覆盖率门槛、APM 等"生产服务"工程标准。
 
-### P1 — 业务可靠性收尾（已闭环）
-
-> Phase 1-4 全部落地，refactor 文档预设的所有路线图已交付（2026-05-05）。
-> 继续重构需以**真实业务痛点**为驱动，而非工程惯性——参见 CLAUDE.md "业务可靠性 > 工程规范"。
-
-- [x] ~~Phase 3 生产数据回放~~：手工演练，决定不安排（2026-05-05）；续传逻辑由 13 个单元/集成测试覆盖视为足够。
-
-> `media_assets` 失败追踪字段（`transcript_last_error` / `transcript_error_type`
-> / `transcript_retry_count` / `transcript_failed_at` / `last_task_id`）**已在
-> Phase 2 通过 `_ensure_column` 加入并接通写入路径**（见 `db/core.py:507-513`），
-> 不需要再 ALTER TABLE。
-
 ### P2 — 代码质量
 
-- [ ] **Python 3.9 兼容**：`pipeline/preview.py:10` 的 `Path | str` 在 3.9 运行时触发 TypeError，需改为 `Union[Path, str]` 或加 `from __future__ import annotations`
 - [ ] **额度领取真接口**：当前 trigger 调用的是 list 查询接口（历史 bug），需替换为 `/equity` 页面的实际 POST claim 接口（delta 兜底已做，替换后更直接）
+- [ ] **Store 类型安全**：消除 `(taskUpdate as any).msg`
 
 ### P3 — UI / 体验
 
-- [x] **iOS Widget 风格前端重构**：像素级对齐 prototype.html，Apple 原生设计语言（2026-05-14）
+- [ ] **Settings 页编辑式重设计**：表单密集，仍是旧样式，与新设计语言不一致
 - [ ] **前端测试**：补充 Vitest + React Testing Library（按需，不强求覆盖率）
-- [ ] **Store 类型安全**：消除 `(taskUpdate as any).msg`
-- [ ] **Settings 并发数校验**：程序化 clamp 到 1-10
+- [ ] **移动端适配**：当前桌面优先，窄屏 grid 会塌
 
 ### P3 — 长期愿景（不做明确投入，按需触发）
 
 - [ ] **数据库迁移机制**：当 schema 变动频繁时考虑（SQLAlchemy 或简易迁移脚本）
 - [ ] **多平台支持**：为小红书等平台预留扩展点
-- [ ] **移动端适配**：响应式处理

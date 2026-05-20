@@ -247,6 +247,112 @@ def _build_subtasks(video_paths: list[Path], report) -> list[dict[str, Any]]:
     return subtasks
 
 
+def _find_existing_videos_for_pipeline(url: str, platform: str) -> list[str]:
+    """Pipeline 重试时：下载阶段返回空，尝试从数据库查找已下载的本地视频。"""
+    from media_tools.common.paths import get_download_path
+
+    downloads_path = get_download_path()
+    existing: list[str] = []
+
+    if platform == "bilibili":
+        from media_tools.bilibili.core.url_parser import normalize_bilibili_url, BilibiliUrlKind
+        normalized = normalize_bilibili_url(url)
+
+        if normalized.kind == BilibiliUrlKind.SPACE and normalized.mid:
+            creator_uid = f"bilibili_{normalized.mid}"
+            rows = _query_media_assets(creator_uid=creator_uid, platform="bilibili")
+            existing = _collect_existing_paths(rows, downloads_path)
+            if existing:
+                logger.info(f"B 站 pipeline 重试：从数据库找到 {len(existing)} 个已下载视频 (creator={creator_uid})")
+
+        elif normalized.kind == BilibiliUrlKind.VIDEO and normalized.bvid:
+            # 单个视频：通过 asset_id 或 source_url 匹配
+            rows = _query_media_assets(
+                asset_id_prefix=f"bilibili_{normalized.bvid}",
+                source_url_pattern=f"%{normalized.bvid}%",
+                platform="bilibili",
+            )
+            existing = _collect_existing_paths(rows, downloads_path)
+            if existing:
+                logger.info(f"B 站 pipeline 重试：从数据库找到单个已下载视频 (bvid={normalized.bvid})")
+            else:
+                # 兜底：数据库没有记录时，扫描下载目录按 bvid 匹配文件名
+                bilibili_dir = downloads_path / "bilibili" / "全部投稿"
+                if bilibili_dir.exists():
+                    mp4_files = [
+                        f for f in bilibili_dir.glob("*.mp4")
+                        if f.stat().st_size > 10240
+                    ]
+                    # 优先匹配文件名中包含 bvid 的视频
+                    matched = [f for f in mp4_files if normalized.bvid in f.name]
+                    candidates = matched if matched else mp4_files
+                    if candidates:
+                        candidates = sorted(candidates, key=lambda f: f.stat().st_mtime, reverse=True)
+                        existing.append(str(candidates[0]))
+                        logger.info(f"B 站 pipeline 兜底：扫描目录找到视频 {candidates[0].name}")
+
+    return existing
+
+
+def _query_media_assets(
+    *,
+    creator_uid: str | None = None,
+    asset_id_prefix: str | None = None,
+    source_url_pattern: str | None = None,
+    platform: str | None = None,
+    limit: int = 10,
+) -> list[dict]:
+    """根据条件查询 media_assets 表中的视频记录。"""
+    import sqlite3
+    from media_tools.store.db import get_db_connection
+
+    clauses: list[str] = ["video_status IN ('downloaded', 'pending', 'archived')"]
+    params: list = []
+
+    if creator_uid:
+        clauses.append("creator_uid = ?")
+        params.append(creator_uid)
+    if asset_id_prefix:
+        clauses.append("asset_id LIKE ?")
+        params.append(f"{asset_id_prefix}%")
+    if source_url_pattern:
+        clauses.append("source_url LIKE ?")
+        params.append(source_url_pattern)
+    if platform:
+        clauses.append("source_platform = ?")
+        params.append(platform)
+
+    sql = f"""
+        SELECT video_path FROM media_assets
+        WHERE {' AND '.join(clauses)}
+        ORDER BY update_time DESC
+        LIMIT ?
+    """
+    params.append(limit)
+
+    try:
+        with get_db_connection() as conn:
+            conn.row_factory = sqlite3.Row
+            rows = conn.execute(sql, params).fetchall()
+        return [dict(r) for r in rows]
+    except sqlite3.Error as e:
+        logger.warning(f"查询 media_assets 失败: {e}")
+        return []
+
+
+def _collect_existing_paths(rows: list[dict], downloads_path) -> list[str]:
+    """从查询结果中收集磁盘上确实存在的视频路径。"""
+    existing: list[str] = []
+    for row in rows:
+        vp = row.get("video_path")
+        if not vp:
+            continue
+        p = downloads_path / vp
+        if p.exists():
+            existing.append(str(p))
+    return existing
+
+
 async def run_pipeline_for_user(url: str, max_counts: int, update_progress_fn, delete_after: bool = True, task_id: Optional[str] = None):
     from media_tools.download.service import download_by_url as download_router
     from media_tools.download.service import resolve_platform
@@ -294,6 +400,10 @@ async def run_pipeline_for_user(url: str, max_counts: int, update_progress_fn, d
         new_files = dl_result.get('new_files', [])
     else:
         new_files = []
+
+    # 没有新下载的视频时，尝试查找已存在的本地视频（重试场景）
+    if not new_files:
+        new_files = _find_existing_videos_for_pipeline(url, platform)
 
     if not new_files:
         await call_progress(update_progress_fn, 1.0, "没有下载到新视频", stage="done")

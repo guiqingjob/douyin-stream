@@ -14,7 +14,9 @@ from pathlib import Path
 from typing import Any, Dict, Optional
 
 import yaml
-from .logger import logger
+from media_tools.logger import get_logger
+
+logger = get_logger(__name__)
 from media_tools.douyin.core.config_mgr import get_config
 
 # 项目根目录

@@ -54,7 +54,7 @@ class AccountPoolService:
                 load_qwen_accounts_from_db,
             )
 
-            accounts = [a for a in load_qwen_accounts_from_db() if a.status == "active"]
+            accounts = [a for a in load_qwen_accounts_from_db() if a.status in ("active", "rate_limited")]
 
             resolved: list[dict[str, Any]] = []
             for account in accounts:
@@ -115,7 +115,7 @@ class AccountPoolService:
         try:
             from media_tools.core.cookie_manager import get_cookie_manager
             get_cookie_manager().mark_account_status("qwen", account_id, status)
-            if status in ("expired", "rate_limited") and self._account_pool:
+            if status == "expired" and self._account_pool:
                 self._account_pool.exclude(account_id)
         except (RuntimeError, OSError, ValueError) as e:
             logger.warning(f"标记Qwen账号状态失败: {e}")

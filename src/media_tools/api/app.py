@@ -218,6 +218,7 @@ async def generic_error_handler(request: Request, exc: Exception):
 
 app.include_router(creators.router)
 app.include_router(assets.router)
+app.include_router(assets.transcripts_router)
 app.include_router(tasks.router)
 app.include_router(settings.router)
 app.include_router(douyin.router)

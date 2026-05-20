@@ -25,15 +25,25 @@ def _read_docx_text(file_path: Path | str) -> str:
     return "\n".join(paragraphs)
 
 
-def _read_body(file_path: Path | str) -> str:
-    """Read a transcript markdown file and return the prose body only.
+def _read_pdf_text(file_path: Path | str) -> str:
+    """Extract text from PDF using pypdf."""
+    try:
+        from pypdf import PdfReader
+        reader = PdfReader(file_path)
+        return "\n".join(page.extract_text() or "" for page in reader.pages)
+    except Exception:  # noqa: BLE001
+        return ""
 
-    Strips YAML frontmatter and leading '#'-headings + blank lines. Remaining
-    lines are single-spaced into one string.
-    """
+
+def _read_body(file_path: Path | str) -> str:
+    """Read a transcript file and return the prose body only."""
     path = Path(file_path)
-    if path.suffix.lower() == ".docx":
+    suffix = path.suffix.lower()
+
+    if suffix == ".docx":
         return " ".join(line.strip() for line in _read_docx_text(path).splitlines() if line.strip())
+    if suffix == ".pdf":
+        return " ".join(line.strip() for line in _read_pdf_text(path).splitlines() if line.strip())
 
     try:
         text = path.read_text(encoding="utf-8", errors="replace")

@@ -7,6 +7,64 @@
 
 ---
 
+## [2.5.1] - 2026-05-19
+
+### 🐛 修复
+
+- **Discover 页面支持直接视频链接下载**：此前仅支持创作者主页链接，新增 `detectLinkType()` 识别单个视频链接（抖音视频、B站视频/UP空间），对非主页链接提供「直接下载 + 直接转写」快捷操作卡片
+- **B站下载格式选择**：`bilibili.py` 中 yt-dlp `format` 改为优先选择 H.264(AVC) 编码（`best[vcodec~='^avc']...`），避免下载 AV1 编码视频导致 Qwen 转写返回 `recordStatus=40`
+- **转写重试不再误切账号**：`SERVICE_UNAVAILABLE`（`recordStatus=40`）属于平台级服务不可用，不再切换账号，保留在原账号链路等待重试
+- **Pipeline 重试支持已有视频**：`skip_existing=True` 时 yt-dlp `download_archive` 会跳过已下载视频导致 `new_files=[]`，现增加 `_find_existing_videos_for_pipeline()` 回查 DB + 扫描下载目录获取已有视频路径
+- **B站视频入库容错**：`_persist_bilibili_assets_to_db()` 中 UP 主 ID（`mid`）为空时不再跳过入库，使用 `"unknown"` 占位符，确保单个 B站视频也能进入素材库
+- **Qwen 账号池加载**：`AccountPoolService.resolve_accounts()` 现在同时加载 `active` 和 `rate_limited` 状态的账号；`mark_status()` 仅在 `expired` 时排除账号，`rate_limited` 不再永久排除
+- **Qwen 额度检测**：`get_quota_snapshot()` 增加 `NOT_LOGIN` 错误码检测，返回友好错误提示
+- **CloudCleanupService**：修复空 `auth_state_path` 导致的清理失败
+- **前端 Node.js 弃用警告**：`package.json` dev/build 脚本增加 `NODE_OPTIONS='--no-deprecation'`
+
+---
+
+## [2.5.0] - 2026-05-18
+
+### 🎨 UI — Editorial Operations Studio 全站重设计
+
+从 "Compact Tech / Glassmorphism" 迁移到 **Editorial Operations Studio** 设计语言：编辑式杂志风格的运营控制台，暖色调暗色界面，衬线显示字体 + 单色铜锈强调。
+
+**设计系统（`src/index.css`）**
+
+- **字体栈**：Fraunces（可变衬线，wght 400–700 + SOFT 0–100 + opsz 9–144）+ Geist（技术正文）+ JetBrains Mono（数据/ID/时间戳）+ Noto Serif SC（中文衬线）。fonts 通过 `index.html <link>` 加载（postcss 安全）
+- **色板**：`--color-ink #0c0b09` / `--color-paper #15130f` / `--color-vellum #1c1a16` / `--color-bone #f3eedb` / `--color-ash #8a8275` / `--color-smoke #58544a` / `--color-rust #c66b3e`
+- **状态色**：`--color-patina #87a878`（成功） / `--color-ember #d4a850`（警告） / `--color-iron #b25950`（失败）
+- **边角**：`--radius-card: 0` 锐利，分隔靠 hairline（`rgba(243, 238, 219, 0.04 / 0.08 / 0.14)`）
+- **新原语类**：`.numeral` / `.eyebrow` / `.mono-cap` / `.lead` / `.btn-sharp` / `.ed-card` / `.ed-table` / `.draw-line` / `.rule` / `.stagger` / `.bloom-enter` / `.ticker-drift` / `.rail-item`
+
+**重设计页面**
+
+- `AppLayout.tsx` — 76px 字体导航栏（衬线「**媒**」logomark + 单字 + 英文 caption）+ 实时任务 ticker（含 pulse dot）+ Command Palette（⌘K）
+- `Home.tsx` — 工作台刊头 + 4 个 NumberFlow 滚动 hero 数字 + 「最近动态」分类账 + 「快捷操作」清单 + 创作者名册 hairline 网格 + 失败摘要 + 最近文稿
+- `Library.tsx` — 内容库刊头 + 名册 hairline grid（hover 显示同步/更多）+ 添加创作者下划线输入 + 编辑式删除确认
+- `Discover.tsx` — 发现页 + URL 输入 + 选择卡片 + sticky 底部派发栏
+- `Tasks.tsx` — 任务中心 4 个 NumberFlow stat + 编辑式 tab + TaskItem 列表
+- `Transcripts.tsx` — 420px 左侧名册（未读小圆点 + 收藏星）+ 右侧阅读器
+- `TranscriptReader.tsx` — Fraunces 大标题正文 + 1px hairline 进度条 + TOC 左侧 2px rail 高亮 + 可展开搜索 + `prose-invert` 自定义
+- `CreatorDetail.tsx` — 返回链接 + Fraunces 大标题 + 编辑式 tabs + 失败素材左侧 2px 铁锈 rail + 文件夹浏览器
+- `TaskItem.tsx` — 删除所有圆角胶囊（`rounded-md/-xl/-[8px]`），保留 `rounded-full` 给状态点；进度条改为 1px hairline + 锈色填充；剩余条数胶囊改成数字
+- `badge.tsx` 重写：胶囊形 → 边框 + uppercase 标签
+
+**polish**
+
+- 浏览器 title → `媒 · Media Studio`
+- favicon SVG → 衬线「**媒**」字（锈色 on ink）
+- `@number-flow/react` 接入 Home 和 Tasks 所有 hero 数字
+
+**Dead code 清理（共 ~417 行）**
+
+- 删除 `src/components/ui/SearchOverlay.tsx`（204 行）— 已被 Command Palette 取代
+- 删除 `src/components/layout/TaskMonitorPanel.tsx`（213 行）— 已被全局任务 ticker 取代
+
+> 早期分支 `cleanup-phase1` 中亦删除了 Sidebar / BottomNav / WidgetGrid / Widget / AppleEmptyState 等 Apple Soft 风格遗留组件。
+
+---
+
 ## [2.4.0] - 2026-05-14
 
 ### 🎨 UI — iOS Widget 风格前端像素级对齐

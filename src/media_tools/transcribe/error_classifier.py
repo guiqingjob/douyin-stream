@@ -92,7 +92,7 @@ class TranscribeErrorClassifier:
             return cls._error_mapping["network"]
         if "timeout" in error_msg:
             return cls._error_mapping["timeout"]
-        if "auth" in error_msg or "cookie" in error_msg or "permission" in error_msg:
+        if "auth" in error_msg or "cookie" in error_msg or "permission" in error_msg or "权限" in error_msg:
             return cls._error_mapping["auth"]
         if "quota" in error_msg or ("limit" in error_msg and "exceed" in error_msg):
             return cls._error_mapping["quota"]

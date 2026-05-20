@@ -1,15 +1,16 @@
 import { useEffect, useMemo, useRef, useState, useCallback } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
+import ReactMarkdown from 'react-markdown';
+import remarkGfm from 'remark-gfm';
 import {
   Download, ChevronLeft, ChevronRight, Type, List,
-  CheckCircle2, Star, StarOff, ArrowLeft, ExternalLink,
+  Star, ArrowLeft, ExternalLink, Search, X,
 } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { toast } from 'sonner';
 import { markAsset, exportTranscripts, getAssetFileUrl } from '@/lib/api';
 import type { Asset } from '@/types';
 
-/* ── Types ── */
 interface Heading {
   level: number;
   text: string;
@@ -20,6 +21,7 @@ interface TranscriptReaderProps {
   asset: Asset;
   content: string;
   loading: boolean;
+  format?: 'markdown' | 'text';
   onClose: () => void;
   onPrev?: () => void;
   onNext?: () => void;
@@ -28,45 +30,18 @@ interface TranscriptReaderProps {
   onAssetUpdate?: (asset: Asset) => void;
 }
 
-/* ── Helpers ── */
-function parseHeadings(content: string): Heading[] {
-  const lines = content.split('\n');
-  const headings: Heading[] = [];
-  let idx = 0;
-  for (const line of lines) {
-    const match = line.match(/^(#{1,6})\s+(.+)$/);
-    if (match) {
-      headings.push({
-        level: match[1].length,
-        text: match[2].trim(),
-        id: `heading-${idx++}`,
-      });
-    }
-  }
-  return headings;
-}
-
-function slugify(text: string): string {
-  return text
-    .toLowerCase()
-    .replace(/[^\w\s-]/g, '')
-    .replace(/\s+/g, '-')
-    .slice(0, 40);
-}
-
-/* ── Font size presets ── */
 const FONT_SIZES = [
-  { label: '小', size: 14, lineHeight: 1.6 },
-  { label: '中', size: 16, lineHeight: 1.7 },
-  { label: '大', size: 18, lineHeight: 1.8 },
+  { label: '小', size: 14, lineHeight: 1.65 },
+  { label: '中', size: 16, lineHeight: 1.75 },
+  { label: '大', size: 18, lineHeight: 1.85 },
   { label: '特大', size: 20, lineHeight: 1.9 },
 ];
 
-/* ── Component ── */
 export function TranscriptReader({
   asset,
   content,
   loading,
+  format = 'markdown',
   onClose,
   onPrev,
   onNext,
@@ -82,11 +57,26 @@ export function TranscriptReader({
   const [isStarred, setIsStarred] = useState(asset.is_starred ?? false);
   const [isRead, setIsRead] = useState(asset.is_read ?? false);
 
+  const [searchQuery, setSearchQuery] = useState('');
+  const [searchResults, setSearchResults] = useState<number[]>([]);
+  const [currentSearchIndex, setCurrentSearchIndex] = useState(0);
+  const [searchOpen, setSearchOpen] = useState(false);
+
   const fontSize = FONT_SIZES[fontSizeIndex];
 
-  const headings = useMemo(() => parseHeadings(content), [content]);
+  const headings = useMemo(() => {
+    const h: Heading[] = [];
+    let idx = 0;
+    const lines = content.split('\n');
+    for (const line of lines) {
+      const match = line.match(/^(#{1,6})\s+(.+)$/);
+      if (match) {
+        h.push({ level: match[1].length, text: match[2].trim(), id: `heading-${idx++}` });
+      }
+    }
+    return h;
+  }, [content]);
 
-  /* Scroll progress tracking */
   useEffect(() => {
     const el = scrollRef.current;
     if (!el) return;
@@ -95,16 +85,12 @@ export function TranscriptReader({
       const scrollHeight = el.scrollHeight - el.clientHeight;
       setProgress(scrollHeight > 0 ? Math.min(100, (scrollTop / scrollHeight) * 100) : 0);
 
-      /* Active heading detection */
       const headingEls = el.querySelectorAll('[data-heading-id]');
       let closest: string | null = null;
       let closestDist = Infinity;
       for (const h of headingEls) {
         const dist = Math.abs((h as HTMLElement).offsetTop - scrollTop - 80);
-        if (dist < closestDist) {
-          closestDist = dist;
-          closest = h.getAttribute('data-heading-id');
-        }
+        if (dist < closestDist) { closestDist = dist; closest = h.getAttribute('data-heading-id'); }
       }
       setActiveHeading(closest);
     };
@@ -113,35 +99,45 @@ export function TranscriptReader({
     return () => el.removeEventListener('scroll', onScroll);
   }, [content]);
 
-  /* Mark as read on open */
   useEffect(() => {
     if (!asset.is_read && !isRead) {
       markAsset(asset.asset_id, { is_read: true }).then(() => {
         setIsRead(true);
         onAssetUpdate?.({ ...asset, is_read: true });
-      }).catch(() => {});
+      }).catch((err) => {
+        console.error('Failed to mark asset as read', err);
+      });
     }
   }, [asset.asset_id]);
 
-  /* Keyboard shortcuts */
   useEffect(() => {
     const handler = (e: KeyboardEvent) => {
       if (e.key === 'Escape') {
-        e.preventDefault();
-        onClose();
+        if (searchOpen) { setSearchOpen(false); setSearchQuery(''); return; }
+        e.preventDefault(); onClose();
       }
-      if (e.key === 'ArrowLeft' && (e.metaKey || e.ctrlKey) && hasPrev) {
+      if (e.key === 'ArrowLeft' && (e.metaKey || e.ctrlKey) && hasPrev) { e.preventDefault(); onPrev?.(); }
+      if (e.key === 'ArrowRight' && (e.metaKey || e.ctrlKey) && hasNext) { e.preventDefault(); onNext?.(); }
+      if ((e.key === 'f' || e.key === 'F') && (e.metaKey || e.ctrlKey)) {
         e.preventDefault();
-        onPrev?.();
-      }
-      if (e.key === 'ArrowRight' && (e.metaKey || e.ctrlKey) && hasNext) {
-        e.preventDefault();
-        onNext?.();
+        setSearchOpen(true);
+        setTimeout(() => document.getElementById('transcript-search-input')?.focus(), 50);
       }
     };
     window.addEventListener('keydown', handler);
     return () => window.removeEventListener('keydown', handler);
-  }, [onClose, onPrev, onNext, hasPrev, hasNext]);
+  }, [onClose, onPrev, onNext, hasPrev, hasNext, searchOpen]);
+
+  useEffect(() => {
+    if (!searchQuery) { setSearchResults([]); return; }
+    const lines = content.split('\n');
+    const results: number[] = [];
+    lines.forEach((line, idx) => {
+      if (line.toLowerCase().includes(searchQuery.toLowerCase())) results.push(idx);
+    });
+    setSearchResults(results);
+    setCurrentSearchIndex(0);
+  }, [searchQuery, content]);
 
   const handleToggleStar = useCallback(async () => {
     const newVal = !isStarred;
@@ -150,18 +146,12 @@ export function TranscriptReader({
       setIsStarred(newVal);
       onAssetUpdate?.({ ...asset, is_starred: newVal });
       toast.success(newVal ? '已收藏' : '已取消收藏');
-    } catch {
-      toast.error('操作失败');
-    }
+    } catch { toast.error('操作失败'); }
   }, [isStarred, asset, onAssetUpdate]);
 
   const handleExport = useCallback(async () => {
-    try {
-      await exportTranscripts([asset.asset_id]);
-      toast.success('导出已开始');
-    } catch {
-      toast.error('导出失败');
-    }
+    try { await exportTranscripts([asset.asset_id]); toast.success('导出已开始'); }
+    catch { toast.error('导出失败'); }
   }, [asset.asset_id]);
 
   const handleViewFile = useCallback(() => {
@@ -169,196 +159,176 @@ export function TranscriptReader({
     window.open(url, '_blank');
   }, [asset.asset_id]);
 
-  /* Render content with heading IDs */
-  const renderedContent = useMemo(() => {
-    let headingIdx = 0;
-    return content.split('\n').map((line, i) => {
-      const match = line.match(/^(#{1,6})\s+(.+)$/);
-      if (match) {
-        const id = headings[headingIdx]?.id ?? `h-${i}`;
-        headingIdx++;
-        const level = match[1].length;
-        const text = match[2].trim();
-        const Tag = `h${level}` as React.ElementType;
-        return (
-          <Tag
-            key={i}
-            data-heading-id={id}
-            id={slugify(text)}
-            className={cn(
-              'font-semibold text-foreground scroll-mt-20',
-              level === 1 && 'text-[1.4em] mt-8 mb-4',
-              level === 2 && 'text-[1.25em] mt-6 mb-3',
-              level === 3 && 'text-[1.1em] mt-5 mb-2',
-              level >= 4 && 'text-[1em] mt-4 mb-2'
-            )}
-          >
-            {text}
-          </Tag>
-        );
-      }
-      if (line.trim() === '') {
-        return <div key={i} className="h-3" />;
-      }
-      return (
-        <p key={i} className="mb-3 text-foreground/90">
-          {line}
-        </p>
-      );
-    });
-  }, [content, headings]);
+  const goToSearchResult = useCallback((direction: 'next' | 'prev') => {
+    if (searchResults.length === 0) return;
+    const newIndex = direction === 'next'
+      ? (currentSearchIndex + 1) % searchResults.length
+      : (currentSearchIndex - 1 + searchResults.length) % searchResults.length;
+    setCurrentSearchIndex(newIndex);
+    const lineIdx = searchResults[newIndex];
+    const lines = scrollRef.current?.querySelectorAll('[data-line]');
+    if (lines && lines[lineIdx]) {
+      (lines[lineIdx] as HTMLElement).scrollIntoView({ behavior: 'smooth', block: 'center' });
+    }
+  }, [searchResults, currentSearchIndex]);
+
+  /* Icon button — editorial */
+  const IconBtn = ({ onClick, title, active, disabled, children }: {
+    onClick?: () => void; title: string; active?: boolean; disabled?: boolean; children: React.ReactNode;
+  }) => (
+    <button
+      onClick={onClick}
+      disabled={disabled}
+      title={title}
+      className={cn(
+        'w-9 h-9 flex items-center justify-center transition-colors',
+        active
+          ? 'text-[var(--color-rust)]'
+          : 'text-[var(--color-ash)] hover:text-[var(--color-bone)]',
+        disabled && 'opacity-30 cursor-not-allowed'
+      )}
+    >
+      {children}
+    </button>
+  );
 
   return (
     <motion.div
       initial={{ opacity: 0 }}
       animate={{ opacity: 1 }}
       exit={{ opacity: 0 }}
-      transition={{ duration: 0.2 }}
-      className="fixed inset-0 z-50 flex flex-col bg-background"
+      transition={{ duration: 0.18 }}
+      className="fixed inset-0 z-50 flex flex-col bg-[var(--color-ink)]"
     >
-      {/* ── Top Bar ── */}
-      <div className="shrink-0 flex items-center justify-between px-4 py-3 border-b border-border/50 bg-card/80 backdrop-blur-xl">
-        <div className="flex items-center gap-2">
+      {/* ═══ TOP BAR ════════════════════════════════════════════ */}
+      <div className="shrink-0 flex items-center justify-between px-6 h-14 border-b border-[var(--color-hairline)] bg-[var(--color-paper)]/60 backdrop-blur-xl">
+        <div className="flex items-center gap-4 min-w-0">
           <button
             onClick={onClose}
-            className="flex items-center gap-1 px-3 py-1.5 rounded-lg hover:bg-secondary transition-colors text-sm text-muted-foreground"
+            className="flex items-center gap-2 text-[12px] text-[var(--color-ash)] hover:text-[var(--color-rust)] transition-colors"
+            title="返回 (Esc)"
           >
-            <ArrowLeft className="size-4" />
-            <span className="hidden sm:inline">返回</span>
+            <ArrowLeft className="w-3.5 h-3.5" strokeWidth={1.5} />
+            <span>返回</span>
           </button>
-          <div className="h-4 w-px bg-border" />
-          <div className="text-sm font-medium truncate max-w-[200px] sm:max-w-[400px]">
-            {asset.title || '转写内容'}
+          <div className="w-px h-4 bg-[var(--color-hairline-strong)]" />
+          <div className="flex items-center gap-2 min-w-0">
+            <span className="text-[13px] text-[var(--color-bone)] truncate max-w-[280px] sm:max-w-[440px]">
+              {asset.title || '未命名'}
+            </span>
+            {isStarred && (
+              <Star className="w-3 h-3 text-[var(--color-ember)] fill-[var(--color-ember)] flex-shrink-0" />
+            )}
           </div>
-          {asset.transcript_status === 'COMPLETED' && (
-            <CheckCircle2 className="size-4 text-success shrink-0" />
-          )}
         </div>
 
         <div className="flex items-center gap-1">
-          {/* Navigation */}
+          {/* Inline search input */}
+          {searchOpen ? (
+            <div className="flex items-center gap-2 px-3 h-9 border-b border-[var(--color-rust)] bg-[var(--color-vellum)]/50">
+              <Search className="w-3.5 h-3.5 text-[var(--color-smoke)]" strokeWidth={1.5} />
+              <input
+                id="transcript-search-input"
+                type="text"
+                placeholder="搜索文稿..."
+                value={searchQuery}
+                onChange={(e) => setSearchQuery(e.target.value)}
+                className="w-40 bg-transparent text-[13px] text-[var(--color-bone)] placeholder:text-[var(--color-smoke)] outline-none"
+              />
+              {searchQuery && searchResults.length > 0 && (
+                <span className="font-mono text-[10px] text-[var(--color-ash)] tabular">
+                  {currentSearchIndex + 1}/{searchResults.length}
+                </span>
+              )}
+              {searchQuery && searchResults.length > 0 && (
+                <>
+                  <button onClick={() => goToSearchResult('prev')} className="text-[var(--color-ash)] hover:text-[var(--color-rust)] text-[10px]">▲</button>
+                  <button onClick={() => goToSearchResult('next')} className="text-[var(--color-ash)] hover:text-[var(--color-rust)] text-[10px]">▼</button>
+                </>
+              )}
+              <button onClick={() => { setSearchOpen(false); setSearchQuery(''); }} className="text-[var(--color-smoke)] hover:text-[var(--color-rust)]">
+                <X className="w-3.5 h-3.5" />
+              </button>
+            </div>
+          ) : (
+            <IconBtn onClick={() => { setSearchOpen(true); setTimeout(() => document.getElementById('transcript-search-input')?.focus(), 50); }} title="搜索 (⌘F)">
+              <Search className="w-4 h-4" strokeWidth={1.5} />
+            </IconBtn>
+          )}
+
           {hasPrev !== undefined && (
             <>
-              <button
-                onClick={onPrev}
-                disabled={!hasPrev}
-                className="p-2 rounded-lg hover:bg-secondary transition-colors disabled:opacity-30"
-                title="上一篇 (⌘←)"
-              >
-                <ChevronLeft className="size-4" />
-              </button>
-              <button
-                onClick={onNext}
-                disabled={!hasNext}
-                className="p-2 rounded-lg hover:bg-secondary transition-colors disabled:opacity-30"
-                title="下一篇 (⌘→)"
-              >
-                <ChevronRight className="size-4" />
-              </button>
-              <div className="h-4 w-px bg-border mx-1" />
+              <IconBtn onClick={onPrev} disabled={!hasPrev} title="上一篇 (⌘←)">
+                <ChevronLeft className="w-4 h-4" strokeWidth={1.5} />
+              </IconBtn>
+              <IconBtn onClick={onNext} disabled={!hasNext} title="下一篇 (⌘→)">
+                <ChevronRight className="w-4 h-4" strokeWidth={1.5} />
+              </IconBtn>
+              <div className="w-px h-4 bg-[var(--color-hairline-strong)] mx-1" />
             </>
           )}
 
-          {/* Star */}
-          <button
-            onClick={handleToggleStar}
-            className="p-2 rounded-lg hover:bg-secondary transition-colors"
-            title={isStarred ? '取消收藏' : '收藏'}
-          >
-            {isStarred ? (
-              <Star className="size-4 text-warning fill-warning" />
-            ) : (
-              <StarOff className="size-4 text-muted-foreground" />
-            )}
-          </button>
+          <IconBtn onClick={handleToggleStar} title={isStarred ? '取消收藏' : '收藏'} active={isStarred}>
+            <Star className={cn('w-4 h-4', isStarred && 'fill-[var(--color-ember)] text-[var(--color-ember)]')} strokeWidth={1.5} />
+          </IconBtn>
 
-          {/* TOC toggle */}
           {headings.length > 0 && (
-            <button
-              onClick={() => setShowToc((v) => !v)}
-              className={cn(
-                'p-2 rounded-lg transition-colors',
-                showToc ? 'bg-primary/10 text-primary' : 'hover:bg-secondary text-muted-foreground'
-              )}
-              title="目录"
-            >
-              <List className="size-4" />
-            </button>
+            <IconBtn onClick={() => setShowToc((v) => !v)} title="目录" active={showToc}>
+              <List className="w-4 h-4" strokeWidth={1.5} />
+            </IconBtn>
           )}
 
-          {/* Font size */}
-          <button
-            onClick={() => setFontSizeIndex((i) => (i + 1) % FONT_SIZES.length)}
-            className="p-2 rounded-lg hover:bg-secondary transition-colors text-muted-foreground"
-            title="调整字号"
-          >
-            <Type className="size-4" />
-          </button>
+          <IconBtn onClick={() => setFontSizeIndex((i) => (i + 1) % FONT_SIZES.length)} title={`字号 · ${fontSize.label}`}>
+            <Type className="w-4 h-4" strokeWidth={1.5} />
+          </IconBtn>
 
-          {/* View original file */}
           {asset.transcript_path && (
-            <button
-              onClick={handleViewFile}
-              className="p-2 rounded-lg hover:bg-secondary transition-colors text-muted-foreground"
-              title="查看原文件"
-            >
-              <ExternalLink className="size-4" />
-            </button>
+            <IconBtn onClick={handleViewFile} title="查看原文件">
+              <ExternalLink className="w-4 h-4" strokeWidth={1.5} />
+            </IconBtn>
           )}
 
-          {/* Export */}
-          <button
-            onClick={handleExport}
-            className="p-2 rounded-lg hover:bg-secondary transition-colors text-muted-foreground"
-            title="导出"
-          >
-            <Download className="size-4" />
-          </button>
+          <IconBtn onClick={handleExport} title="导出">
+            <Download className="w-4 h-4" strokeWidth={1.5} />
+          </IconBtn>
         </div>
       </div>
 
-      {/* ── Progress Bar ── */}
-      <div className="shrink-0 h-[2px] bg-secondary overflow-hidden">
+      {/* ═══ PROGRESS HAIRLINE ══════════════════════════════════ */}
+      <div className="shrink-0 h-px bg-[var(--color-hairline-faint)] relative overflow-hidden">
         <motion.div
-          className="h-full bg-primary"
+          className="absolute inset-y-0 left-0 bg-[var(--color-rust)]"
           style={{ width: `${progress}%` }}
           transition={{ duration: 0.1 }}
         />
       </div>
 
-      {/* ── Main Content Area ── */}
+      {/* ═══ MAIN ═══════════════════════════════════════════════ */}
       <div className="flex-1 flex min-h-0">
-        {/* TOC Sidebar */}
+        {/* TOC */}
         <AnimatePresence>
           {showToc && headings.length > 0 && (
             <motion.aside
               initial={{ width: 0, opacity: 0 }}
-              animate={{ width: 240, opacity: 1 }}
+              animate={{ width: 260, opacity: 1 }}
               exit={{ width: 0, opacity: 0 }}
               transition={{ type: 'spring', stiffness: 400, damping: 35 }}
-              className="shrink-0 border-r border-border/50 bg-card/50 overflow-hidden"
+              className="shrink-0 border-r border-[var(--color-hairline)] bg-[var(--color-paper)]/40 overflow-hidden"
             >
-              <div className="w-[240px] h-full overflow-y-auto p-4">
-                <div className="text-xs font-semibold text-muted-foreground uppercase tracking-wider mb-3">
-                  目录
-                </div>
-                <nav className="space-y-0.5">
+              <div className="w-[260px] h-full overflow-y-auto px-6 py-7">
+                <div className="eyebrow mb-4">目录</div>
+                <nav className="space-y-1">
                   {headings.map((h) => (
                     <button
                       key={h.id}
-                      onClick={() => {
-                        const el = document.getElementById(slugify(h.text));
-                        if (el) {
-                          el.scrollIntoView({ behavior: 'smooth', block: 'start' });
-                        }
-                      }}
+                      onClick={() => document.getElementById(h.id)?.scrollIntoView({ behavior: 'smooth', block: 'start' })}
                       className={cn(
-                        'w-full text-left px-2 py-1 rounded-md text-sm transition-colors',
+                        'w-full text-left py-1.5 text-[13px] leading-snug transition-colors border-l-2',
                         activeHeading === h.id
-                          ? 'bg-primary/10 text-primary font-medium'
-                          : 'text-muted-foreground hover:text-foreground hover:bg-secondary/50'
+                          ? 'text-[var(--color-rust)] border-[var(--color-rust)]'
+                          : 'text-[var(--color-ash)] hover:text-[var(--color-bone)] border-transparent'
                       )}
-                      style={{ paddingLeft: `${8 + (h.level - 1) * 12}px` }}
+                      style={{ paddingLeft: `${10 + (h.level - 1) * 12}px` }}
                     >
                       {h.text}
                     </button>
@@ -370,48 +340,75 @@ export function TranscriptReader({
         </AnimatePresence>
 
         {/* Reader */}
-        <div
-          ref={scrollRef}
-          className="flex-1 overflow-y-auto"
-        >
+        <div ref={scrollRef} className="flex-1 overflow-y-auto">
           {loading ? (
-            <div className="flex items-center justify-center py-20">
+            <div className="flex items-center justify-center py-24">
               <div className="flex flex-col items-center gap-3">
-                <div className="w-8 h-8 rounded-full border-2 border-primary/20 border-t-primary animate-spin" />
-                <span className="text-sm text-muted-foreground">加载中...</span>
+                <div className="w-5 h-5 rounded-full border border-[var(--color-hairline-strong)] border-t-[var(--color-rust)] animate-spin" />
+                <span className="mono-cap">加载中</span>
               </div>
             </div>
           ) : (
             <article
-              className="max-w-2xl mx-auto px-5 py-8 sm:px-8 sm:py-12"
-              style={{
-                fontSize: fontSize.size,
-                lineHeight: fontSize.lineHeight,
-              }}
+              className="max-w-[680px] mx-auto px-8 sm:px-12 py-14 sm:py-20"
+              style={{ fontSize: fontSize.size, lineHeight: fontSize.lineHeight }}
             >
-              {/* Title */}
-              <h1 className="text-[1.6em] font-bold text-foreground mb-2 leading-tight">
-                {asset.title || '转写内容'}
-              </h1>
-              <div className="flex items-center gap-3 text-sm text-muted-foreground mb-8 pb-6 border-b border-border/50">
-                {asset.create_time && (
-                  <span>{new Date(asset.create_time).toLocaleDateString('zh-CN')}</span>
-                )}
-                {asset.is_starred && (
-                  <span className="inline-flex items-center gap-1 text-warning">
-                    <Star className="size-3 fill-warning" />
-                    已收藏
-                  </span>
-                )}
-              </div>
+              {/* Title block */}
+              <header className="mb-12 pb-8 border-b border-[var(--color-hairline)]">
+                <div className="eyebrow mb-4">
+                  {asset.create_time
+                    ? new Date(asset.create_time).toLocaleDateString('zh-CN', { year: 'numeric', month: 'long', day: 'numeric' })
+                    : '未知日期'
+                  }
+                </div>
+                <h1 className="font-display text-[clamp(32px,4vw,52px)] leading-[1.1] tracking-display text-[var(--color-bone)]">
+                  {asset.title || '未命名'}
+                </h1>
+              </header>
 
               {/* Content */}
-              <div className="text-foreground/90">
-                {renderedContent}
+              <div className="text-[var(--color-bone)] prose prose-invert max-w-none
+                            prose-headings:font-display prose-headings:font-normal prose-headings:text-[var(--color-bone)]
+                            prose-h1:text-[1.6em] prose-h2:text-[1.35em] prose-h3:text-[1.15em]
+                            prose-p:text-[var(--color-bone)] prose-p:my-[0.9em] prose-p:leading-[inherit]
+                            prose-strong:text-[var(--color-bone)] prose-strong:font-semibold
+                            prose-em:text-[var(--color-ash)]
+                            prose-a:text-[var(--color-rust)] prose-a:no-underline hover:prose-a:underline
+                            prose-blockquote:border-l-[var(--color-rust)] prose-blockquote:text-[var(--color-ash)]
+                            prose-code:text-[var(--color-rust)] prose-code:bg-[var(--color-vellum)] prose-code:px-1.5 prose-code:py-0.5 prose-code:rounded-none prose-code:font-mono prose-code:text-[0.9em]
+                            prose-pre:bg-[var(--color-vellum)] prose-pre:border prose-pre:border-[var(--color-hairline)]
+                            prose-hr:border-[var(--color-hairline)]
+                            prose-li:text-[var(--color-bone)] prose-ul:my-[0.9em] prose-ol:my-[0.9em]">
+                {format === 'markdown' ? (
+                  <ReactMarkdown remarkPlugins={[remarkGfm]}>{content}</ReactMarkdown>
+                ) : (
+                  <div className="whitespace-pre-wrap font-sans">
+                    {content.split('\n').map((line, i) => {
+                      const trimmed = line.trim();
+                      const isSpeaker = /^(发言人|Speaker|嘉宾)/.test(trimmed);
+                      const isTimestamp = /^\d{2}:\d{2}/.test(trimmed);
+                      const isHeader = /原文$/.test(trimmed);
+                      const isMatch = searchResults.includes(i);
+                      return (
+                        <div key={i} data-line={i} className={cn(
+                          isMatch && 'bg-[rgba(212,168,80,0.18)] -mx-2 px-2',
+                          isSpeaker && 'mt-5 mb-1 text-[var(--color-rust)] font-medium text-[0.9em]',
+                          isTimestamp && 'text-[var(--color-smoke)] text-[0.78em] font-mono',
+                          isHeader && 'eyebrow mt-8 mb-4 pb-3 border-b border-[var(--color-hairline)]',
+                          !isSpeaker && !isTimestamp && !isHeader && 'text-[var(--color-bone)]',
+                        )}>
+                          {line}
+                        </div>
+                      );
+                    })}
+                  </div>
+                )}
               </div>
 
-              {/* Bottom spacer */}
-              <div className="h-20" />
+              <div className="h-24" />
+              <div className="mono-cap text-center pt-6 border-t border-[var(--color-hairline-faint)]">
+                ⸺ 全文完 ⸺
+              </div>
             </article>
           )}
         </div>
