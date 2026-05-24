@@ -3,7 +3,8 @@ import { useNavigate } from 'react-router-dom';
 import { useStore } from '@/store/useStore';
 import { getDashboard, type DashboardData } from '@/services/dashboard';
 import { getFailureSummary, type FailureSummary } from '@/services/tasks';
-import { getQwenStatus, triggerPipeline } from '@/lib/api';
+import { getQwenStatus, triggerPipeline, getTranscripts } from '@/lib/api';
+import type { Asset } from '@/lib/api';
 import { toast } from 'sonner';
 import { HeroCol, LedgerEntry, ActionRow } from '@/components/home/HomeWidgets';
 import { FailureSummarySection, RecentTranscriptsSection } from '@/components/home/HomeSections';
@@ -17,7 +18,7 @@ export default function Home() {
 
   const [dashboard, setDashboard] = useState<DashboardData | null>(null);
   const [failureSummary, setFailureSummary] = useState<FailureSummary | null>(null);
-  const [recentTranscripts, setRecentTranscripts] = useState<any[]>([]);
+  const [recentTranscripts, setRecentTranscripts] = useState<Asset[]>([]);
   const [qwenAccounts, setQwenAccounts] = useState<Array<{ accountId: string; remaining_hours: number }>>([]);
   const [loading, setLoading] = useState(true);
 
@@ -26,7 +27,7 @@ export default function Home() {
       const [dash, fail, transcripts] = await Promise.all([
         getDashboard(),
         getFailureSummary(1),
-        fetch('/api/v1/transcripts?status=all&limit=4').then(r => r.json()),
+        getTranscripts('all', 4),
       ]);
       setDashboard(dash);
       setFailureSummary(fail);

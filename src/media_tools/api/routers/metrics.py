@@ -14,7 +14,7 @@ from fastapi import APIRouter
 
 from media_tools.api.websocket_manager import manager as ws_manager
 from media_tools.core import background
-from media_tools.store.db import DBConnection, get_db_connection
+from media_tools.store.db import DBConnection, get_db_connection, get_table_columns
 from media_tools.scheduler.health import run_health_check
 
 logger = logging.getLogger(__name__)
@@ -120,15 +120,20 @@ def _collect_creator_sync_status() -> dict[str, Any]:
         with get_db_connection() as conn:
             conn.row_factory = sqlite3.Row
             total = conn.execute("SELECT COUNT(*) AS c FROM creators").fetchone()["c"]
-            auto_sync = conn.execute(
-                "SELECT COUNT(*) AS c FROM creators WHERE auto_sync = 1"
-            ).fetchone()["c"]
-            stale = conn.execute(
-                """SELECT COUNT(*) AS c FROM creators
-                   WHERE auto_sync = 1
-                   AND (last_fetch_time IS NULL
-                        OR last_fetch_time < datetime('now', '-6 hours'))"""
-            ).fetchone()["c"]
+            creator_columns = get_table_columns(conn, "creators")
+            if "auto_sync" in creator_columns:
+                auto_sync = conn.execute(
+                    "SELECT COUNT(*) AS c FROM creators WHERE auto_sync = 1"
+                ).fetchone()["c"]
+                stale = conn.execute(
+                    """SELECT COUNT(*) AS c FROM creators
+                       WHERE auto_sync = 1
+                       AND (last_fetch_time IS NULL
+                            OR last_fetch_time < datetime('now', '-6 hours'))"""
+                ).fetchone()["c"]
+            else:
+                auto_sync = 0
+                stale = 0
             return {
                 "total_creators": int(total),
                 "auto_sync_enabled": int(auto_sync),

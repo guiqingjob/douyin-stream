@@ -27,6 +27,14 @@ def _get_shared_client() -> httpx.AsyncClient:
     return _shared_client
 
 
+async def close_bilibili_client() -> None:
+    """关闭共享 httpx 客户端，应在应用 shutdown 时调用。"""
+    global _shared_client
+    if _shared_client is not None and not _shared_client.is_closed:
+        await _shared_client.aclose()
+        _shared_client = None
+
+
 async def fetch_bilibili_nickname(mid: str, retries: int = 3) -> str:
     """
     异步获取 B 站用户昵称

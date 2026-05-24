@@ -24,16 +24,15 @@ apiClient.interceptors.response.use(
       const status = error.response?.status ?? 0;
       const message = data?.message || data?.detail || error.message || '请求失败';
 
-      if (status >= 500) {
+      if (!error.response) {
+        // 无 response：广告拦截器（ERR_BLOCKED_BY_CLIENT）、网络断开、后端不可达。
+        // 后台轮询请求弹 toast 会打扰用户，仅 console.error 记录。
+        // 用户主动操作的请求由业务层 try/catch 自行提示。
+        console.error('Network Error:', error.config?.url, error.message);
+      } else if (status >= 500) {
         toast.error(`服务器错误: ${message}`);
       } else if (status >= 400) {
         toast.error(message);
-      } else if (!error.response) {
-        // 无 response 的情况：广告拦截器拦截（ERR_BLOCKED_BY_CLIENT）、
-        // 后端短暂不可达、网络断开等。这些通常是后台轮询请求，
-        // 弹 toast 会打扰用户；仅 console.error 记录。
-        // 用户主动操作触发的请求，业务层会自行 try/catch 提示更具体的错误。
-        console.error('Network Error:', error.config?.url, error.message);
       }
     }
     return Promise.reject(error);
@@ -145,7 +144,11 @@ export {
 export type { DashboardData, HealthCheck } from '@/services/dashboard';
 
 // ── Transcripts ──
-export async function getTranscripts(status: 'all' | 'unread' | 'starred' = 'all') {
-  const res = await apiClient.get('/transcripts', { params: { status } });
+export async function getTranscripts(status: 'all' | 'unread' | 'starred' = 'all', limit?: number) {
+  const params: Record<string, string | number> = { status };
+  if (limit !== undefined) {
+    params.limit = limit;
+  }
+  const res = await apiClient.get('/transcripts', { params });
   return res.data;
 }

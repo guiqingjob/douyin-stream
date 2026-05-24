@@ -1,5 +1,5 @@
 from typing import Optional, Union
-from fastapi import APIRouter, HTTPException
+from fastapi import APIRouter, HTTPException, Query
 
 router = APIRouter(prefix="/api/v1/douyin", tags=["douyin"], redirect_slashes=False)
 
@@ -35,7 +35,10 @@ except BaseException as exc:  # pragma: no cover - depends on optional runtime d
 
 
 @router.get("/metadata")
-async def get_metadata(url: str, max_counts: int = 10):
+async def get_metadata(
+    url: str = Query(..., min_length=1, max_length=2048),
+    max_counts: int = Query(10, ge=1, le=1000),
+):
     try:
         from media_tools.douyin.core.f2_helper import get_f2_kwargs
 

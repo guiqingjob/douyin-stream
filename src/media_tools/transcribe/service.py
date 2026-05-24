@@ -464,8 +464,9 @@ class OrchestratorV2:
         for video_path, result in zip(pending_paths, results):
             pipeline_result: PipelineResultV2
 
-            # return_exceptions=True 会把 KeyboardInterrupt / CancelledError 等 BaseException
-            # 收集到 results 中；这里重新抛出，避免吞掉中断信号。
+            # Python 3.11+ 中 asyncio.gather(return_exceptions=True) 不会收集 CancelledError，
+            # 它会直接向上传播。KeyboardInterrupt / SystemExit 仍可能被收集，这里统一重新
+            # 抛出所有 BaseException（非 Exception 子类），避免吞掉中断信号。
             if isinstance(result, BaseException) and not isinstance(result, Exception):
                 raise result
 

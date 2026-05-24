@@ -8,7 +8,7 @@ import { motion, AnimatePresence } from 'framer-motion';
 import { cn } from '@/lib/utils';
 
 // Helper to parse payload
-function parsePayload(payload?: string): Record<string, any> | null {
+function parsePayload(payload?: string): Record<string, unknown> | null {
   if (!payload) return null;
   try {
     return JSON.parse(payload);
@@ -20,9 +20,9 @@ function parsePayload(payload?: string): Record<string, any> | null {
 // Helper to resolve a friendly task title
 function getTaskTitle(task: Task): string {
   const p = parsePayload(task.payload);
-  if (p && p.msg) return p.msg;
-  if (p && p.creator_name) return `同步: ${p.creator_name}`;
-  if (p && p.uid) return `同步创作者: ${p.uid.slice(0, 8)}`;
+  if (p && typeof p.msg === 'string') return p.msg;
+  if (p && typeof p.creator_name === 'string') return `同步: ${p.creator_name}`;
+  if (p && typeof p.uid === 'string') return `同步创作者: ${p.uid.slice(0, 8)}`;
   
   switch (task.task_type) {
     case 'creator_sync_full':

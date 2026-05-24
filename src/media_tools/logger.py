@@ -284,9 +284,11 @@ def get_logger(name: str = "media_tools") -> logging.Logger:
     global _logger
     if _logger is None:
         init_logging()
-    base = logging.getLogger("media_tools")
     if name == "media_tools":
-        return base
+        return logging.getLogger("media_tools")
+    # 确保子 logger 挂在 media_tools 层级下，才能继承已配置的 handlers
+    if not name.startswith("media_tools."):
+        name = f"media_tools.{name}"
     child = logging.getLogger(name)
     child.setLevel(logging.DEBUG)
     child.propagate = True

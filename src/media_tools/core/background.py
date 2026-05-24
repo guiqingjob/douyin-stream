@@ -53,7 +53,9 @@ async def cancel_all(timeout: float = 5.0) -> int:
 
     超时后剩余仍在运行的任务由调用方决定如何处理（通常是放弃等待）。
     """
-    pending = [t for t in _tasks if not t.done()]
+    # 先快照，避免迭代期间 done callback 修改 _tasks 导致 RuntimeError
+    snapshot = list(_tasks)
+    pending = [t for t in snapshot if not t.done()]
     if not pending:
         return 0
     for t in pending:

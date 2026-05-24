@@ -1,6 +1,6 @@
 import asyncio
 from typing import Optional
-from fastapi import APIRouter, HTTPException, Query
+from fastapi import APIRouter, HTTPException, Query, Path
 from media_tools.common.paths import get_download_path, get_transcripts_path, get_project_root
 from media_tools.store.db import get_db_connection, resolve_safe_path, resolve_query_value
 from media_tools.creators.repository import CreatorRepository
@@ -14,7 +14,6 @@ import logging
 import threading
 import time
 from pydantic import BaseModel
-from pathlib import Path
 
 router = APIRouter(prefix="/api/v1/creators", tags=["creators"], redirect_slashes=False)
 logger = logging.getLogger(__name__)
@@ -204,7 +203,7 @@ async def create_creator(req: CreatorCreateRequest):
         raise HTTPException(status_code=500, detail=str(e))
 
 @router.patch("/{uid}/auto-sync")
-def toggle_creator_auto_sync(uid: str, req: ToggleAutoSyncRequest):
+def toggle_creator_auto_sync(*, uid: str = Path(..., min_length=1, max_length=128), req: ToggleAutoSyncRequest):
     """切换创作者自动同步状态"""
     try:
         if not CreatorRepository.exists(uid):
@@ -218,7 +217,7 @@ def toggle_creator_auto_sync(uid: str, req: ToggleAutoSyncRequest):
 
 
 @router.delete("/{uid}")
-def delete_creator(uid: str):
+def delete_creator(uid: str = Path(..., min_length=1, max_length=128)):
     try:
         nickname, assets = CreatorRepository.delete_with_assets(uid)
         if nickname is None:

@@ -7,7 +7,7 @@ from pydantic import BaseModel
 from apscheduler.schedulers.background import BackgroundScheduler
 from apscheduler.triggers.cron import CronTrigger
 
-from media_tools.store.db import get_db_connection
+from media_tools.store.db import get_db_connection, get_table_columns
 
 router = APIRouter(prefix="/api/v1/scheduler", tags=["scheduler"], redirect_slashes=False)
 logger = logging.getLogger(__name__)
@@ -42,6 +42,7 @@ def _register_system_jobs() -> None:
         try:
             with get_db_connection() as conn:
                 cleanup_stale_tasks(conn, is_startup=False)
+                conn.commit()
         except (sqlite3.Error, OSError) as e:
             logger.error(f"Stale task cleanup failed: {e}")
 
@@ -104,7 +105,10 @@ def _register_system_jobs() -> None:
                         logger.info(f"[定时额度领取] {remark}: 跳过（{result.reason}）")
             finally:
                 asyncio.set_event_loop(None)
-                loop.close()
+                try:
+                    loop.close()
+                except Exception:  # noqa: defensive
+                    pass
             logger.info("[定时额度领取] 完成")
         except (RuntimeError, OSError, ValueError) as e:
             logger.error(f"[定时额度领取] 失败: {e}")
@@ -126,6 +130,9 @@ def _register_system_jobs() -> None:
 
         with get_db_connection() as conn:
             conn.row_factory = sqlite3.Row
+            creator_columns = get_table_columns(conn, "creators")
+            if "auto_sync" not in creator_columns:
+                return
             rows = conn.execute(
                 "SELECT uid, last_fetch_time FROM creators WHERE auto_sync = 1"
             ).fetchall()
@@ -168,7 +175,7 @@ def _register_system_jobs() -> None:
                     CreatorSyncWorker().execute(task_id, uid=uid, mode="incremental")
                 )
                 synced_count += 1
-            except (RuntimeError, OSError, ValueError) as e:
+            except (RuntimeError, OSError, ValueError, asyncio.CancelledError) as e:
                 logger.error(f"[自动同步] 创作者同步失败 {uid}: {e}")
             finally:
                 asyncio.set_event_loop(None)

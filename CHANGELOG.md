@@ -7,6 +7,35 @@
 
 ---
 
+## [2.5.3] - 2026-05-21
+
+### 🐛 修复
+
+- **Python 3.9 兼容性**：`transcribe/worker.py` 和 `transcribe/preview.py` 补充 `from __future__ import annotations`，修复 `str | None` 联合类型语法在 Python 3.9 下的 `TypeError` 崩溃。
+- **变量遮蔽导致 `TypeError`**：`bilibili/core/temp_files.py` 中 `managed_temp_file` 参数 `dir` 遮蔽内置 `dir()`，修复时写的 `if 'handle' in dir()` 实际调用了参数 `None`。将参数重命名为 `directory`。
+- **列缓存 ID 重用污染**：`store/db.py` 的 `_table_columns_cache` 使用 `id(conn)` 作键，CPython 中对象垃圾回收后 ID 可被重用，导致测试返回错误列集合（如 `auto_sync` 列误报存在）。直接移除缓存（`PRAGMA table_info` 本身极快）。
+- **缺少 `import sqlite3`**：`transcribe/flow.py` 和 `core/cookie_manager.py` 捕获 `sqlite3.Error` 但未导入 `sqlite3`，运行时触发 `NameError: name 'sqlite3' is not defined`，并进一步导致 E2E 测试 `disk I/O error`（异常路径未释放连接锁）。
+- **数据库连接缓存跨测试污染**：`get_db_connection()` 的线程本地缓存不感知 `_db_path` 变化，E2E 测试修改数据库路径后仍返回旧连接。添加 `_db_path` 变化检测与自动清理。
+- **前端回归行数超限**：`Discover.tsx` 305 行超过 300 行限额。合并 4 处 `catch/finally` 块并移除冗余注释，精简至 299 行。
+- **全量同步 Worker 三态终局逻辑**：`full_sync_worker.py` 此前无论成败一律调用 `finalize_success`，现改为：全部成功 → `COMPLETED`、部分成功 → `PARTIAL_FAILED`、全部失败 → `FAILED`。
+- **任务取消竞态条件**：`api/routers/tasks.py` 的 `delete_task` / `cancel_task` 在取消后未做身份校验，可能导致取消的是重入后的新任务。添加 `is` 身份检查。
+- **`pathlib.Path` 与 `fastapi.Path` 命名冲突**：`assets.py` 和 `tasks.py` 同时导入 `pathlib.Path` 和 `fastapi.Path` 导致 `TypeError`。将 `pathlib` 导入重命名为 `_Path`。
+- **仓库层 14 个写操作缺少 `conn.commit()`**：`scheduler/repository.py` 中 `create`、`create_running`、`update_progress`、`mark_running`、`mark_completed`、`mark_failed`、`update_heartbeat`、`patch_payload`、`set_auto_retry`、`update_priority`、`delete`、`clear_history`、`clear_all_history`、`delete_all_except` 均已补充 `commit()`。
+- **`auto_sync` 列缺失防御**：`scheduler.py` 和 `metrics.py` 直接 `WHERE auto_sync = 1` 查询，在旧数据库或测试环境中崩溃。添加列存在性检查。
+- **临时文件 `NameError`**：`bilibili/core/temp_files.py` 的 `finally` 块中若 `io.open()` 失败，`handle` 变量不存在。添加存在性守卫。
+- **健康检查 `OSError` 未捕获**：`scheduler/health.py` 检查文件存在性时未捕获权限错误，可能导致 dashboard 健康接口崩溃。
+- **`settings.py` 删除账号无 404**：`delete_qwen_account` 未检查 `rowcount`，删除不存在的账号仍返回 200。现返回 404。
+- **后台任务注册竞态**：`scheduler/state.py` 中 `_register_background_task` 未取消旧任务就注册新任务，可能导致内存泄漏。
+- **前端 Settings 组件 Props 类型错配**：`AccountSettingsSection.tsx` 中 `editingRemarkDouyin/Bilibili/Qwen` 声明为 `string | null`，与父组件 `Settings.tsx` 的 `{ id: string } | null` 及子组件 `AccountExpandable` 不匹配；`handleClaimQuota` 声明为 `(accountId: string) => Promise<void>`，与实际无参签名不符。统一修正后 TypeScript 编译通过。
+- **TaskIsland 未知类型访问**：`TaskIsland.tsx` 的 `getTaskTitle` 从 `Record<string, unknown>` 直接读取 `p.msg`、`p.creator_name`、`p.uid`，TypeScript 报错 `Type '{}' is not assignable to type 'string'`。添加 `typeof ... === 'string'` 守卫后编译通过。
+- **Python 未使用导入**：移除 `platform/bilibili.py` 的 `subprocess` 和 `api/routers/tasks.py` 的 `timedelta` 未使用导入。
+
+### 🔧 改进
+
+- **测试套件**：修复后全量测试 300 passed / 3 skipped / 0 failed（此前 291 passed / 1 failed / 多次 `sqlite3` 相关错误）。
+
+---
+
 ## [2.5.2] - 2026-05-20
 
 ### 🔧 改进

@@ -49,7 +49,7 @@ class FullSyncWorker(BaseWorker):
 
             interval = None
             if mode == "incremental":
-                interval = self._fetch_interval_for_uid(uid)
+                interval = await self._fetch_interval_for_uid(uid)
 
             existing_source = "file" if mode == "full" else "file+db"
 
@@ -81,7 +81,7 @@ class FullSyncWorker(BaseWorker):
                 if isinstance(result, dict) and result.get("success"):
                     creator_success += 1
                     new_video_count += len(result.get("new_files") or [])
-                    self._update_last_fetch_time(uid)
+                    await self._update_last_fetch_time(uid)
                 else:
                     creator_failed += 1
             except asyncio.CancelledError:
@@ -108,32 +108,49 @@ class FullSyncWorker(BaseWorker):
             f"全量同步完成：成功 {creator_success} 位，失败 {creator_failed} 位，"
             f"新增 {new_video_count} 个视频（{mode}）"
         )
-        await self.finalize_success(msg, result_summary=result_summary)
+        if creator_failed == 0:
+            await self.finalize_success(msg, result_summary=result_summary)
+        elif creator_success > 0:
+            await self.finalize_partial(
+                msg,
+                error_msg=f"{creator_failed} 位创作者同步失败",
+                result_summary=result_summary,
+            )
+        else:
+            await self.finalize_failure(
+                msg,
+                error_msg=f"全部 {total} 位创作者同步失败",
+                result_summary=result_summary,
+            )
 
-    def _fetch_interval_for_uid(self, uid: str) -> str | None:
-        try:
-            with get_db_connection() as conn:
-                cursor = conn.execute(
-                    "SELECT last_fetch_time FROM creators WHERE uid = ?",
-                    (uid,),
-                )
-                row = cursor.fetchone()
-                last_fetch = (
-                    row["last_fetch_time"] if isinstance(row, dict) else row[0]
-                ) if row else None
-            return _build_interval_from_last_fetch(last_fetch)
-        except (sqlite3.Error, OSError):
-            return None
+    async def _fetch_interval_for_uid(self, uid: str) -> str | None:
+        def _fetch():
+            try:
+                with get_db_connection() as conn:
+                    cursor = conn.execute(
+                        "SELECT last_fetch_time FROM creators WHERE uid = ?",
+                        (uid,),
+                    )
+                    row = cursor.fetchone()
+                    last_fetch = (
+                        row["last_fetch_time"] if isinstance(row, dict) else row[0]
+                    ) if row else None
+                return _build_interval_from_last_fetch(last_fetch)
+            except (sqlite3.Error, OSError):
+                return None
+        return await asyncio.to_thread(_fetch)
 
-    def _update_last_fetch_time(self, uid: str) -> None:
-        try:
-            with get_db_connection() as conn:
-                conn.execute(
-                    "UPDATE creators SET last_fetch_time = ? WHERE uid = ?",
-                    (datetime.now().isoformat(), uid),
-                )
-        except sqlite3.Error:
-            pass
+    async def _update_last_fetch_time(self, uid: str) -> None:
+        def _update():
+            try:
+                with get_db_connection() as conn:
+                    conn.execute(
+                        "UPDATE creators SET last_fetch_time = ? WHERE uid = ?",
+                        (datetime.now().isoformat(), uid),
+                    )
+            except sqlite3.Error:
+                pass
+        await asyncio.to_thread(_update)
 
     async def _poll_creator_download(
         self,

@@ -64,8 +64,7 @@ export default function Discover() {
     try {
       const res = await triggerDownloadBatch([url.trim()]);
       toast.success('下载任务已派发', { description: `id: ${res.task_id.slice(0, 8)}` });
-    } catch { /* */ }
-    finally { setSubmitting(false); }
+    } catch { /* */ } finally { setSubmitting(false); }
   }, [url]);
 
   const handleDirectTranscribe = useCallback(async () => {
@@ -75,8 +74,7 @@ export default function Discover() {
       const maxCounts = linkInfo?.type === 'up_space' ? 20 : 1;
       const res = await triggerPipeline(url.trim(), maxCounts);
       toast.success('下载 + 转写任务已派发', { description: `id: ${res.task_id.slice(0, 8)}` });
-    } catch { /* */ }
-    finally { setSubmitting(false); }
+    } catch { /* */ } finally { setSubmitting(false); }
   }, [url, linkInfo]);
 
   const toggleSelect = useCallback((awemeId: string) => {
@@ -99,8 +97,7 @@ export default function Discover() {
       const res = await triggerDownloadBatch(selectedUrls);
       toast.success('下载任务已派发', { description: `id: ${res.task_id.slice(0, 8)}` });
       setSelectedIds(new Set());
-    } catch { /* */ }
-    finally { setSubmitting(false); }
+    } catch { /* */ } finally { setSubmitting(false); }
   }, [selectedIds, videos]);
 
   const handleDownloadAndTranscribe = useCallback(async () => {
@@ -111,8 +108,7 @@ export default function Discover() {
       const res = await triggerPipeline(selectedUrls[0], selectedUrls.length);
       toast.success('下载 + 转写任务已派发', { description: `id: ${res.task_id.slice(0, 8)}` });
       setSelectedIds(new Set());
-    } catch { /* */ }
-    finally { setSubmitting(false); }
+    } catch { /* */ } finally { setSubmitting(false); }
   }, [selectedIds, videos]);
 
   const handlePasteFromClipboard = useCallback(async () => {
@@ -182,7 +178,6 @@ export default function Discover() {
 
         {videos.length > 0 && (
           <>
-            {/* Section header */}
             <div className="flex items-baseline justify-between mb-6 pb-3 border-b border-[var(--color-hairline-strong)]">
               <div>
                 <h2 className="font-display text-[28px] text-[var(--color-bone)] leading-none">

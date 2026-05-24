@@ -16,6 +16,9 @@ def test_creator_transcribe_submits_background_task(monkeypatch) -> None:
     def _fake_register(task_id: str, coro):  # noqa: ANN001
         created["registered_task_id"] = task_id
         created["registered_coro"] = coro
+        # 关闭未调度的协程，消除 RuntimeWarning
+        if hasattr(coro, "close"):
+            coro.close()
 
     monkeypatch.setattr("media_tools.scheduler.dispatcher._create_task", _fake_create_task)
     monkeypatch.setattr("media_tools.scheduler.dispatcher._register_background_task", _fake_register)

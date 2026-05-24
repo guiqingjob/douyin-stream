@@ -211,8 +211,10 @@ def update_global_settings(req: GlobalSettingsRequest):
         return {"status": "success"}
     except HTTPException:
         raise
-    except (ValueError, sqlite3.Error, OSError) as e:
+    except ValueError as e:
         raise HTTPException(status_code=400, detail=str(e))
+    except (sqlite3.Error, OSError) as e:
+        raise HTTPException(status_code=500, detail=str(e))
 
 @router.post("/qwen")
 def update_qwen_key(req: QwenConfigRequest):
@@ -222,8 +224,10 @@ def update_qwen_key(req: QwenConfigRequest):
         return {"status": "success"}
     except HTTPException:
         raise
-    except (sqlite3.Error, OSError, ValueError) as e:
+    except ValueError as e:
         raise HTTPException(status_code=400, detail=str(e))
+    except (sqlite3.Error, OSError) as e:
+        raise HTTPException(status_code=500, detail=str(e))
 
 @router.post("/qwen/accounts")
 async def add_qwen_account(req: QwenAccountRequest):
@@ -285,10 +289,16 @@ def update_qwen_account_cookie(account_id: str, req: QwenCookieUpdateRequest):
 @router.delete("/qwen/accounts/{account_id}")
 def delete_qwen_account(account_id: str):
     try:
-        AccountRepository.delete(account_id, "qwen")
+        rowcount = AccountRepository.delete(account_id, "qwen")
+        if rowcount == 0:
+            raise HTTPException(status_code=404, detail="Account not found")
         return {"status": "success"}
-    except (sqlite3.Error, OSError, ValueError) as e:
+    except HTTPException:
+        raise
+    except ValueError as e:
         raise HTTPException(status_code=400, detail=str(e))
+    except (sqlite3.Error, OSError) as e:
+        raise HTTPException(status_code=500, detail=str(e))
 
 @router.post("/qwen/accounts/rehydrate")
 def rehydrate_qwen_accounts():

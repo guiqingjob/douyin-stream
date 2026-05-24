@@ -73,6 +73,14 @@ async def lifespan(app: FastAPI):
     cancelled = await background.cancel_all(timeout=5.0)
     if cancelled:
         logger.info(f"shutdown: cancelled {cancelled} background task(s)")
+    # 关闭共享 HTTP 客户端，避免连接泄漏
+    try:
+        from media_tools.services.bilibili_nickname import close_bilibili_client
+
+        await close_bilibili_client()
+    except Exception as e:
+        logger.warning(f"shutdown: close bilibili client failed: {e}")
+
     # 关闭主线程缓存的 DB 连接
     from media_tools.store.db import close_all_cached_connections
     closed = close_all_cached_connections()

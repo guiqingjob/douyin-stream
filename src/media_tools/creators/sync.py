@@ -172,13 +172,17 @@ class CreatorSyncWorker(BaseWorker):
         await self.report_progress(0.1, "下载中...", stage=info.get("stage", "downloading"))
 
         if platform == "bilibili":
+            logger.info(f"[创作者同步] 使用 yt-dlp 下载 B 站 UP 主 {display_name} (mid={sec_user_id or uid})")
             new_files = await self._download_bilibili(
                 task_id, uid, sec_user_id, max_counts, skip_existing, last_result
             )
         else:
+            logger.info(f"[创作者同步] 使用 F2 下载抖音用户 {display_name} (sec_user_id={sec_user_id})")
             new_files = await self._download_douyin(
                 task_id, uid, sec_user_id, max_counts, skip_existing, interval, last_result
             )
+
+        logger.info(f"[创作者同步] 下载阶段完成 — {display_name}: {len(new_files)} 个新文件")
 
         # 对账
         missing_items, missing_subtasks, reconcile_total, reconcile_missing = await self._reconcile(uid)
@@ -271,12 +275,14 @@ class CreatorSyncWorker(BaseWorker):
 
         mid = sec_user_id or uid.split(":", 1)[-1]
         url = f"https://space.bilibili.com/{mid}"
+        logger.info(f"[B站下载] 启动: space.bilibili.com/{mid} (max={max_counts or '全部'}, skip={skip_existing})")
         try:
             result = await asyncio.to_thread(
-                download_up_by_url, url, max_counts, skip_existing, None, task_id
+                download_up_by_url, url, max_counts, skip_existing, None, task_id, False, not skip_existing
             )
         except (RuntimeError, OSError, ValueError) as e:
             error_msg = str(e)
+            logger.error(f"[B站下载] 失败: {error_msg}")
             if "412" in error_msg or "blocked" in error_msg.lower():
                 await self.report_progress(
                     0.5,
@@ -289,7 +295,15 @@ class CreatorSyncWorker(BaseWorker):
             raise
         if isinstance(result, dict):
             last_result.update(result)
-        return (result.get("new_files") or []) if isinstance(result, dict) else []
+            new_files = result.get("new_files") or []
+            uploader = result.get("uploader")
+            logger.info(
+                f"[B站下载] 结束: {len(new_files)} 个新文件"
+                f"{'，UP主=' + uploader.get('nickname', '?') if uploader else ''}"
+            )
+            return new_files
+        logger.warning(f"[B站下载] 返回格式异常: {type(result)}")
+        return []
 
     async def _download_douyin(
         self,

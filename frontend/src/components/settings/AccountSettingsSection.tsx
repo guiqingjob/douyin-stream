@@ -1,9 +1,17 @@
+import type React from 'react';
 import { Users, KeyRound } from 'lucide-react';
 import { SettingsGroup, SettingsItem } from '@/components/settings/SettingsLayout';
 import { AccountExpandable } from '@/components/settings/AccountExpandable';
+import type { SettingsPayload } from '@/store/slices/settingsSlice';
+
+interface ConfirmDeletePayload {
+  type: string;
+  id: string;
+  name: string;
+}
 
 interface AccountSettingsSectionProps {
-  settings: any;
+  settings: SettingsPayload | null;
   douyinReady: boolean;
   douyinCookie: string;
   setDouyinCookie: (v: string) => void;
@@ -12,12 +20,12 @@ interface AccountSettingsSectionProps {
   isAddingDouyin: boolean;
   douyinCookieError: string;
   setDouyinCookieError: (v: string) => void;
-  editingRemarkDouyin: any;
-  setEditingRemarkDouyin: (v: any) => void;
+  editingRemarkDouyin: { id: string } | null;
+  setEditingRemarkDouyin: (v: { id: string } | null) => void;
   handleAddDouyin: () => void;
-  setConfirmDelete: (v: any) => void;
-  editingRemarkBilibili: any;
-  setEditingRemarkBilibili: (v: any) => void;
+  setConfirmDelete: (v: ConfirmDeletePayload | null) => void;
+  editingRemarkBilibili: { id: string } | null;
+  setEditingRemarkBilibili: (v: { id: string } | null) => void;
   bilibiliReady: boolean;
   bilibiliCookie: string;
   setBilibiliCookie: (v: string) => void;
@@ -38,14 +46,14 @@ interface AccountSettingsSectionProps {
   setQwenCookieError: (v: string) => void;
   handleSaveQwen: () => void;
   handleUpdateQwenCookie: (id: string, cookie: string) => void;
-  editingRemarkQwen: any;
-  setEditingRemarkQwen: (v: any) => void;
-  editInputRef: any;
-  handleSaveRemark: any;
+  editingRemarkQwen: { id: string } | null;
+  setEditingRemarkQwen: (v: { id: string } | null) => void;
+  editInputRef: React.RefObject<HTMLInputElement | null>;
+  handleSaveRemark: (platform: string, accountId: string, remark: string) => Promise<void>;
   isLoadingQwenStatus: boolean;
   qwenStatusError: string;
-  loadQwenStatus: any;
-  handleClaimQuota: any;
+  loadQwenStatus: () => Promise<void>;
+  handleClaimQuota: () => Promise<void>;
   isClaimingQuota: boolean;
   isDeleting: string | null;
 }

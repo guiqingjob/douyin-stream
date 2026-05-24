@@ -2,9 +2,9 @@ import asyncio
 import sqlite3
 import json
 import logging
-from datetime import datetime, timedelta
-from pathlib import Path
-from fastapi import APIRouter, HTTPException
+from datetime import datetime
+from pathlib import Path as _Path
+from fastapi import APIRouter, HTTPException, Path
 from typing import Any
 import uuid
 
@@ -129,9 +129,10 @@ def clear_task_history_compat():
 
 
 @router.delete("/{task_id}")
-async def delete_task(task_id: str):
+async def delete_task(task_id: str = Path(..., min_length=1, max_length=128)):
     try:
-        active_task = _active_tasks.pop(task_id, None)
+        # 先 get 再 cancel，避免 rerun 期间 pop 错任务（identity 校验）
+        active_task = _active_tasks.get(task_id)
         if active_task is not None:
             set_cancel_event(task_id)
             try:
@@ -145,6 +146,10 @@ async def delete_task(task_id: str):
                 await asyncio.wait_for(active_task, timeout=5.0)
             except (asyncio.CancelledError, asyncio.TimeoutError):
                 pass
+            # cancel 完成后再确认一次：只有仍然是同一个 task 才 pop，
+            # 防止 rerun 在此期间注册了新任务而被误删。
+            if _active_tasks.get(task_id) is active_task:
+                _active_tasks.pop(task_id, None)
 
         clear_cancel_event(task_id)
         TaskRepository.delete(task_id)
@@ -155,7 +160,7 @@ async def delete_task(task_id: str):
 
 
 @router.get("/{task_id}")
-def get_task_status(task_id: str):
+def get_task_status(task_id: str = Path(..., min_length=1, max_length=128)):
     try:
         task = TaskRepository.find_by_id(task_id)
         if task:
@@ -168,7 +173,7 @@ def get_task_status(task_id: str):
 
 
 @router.post("/{task_id}/cancel")
-async def cancel_task(task_id: str):
+async def cancel_task(task_id: str = Path(..., min_length=1, max_length=128)):
     try:
         status, task_type = TaskRepository.get_status(task_id)
         if not status:
@@ -184,13 +189,16 @@ async def cancel_task(task_id: str):
 
         set_cancel_event(task_id)
 
-        active_task = _active_tasks.pop(task_id, None)
+        active_task = _active_tasks.get(task_id)
         if active_task is not None:
             active_task.cancel()
             try:
                 await asyncio.wait_for(active_task, timeout=5.0)
             except (asyncio.CancelledError, asyncio.TimeoutError):
                 pass
+            # 只有确认仍是同一任务才从注册表移除，防止误删 rerun 产生的新任务
+            if _active_tasks.get(task_id) is active_task:
+                _active_tasks.pop(task_id, None)
             await _mark_task_cancelled(task_id, task_type)
             return {"status": "success", "message": "Task cancelled"}
         else:
@@ -313,7 +321,7 @@ async def retry_failed_subtasks(task_id: str):
             if not isinstance(item, dict) or item.get("status") != "failed":
                 continue
             path = item.get("video_path") or item.get("file_path")
-            if isinstance(path, str) and path.strip() and Path(path).exists():
+            if isinstance(path, str) and path.strip() and _Path(path).exists():
                 failed_paths.append(path.strip())
 
         failed_paths = list(dict.fromkeys(failed_paths))
@@ -367,7 +375,7 @@ async def retry_failed_assets(req: RetryFailedAssetsRequest):
             vp = (row.get("video_path") or "").strip()
             if not vp:
                 continue
-            candidate = Path(vp)
+            candidate = _Path(vp)
             if not candidate.is_absolute():
                 candidate = (downloads / vp).resolve()
             if candidate.exists() and candidate.is_file():
@@ -511,12 +519,12 @@ def retry_creator_transcribe_cleanup(req: CreatorTranscribeCleanupRetryRequest):
         if isinstance(raw_failed, list):
             for item in raw_failed:
                 if isinstance(item, str) and item:
-                    failed_paths.append(Path(item))
+                    failed_paths.append(_Path(item))
                     continue
                 if isinstance(item, dict):
                     path_value = item.get("path")
                     if isinstance(path_value, str) and path_value:
-                        failed_paths.append(Path(path_value))
+                        failed_paths.append(_Path(path_value))
 
         if not failed_paths:
             TaskRepository.patch_payload(

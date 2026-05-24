@@ -1,4 +1,4 @@
-from fastapi import APIRouter, Query, HTTPException
+from fastapi import APIRouter, Query, Path, HTTPException
 from fastapi.responses import StreamingResponse, FileResponse
 from pydantic import BaseModel, field_validator
 from media_tools.common.paths import get_download_path, get_transcripts_path, get_project_root
@@ -17,7 +17,7 @@ import io
 import zipfile
 import mimetypes
 import os
-from pathlib import Path
+from pathlib import Path as _Path
 
 router = APIRouter(prefix="/api/v1/assets", tags=["assets"], redirect_slashes=False)
 transcripts_router = APIRouter(prefix="/api/v1/transcripts", tags=["transcripts"], redirect_slashes=False)
@@ -56,10 +56,8 @@ def list_transcripts(
             params.extend([limit, offset])
             
             rows = conn.execute(base_sql, params).fetchall()
-            
+
             # 获取总条数用于分页
-            count_sql = base_sql.split(" ORDER BY")[0].replace("SELECT ...", "SELECT COUNT(*)")
-            # 简化计数查询
             count_base = """
                 SELECT COUNT(*) FROM media_assets a
                 WHERE LOWER(a.transcript_status) = 'completed' 
@@ -179,7 +177,7 @@ def export_transcripts(asset_ids: list[str]):
 
 
 @router.get("/{asset_id}/transcript")
-def get_transcript(asset_id: str):
+def get_transcript(asset_id: str = Path(..., min_length=1, max_length=128)):
     try:
         transcript_path = AssetRepository.get_transcript_path(asset_id)
 
@@ -282,7 +280,7 @@ def browse_asset_folder(asset_id: str):
 
 
 @router.delete("/{asset_id}")
-def delete_asset(asset_id: str):
+def delete_asset(asset_id: str = Path(..., min_length=1, max_length=128)):
     try:
         with get_db_connection() as conn:
             # 开启事务，文件删除失败可回滚

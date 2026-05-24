@@ -82,6 +82,7 @@ class TaskRepository:
                    VALUES (?, ?, 'PENDING', 0.0, ?, ?, ?)""",
                 (task_id, task_type, payload_str, now, now),
             )
+            conn.commit()
 
     @staticmethod
     def create_running(task_id: str, task_type: str, payload: Optional[dict] = None) -> None:
@@ -99,6 +100,7 @@ class TaskRepository:
                        update_time = excluded.update_time""",
                 (task_id, task_type, payload_str, now, now),
             )
+            conn.commit()
 
     # ---------- READ ----------
 
@@ -218,6 +220,7 @@ class TaskRepository:
                        WHERE task_id=? AND status NOT IN ('COMPLETED', 'FAILED', 'CANCELLED')""",
                     (progress, payload_str, now, task_id),
                 )
+            conn.commit()
 
     @staticmethod
     def mark_running(task_id: str, progress: float = 0.0, payload: Optional[str] = None) -> None:
@@ -238,6 +241,7 @@ class TaskRepository:
                     "UPDATE task_queue SET status='RUNNING', progress=?, update_time=? WHERE task_id=?",
                     (progress, now, task_id),
                 )
+            conn.commit()
 
     @staticmethod
     def mark_completed(
@@ -258,6 +262,7 @@ class TaskRepository:
                 "UPDATE task_queue SET status='COMPLETED', progress=1.0, payload=?, update_time=? WHERE task_id=?",
                 (payload_str, now, task_id),
             )
+            conn.commit()
 
     @staticmethod
     def mark_failed(task_id: str, error: str) -> None:
@@ -271,6 +276,7 @@ class TaskRepository:
                 "UPDATE task_queue SET status='FAILED', error_msg=? WHERE task_id=?",
                 (str(error), task_id),
             )
+            conn.commit()
 
     @staticmethod
     def update_heartbeat(task_id: str) -> None:
@@ -281,6 +287,7 @@ class TaskRepository:
                 "UPDATE task_queue SET update_time = ? WHERE task_id = ? AND status IN ('PENDING', 'RUNNING')",
                 (now, task_id),
             )
+            conn.commit()
 
     @staticmethod
     def patch_payload(task_id: str, patch: dict[str, Any]) -> None:
@@ -306,6 +313,7 @@ class TaskRepository:
                 "UPDATE task_queue SET payload=?, update_time=? WHERE task_id=?",
                 (json.dumps(base, ensure_ascii=False), now, task_id),
             )
+            conn.commit()
 
     @staticmethod
     def set_auto_retry(task_id: str, enabled: bool) -> None:
@@ -315,6 +323,7 @@ class TaskRepository:
                 "UPDATE task_queue SET auto_retry = ? WHERE task_id = ?",
                 (1 if enabled else 0, task_id),
             )
+            conn.commit()
 
     @staticmethod
     def update_priority(task_id: str, priority: int) -> None:
@@ -325,6 +334,7 @@ class TaskRepository:
                 "UPDATE task_queue SET priority = ?, update_time = ? WHERE task_id = ?",
                 (priority, now, task_id),
             )
+            conn.commit()
 
     # ---------- DELETE ----------
 
@@ -333,6 +343,7 @@ class TaskRepository:
         """删除单个任务"""
         with get_db_connection() as conn:
             conn.execute("DELETE FROM task_queue WHERE task_id = ?", (task_id,))
+            conn.commit()
 
     @staticmethod
     def clear_history(hours: int = 2) -> None:
@@ -343,6 +354,7 @@ class TaskRepository:
                 "DELETE FROM task_queue WHERE status IN ('COMPLETED', 'FAILED', 'CANCELLED') AND update_time < ?",
                 (cutoff.isoformat(),),
             )
+            conn.commit()
 
     @staticmethod
     def clear_all_history() -> None:
@@ -351,6 +363,7 @@ class TaskRepository:
             conn.execute(
                 "DELETE FROM task_queue WHERE status IN ('COMPLETED', 'FAILED', 'CANCELLED')",
             )
+            conn.commit()
 
     @staticmethod
     def delete_all_except(task_ids_to_keep: set[str] | None = None) -> list[str]:
@@ -371,6 +384,7 @@ class TaskRepository:
             else:
                 rows = conn.execute("SELECT task_id FROM task_queue").fetchall()
                 conn.execute("DELETE FROM task_queue")
+            conn.commit()
 
         deleted: list[str] = []
         for row in rows:

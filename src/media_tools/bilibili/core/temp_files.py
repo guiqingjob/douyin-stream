@@ -58,10 +58,10 @@ signal.signal(signal.SIGINT, _cleanup_on_signal)
 
 
 @contextmanager
-def managed_temp_file(mode: str = 'w', suffix: str = '.txt', dir: Optional[str] = None) -> Generator[tuple, None, None]:
+def managed_temp_file(mode: str = 'w', suffix: str = '.txt', directory: Optional[str] = None) -> Generator[tuple, None, None]:
     """安全的临时文件上下文管理器"""
     import io
-    fd, path = tempfile.mkstemp(suffix=suffix, prefix='bili_tmp_', dir=dir)
+    fd, path = tempfile.mkstemp(suffix=suffix, prefix='bili_tmp_', dir=directory)
     _register_temp_file(path)
     try:
         os.close(fd)
@@ -70,7 +70,7 @@ def managed_temp_file(mode: str = 'w', suffix: str = '.txt', dir: Optional[str] 
         yield handle, path
     finally:
         try:
-            if not handle.closed:
+            if 'handle' in dir() and not handle.closed:
                 handle.close()
             if os.path.exists(path):
                 os.unlink(path)

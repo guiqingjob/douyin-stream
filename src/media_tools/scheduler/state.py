@@ -26,8 +26,16 @@ async def _task_heartbeat(task_id: str, interval: int = 30):
 
 
 def _register_background_task(task_id: str, coro) -> asyncio.Task:
+    # 若同一 task_id 仍有旧任务在跑，先取消它，避免 rerun/retry 时新旧任务竞争
+    old = _active_tasks.get(task_id)
+    if old is not None and not old.done():
+        old.cancel()
+
     task = background.create(coro, name=f"worker:{task_id}")
     _active_tasks[task_id] = task
+
+    # 捕获注册时的事件循环（一定在协程中），避免 _on_done 里使用废弃的 get_event_loop()
+    loop = asyncio.get_running_loop()
 
     def _on_done(t: asyncio.Task) -> None:
         # 仅当当前注册的就是 t 时才移除：rerun/retry 用同一 task_id 注册新协程时，
@@ -54,10 +62,9 @@ def _register_background_task(task_id: str, coro) -> asyncio.Task:
         from media_tools.scheduler.ops import _fail_task
 
         try:
-            loop = asyncio.get_event_loop()
             loop.create_task(_fail_task(task_id, "unknown", error_text))
         except RuntimeError:
-            # 没有运行的 loop —— done_callback 通常由 loop 触发，理论上不会到这里
+            # loop 已关闭 —— 降级为只写 retry 标记
             schedule_auto_retry(task_id)
 
     task.add_done_callback(_on_done)

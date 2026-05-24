@@ -31,23 +31,17 @@ def _check_table_name(table: str) -> str:
     return validate_identifier(table, "table_name")
 
 
-_table_columns_cache: dict[str, set[str]] = {}
-
-
 def get_table_columns(conn: sqlite3.Connection, table: str) -> set[str]:
-    if table in _table_columns_cache:
-        return _table_columns_cache[table]
     safe_table = _check_table_name(table)
     columns = {
         row["name"] if isinstance(row, sqlite3.Row) else row[1]
         for row in conn.execute("PRAGMA table_info(" + safe_table + ")").fetchall()
     }
-    _table_columns_cache[table] = columns
     return columns
 
 
 def _invalidate_table_columns_cache() -> None:
-    _table_columns_cache.clear()
+    pass
 
 
 # --- Resolved DB path ---
@@ -91,9 +85,12 @@ _thread_local = threading.local()
 
 def get_db_connection() -> sqlite3.Connection:
     cached = getattr(_thread_local, "conn", None)
-    if cached is not None:
+    cached_path = getattr(_thread_local, "db_path", None)
+    current_path = get_db_path()
+    if cached is not None and cached_path == current_path:
         try:
             cached.execute("SELECT 1")
+            cached.row_factory = sqlite3.Row
             return cached
         except sqlite3.Error:
             try:
@@ -101,12 +98,43 @@ def get_db_connection() -> sqlite3.Connection:
             except (sqlite3.Error, OSError):
                 pass
             _thread_local.conn = None
+    elif cached is not None:
+        try:
+            cached.close()
+        except (sqlite3.Error, OSError):
+            pass
+        _thread_local.conn = None
 
-    conn = sqlite3.connect(get_db_path(), timeout=15.0)
+    conn = sqlite3.connect(current_path, timeout=15.0)
     conn.execute("PRAGMA journal_mode=WAL")
     conn.row_factory = sqlite3.Row
     _thread_local.conn = conn
+    _thread_local.db_path = current_path
     return conn
+
+
+@contextmanager
+def get_db_connection_safe() -> Generator[sqlite3.Connection, None, None]:
+    """线程安全的 DB 连接上下文管理器，自动处理 row_factory 隔离与事务回滚。
+
+    与裸用 `with get_db_connection() as conn:` 的区别：
+    - 返回前确保 row_factory = sqlite3.Row（避免被上游调用者污染）
+    - 若连接处于显式事务中且发生异常，自动执行 ROLLBACK
+    """
+    conn = get_db_connection()
+    old_factory = conn.row_factory
+    conn.row_factory = sqlite3.Row
+    try:
+        yield conn
+    except sqlite3.Error:
+        # 若连接处于显式事务中，先回滚避免污染后续使用
+        try:
+            conn.rollback()
+        except sqlite3.Error:
+            pass
+        raise
+    finally:
+        conn.row_factory = old_factory
 
 
 def close_db_connection() -> None:

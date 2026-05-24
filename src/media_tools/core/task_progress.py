@@ -80,13 +80,13 @@ class DownloadProgress:
         if not data:
             return None
         return cls(
-            downloaded=int(data.get("downloaded", 0)),
-            skipped=int(data.get("skipped", 0)),
-            failed=int(data.get("failed", 0)),
-            total=int(data.get("total", 0)),
-            current_video=str(data.get("current_video", "")),
-            current_video_progress=float(data.get("current_video_progress", 0.0)),
-            current_index=int(data.get("current_index", 0)),
+            downloaded=int(data.get("downloaded") or 0),
+            skipped=int(data.get("skipped") or 0),
+            failed=int(data.get("failed") or 0),
+            total=int(data.get("total") or 0),
+            current_video=str(data.get("current_video") or ""),
+            current_video_progress=float(data.get("current_video_progress") or 0.0),
+            current_index=int(data.get("current_index") or 0),
         )
 
 
@@ -116,12 +116,12 @@ class TranscribeProgress:
         if not data:
             return None
         return cls(
-            done=int(data.get("done", 0)),
-            skipped=int(data.get("skipped", 0)),
-            failed=int(data.get("failed", 0)),
-            total=int(data.get("total", 0)),
-            current_video=str(data.get("current_video", "")),
-            current_account=str(data.get("current_account", "")),
+            done=int(data.get("done") or 0),
+            skipped=int(data.get("skipped") or 0),
+            failed=int(data.get("failed") or 0),
+            total=int(data.get("total") or 0),
+            current_video=str(data.get("current_video") or ""),
+            current_account=str(data.get("current_account") or ""),
         )
 
 
@@ -161,11 +161,11 @@ class TaskProgress:
             stage = Stage.from_string(stage_str)
         return cls(
             stage=stage,
-            overall_percent=float(data.get("overall_percent", 0.0)),
+            overall_percent=float(data.get("overall_percent") or 0.0),
             download_progress=DownloadProgress.from_dict(data.get("download_progress")),
             transcribe_progress=TranscribeProgress.from_dict(data.get("transcribe_progress")),
-            error_count=int(data.get("error_count", 0)),
-            errors=list(data.get("errors", [])),
-            details=list(data.get("details", [])),
+            error_count=int(data.get("error_count") or 0),
+            errors=list(data.get("errors") or []),
+            details=list(data.get("details") or []),
             start_time=data.get("start_time"),
         )

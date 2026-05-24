@@ -1,3 +1,5 @@
+from __future__ import annotations
+
 """Transcript preview + full-text extraction shared by orchestrator and local-transcribe worker."""
 from pathlib import Path
 import zipfile

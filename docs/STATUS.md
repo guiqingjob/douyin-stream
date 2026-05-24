@@ -1,6 +1,6 @@
 # Media Tools — 项目现状文档
 
-> 最后更新：2026-05-20
+> 最后更新：2026-05-21
 
 > 这是一份**当前状态快照**。历史变更见 [CHANGELOG.md](../CHANGELOG.md)。
 
@@ -17,7 +17,7 @@
 | 视频抓取 | f2（抖音）+ yt-dlp（B站） |
 | 转写引擎 | Qwen HTTP API（已从 Playwright 迁移） |
 | 实时通信 | WebSocket 推送任务进度（含心跳保活） |
-| Python | 3.11+（`from __future__ import annotations` 全仓铺开） |
+| Python | 3.9+（`from __future__ import annotations` 全仓铺开，`str | None` 类型语法依赖此导入） |
 | 启动方式 | `./run.sh`（后端 8000 + 前端 5173） |
 
 ### 素材来源
@@ -150,7 +150,7 @@
 
 | 表名 | 说明 |
 |------|------|
-| `creators` | 创作者信息（UID、昵称、平台、同步状态） |
+| `creators` | 创作者信息（UID、昵称、平台、同步状态、`auto_sync` 自动同步标记） |
 | `media_assets` | 素材（视频/转写状态、本地路径、已读/收藏、失败追踪字段） |
 | `transcribe_runs` | 每个 asset 在某账号上的一次转写尝试，支持断点续传 |
 | `task_queue` | 任务队列（类型、进度、状态、payload） |
@@ -223,7 +223,11 @@ B站对大量视频提供 AV1 编码（压缩率更高但兼容性差），Qwen 
 ### P2 — 代码质量
 
 - [ ] **额度领取真接口**：当前 trigger 调用的是 list 查询接口（历史 bug），需替换为 `/equity` 页面的实际 POST claim 接口（delta 兜底已做，替换后更直接）
-- [ ] **Store 类型安全**：消除 `(taskUpdate as any).msg`
+- [x] **Store 类型安全**：已消除 `(taskUpdate as any).msg` 及 Settings 相关组件的 Props 类型错配（`editingRemark` 结构体、`handleClaimQuota` 签名、`ConfirmDeletePayload` 接口等），前端 `npm run build` 零报错。
+
+### P2 — 测试与稳定性
+
+- [x] **全量 Bug 审计与修复**：完成系统性盘查，修复 20+ 处缺陷（Python 3.9 兼容性、变量遮蔽、缓存污染、缺少导入、连接缓存隔离、命名冲突、事务提交遗漏、列缺失防御、竞态条件等），测试套件从多失败修复至 302 passed / 3 skipped / 0 failed。
 
 ### P3 — UI / 体验
 

@@ -45,17 +45,20 @@ def _check_completed_but_missing_file(
         path = row["transcript_path"]
         if not path:
             continue
-        full = Path(path)
-        if not full.is_absolute():
-            full = transcripts_root / full
-        if not full.exists():
-            result.anomaly_count += 1
-            if len(result.samples) < sample_size:
-                result.samples.append({
-                    "asset_id": row["asset_id"],
-                    "transcript_path": path,
-                    "title": row["title"][:60] if row["title"] else None,
-                })
+        try:
+            full = Path(path)
+            if not full.is_absolute():
+                full = transcripts_root / full
+            if not full.exists():
+                result.anomaly_count += 1
+                if len(result.samples) < sample_size:
+                    result.samples.append({
+                        "asset_id": row["asset_id"],
+                        "transcript_path": path,
+                        "title": row["title"][:60] if row["title"] else None,
+                    })
+        except OSError:
+            continue
     return result
 
 

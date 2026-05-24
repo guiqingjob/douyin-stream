@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import sqlite3
 from dataclasses import dataclass
 from typing import Optional
 
@@ -36,7 +37,6 @@ class CookieManager:
         if platform not in SUPPORTED_PLATFORMS:
             raise ValueError(f"不支持的平台: {platform}")
         with get_db_connection() as conn:
-            conn.row_factory = None
             cursor = conn.execute(
                 """
                 SELECT account_id, platform, cookie_data, status,
@@ -97,7 +97,6 @@ class CookieManager:
         if platform not in SUPPORTED_PLATFORMS:
             raise ValueError(f"不支持的平台: {platform}")
         with get_db_connection() as conn:
-            conn.row_factory = None
             rows = conn.execute(
                 """
                 SELECT account_id, platform, cookie_data, status,

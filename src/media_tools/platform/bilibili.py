@@ -5,7 +5,6 @@ import os
 import re
 import shutil
 import sqlite3
-import subprocess
 import time
 from dataclasses import dataclass, field
 from datetime import datetime
@@ -194,6 +193,7 @@ def download_up_by_url(
     progress_cb: ProgressCallback | None = None,
     task_id: Optional[str] = None,
     disable_auto_transcribe: bool = False,
+    force: bool = False,
 ) -> dict:
     if YoutubeDL is None:
         raise RuntimeError("yt-dlp not installed")
@@ -204,6 +204,9 @@ def download_up_by_url(
 
     uploader_info: UploaderInfo | None = None
     cancel_flag = register_cancel_flag(task_id) if task_id else None
+
+    mode_label = "全量" if force else ("增量" if skip_existing else "强制")
+    logger.info(f"[B站下载] 开始 {mode_label} 下载: {url[:80]}..." + (f" (task={task_id})" if task_id else ""))
 
     def hook(d: dict):
         nonlocal uploader_info
@@ -285,8 +288,8 @@ def download_up_by_url(
         "quiet": True,
         "no_warnings": True,
         "progress_hooks": [hook],
-        "overwrites": False,
-        "continuedl": True,
+        "overwrites": force,
+        "continuedl": not force,
         "consoletitle": False,
         "outtmpl": _build_output_template(downloads_path, "bilibili", "全部投稿"),
         # 优先选择 H.264(AVC) 编码，避免 AV1/HEVC 导致 Qwen 转写返回 recordStatus=40
@@ -367,16 +370,66 @@ def download_up_by_url(
                 homepage_url=f"https://space.bilibili.com/{mid}",
             )
 
+    # 统计下载结果
     new_files: list[str] = []
-    if isinstance(info, dict):
-        requested = info.get("requested_downloads") or []
-        for item in requested:
-            fp = item.get("filepath")
-            if fp and Path(fp).exists():
-                new_files.append(str(Path(fp)))
+    skipped_count = 0
+    failed_count = 0
+    total_entries = 0
 
-    if not new_files:
-        logger.warning("No files downloaded")
+    if isinstance(info, dict):
+        seen: set[str] = set()
+        for entry in _iter_yt_dlp_entries(info):
+            total_entries += 1
+            bvid = entry.get("id") or entry.get("display_id") or "?"
+
+            # 1) entry 自身的 filepath（合并后的最终文件）
+            fp = entry.get("filepath")
+            if fp and Path(fp).exists():
+                resolved = str(Path(fp).resolve())
+                if resolved not in seen:
+                    seen.add(resolved)
+                    new_files.append(str(Path(fp)))
+                    continue
+
+            # 2) entry.requested_downloads 里的 filepath
+            found = False
+            for item in entry.get("requested_downloads") or []:
+                fp = item.get("filepath")
+                if fp and Path(fp).exists():
+                    resolved = str(Path(fp).resolve())
+                    if resolved not in seen:
+                        seen.add(resolved)
+                        new_files.append(str(Path(fp)))
+                        found = True
+                        break
+
+            if not found:
+                # 判断是跳过还是失败：有错误信息则算失败
+                err = entry.get("error") or ""
+                if err:
+                    failed_count += 1
+                    logger.debug(f"[B站下载] 视频 {bvid} 下载失败: {err}")
+                else:
+                    skipped_count += 1
+                    logger.debug(f"[B站下载] 视频 {bvid} 已存在或跳过")
+
+    # 输出结构化总结日志
+    if new_files:
+        logger.info(
+            f"[B站下载] 完成 — 新下载 {len(new_files)} 个"
+            f"{'，跳过 ' + str(skipped_count) + ' 个' if skipped_count else ''}"
+            f"{'，失败 ' + str(failed_count) + ' 个' if failed_count else ''}"
+            f" (共 {total_entries} 个视频)"
+        )
+    elif total_entries > 0:
+        if skipped_count and not failed_count:
+            logger.info(f"[B站下载] 完成 — 全部 {skipped_count} 个视频已存在（无新文件）")
+        elif failed_count:
+            logger.warning(f"[B站下载] 完成 — {failed_count} 个下载失败，{skipped_count} 个已存在")
+        else:
+            logger.warning(f"[B站下载] 完成 — 无新文件 ({total_entries} 个视频)")
+    else:
+        logger.warning(f"[B站下载] 完成 — 未获取到任何视频")
 
     # 下载完成后检查是否被取消
     if cancel_flag and cancel_flag.is_set():

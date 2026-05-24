@@ -104,6 +104,10 @@ async def handle_auto_retry(task_id: str) -> None:
         from media_tools.scheduler.dispatcher import _start_task_worker
 
         await _start_task_worker(task_id, task_type, original_params)
+    except asyncio.CancelledError:
+        # shutdown 期间被取消：不要把任务留成 RUNNING orphan
+        logger.info(f"自动重试被取消 task_id={task_id}")
+        raise
     except (sqlite3.Error, OSError, RuntimeError, asyncio.TimeoutError):
         logger.exception(f"自动重试失败 task_id={task_id}")
 

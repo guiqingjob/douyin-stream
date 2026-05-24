@@ -56,85 +56,89 @@ def cleanup_stale_tasks(
     now = datetime.now()
     now_iso = now.isoformat()
 
+    old_factory = conn.row_factory
     conn.row_factory = sqlite3.Row
-    rows = conn.execute(
-        """
-        SELECT task_id, task_type, payload, update_time
-        FROM task_queue
-        WHERE status IN ('PENDING', 'RUNNING')
-          AND update_time IS NOT NULL
-        """
-    ).fetchall()
-
-    recovered_count = 0
-    for row in rows:
-        task_id = row["task_id"]
-        update_time_raw = row["update_time"]
-        try:
-            last_update = datetime.fromisoformat(str(update_time_raw))
-        except ValueError:
-            continue
-
-        stage = _extract_payload_pipeline_stage(row["payload"])
-        minutes = _get_stale_minutes_for_stage(stage, default_minutes)
-        if last_update >= (now - timedelta(minutes=minutes)):
-            continue
-
-        if is_startup:
-            error_msg = SERVER_RESTART_ERROR
-        else:
-            error_msg = "任务长时间没有更新，已自动标记为失败，请重新发起。"
-
-        conn.execute(
+    try:
+        rows = conn.execute(
             """
-            UPDATE task_queue
-            SET
-                status = 'FAILED',
-                progress = 0.0,
-                error_msg = CASE
-                    WHEN error_msg IS NULL OR error_msg = '' THEN ?
-                    ELSE error_msg
-                END,
-                update_time = ?
-            WHERE task_id = ?
-              AND status IN ('PENDING', 'RUNNING')
-            """,
-            (error_msg, now_iso, task_id),
-        )
-        recovered_count += 1
+            SELECT task_id, task_type, payload, update_time
+            FROM task_queue
+            WHERE status IN ('PENDING', 'RUNNING')
+              AND update_time IS NOT NULL
+            """
+        ).fetchall()
 
-    if is_startup and recovered_count > 0:
-        logger.info(f"startup: marked {recovered_count} orphan task(s) as FAILED (server restart)")
+        recovered_count = 0
+        for row in rows:
+            task_id = row["task_id"]
+            update_time_raw = row["update_time"]
+            try:
+                last_update = datetime.fromisoformat(str(update_time_raw))
+            except ValueError:
+                continue
 
-    failed_cutoff = (datetime.now() - timedelta(days=1)).isoformat()
-    completed_cutoff = (datetime.now() - timedelta(days=3)).isoformat()
-    cancelled_cutoff = (datetime.now() - timedelta(days=1)).isoformat()
-    conn.execute(
-        "DELETE FROM task_queue WHERE status = 'FAILED' AND update_time < ?",
-        (failed_cutoff,),
-    )
-    conn.execute(
-        "DELETE FROM task_queue WHERE status = 'COMPLETED' AND update_time < ?",
-        (completed_cutoff,),
-    )
-    conn.execute(
-        "DELETE FROM task_queue WHERE status = 'CANCELLED' AND update_time < ?",
-        (cancelled_cutoff,),
-    )
-    row = conn.execute(
-        "SELECT COUNT(*) as cnt FROM task_queue WHERE status = 'FAILED'"
-    ).fetchone()
-    if row and row["cnt"] > 50:
-        excess = row["cnt"] - 50
+            stage = _extract_payload_pipeline_stage(row["payload"])
+            minutes = _get_stale_minutes_for_stage(stage, default_minutes)
+            if last_update >= (now - timedelta(minutes=minutes)):
+                continue
+
+            if is_startup:
+                error_msg = SERVER_RESTART_ERROR
+            else:
+                error_msg = "任务长时间没有更新，已自动标记为失败，请重新发起。"
+
+            conn.execute(
+                """
+                UPDATE task_queue
+                SET
+                    status = 'FAILED',
+                    progress = 0.0,
+                    error_msg = CASE
+                        WHEN error_msg IS NULL OR error_msg = '' THEN ?
+                        ELSE error_msg
+                    END,
+                    update_time = ?
+                WHERE task_id = ?
+                  AND status IN ('PENDING', 'RUNNING')
+                """,
+                (error_msg, now_iso, task_id),
+            )
+            recovered_count += 1
+
+        if is_startup and recovered_count > 0:
+            logger.info(f"startup: marked {recovered_count} orphan task(s) as FAILED (server restart)")
+
+        failed_cutoff = (datetime.now() - timedelta(days=1)).isoformat()
+        completed_cutoff = (datetime.now() - timedelta(days=3)).isoformat()
+        cancelled_cutoff = (datetime.now() - timedelta(days=1)).isoformat()
         conn.execute(
-            "DELETE FROM task_queue WHERE task_id IN ("
-            "  SELECT task_id FROM task_queue WHERE status = 'FAILED'"
-            "  ORDER BY update_time ASC LIMIT ?"
-            ")",
-            (excess,),
+            "DELETE FROM task_queue WHERE status = 'FAILED' AND update_time < ?",
+            (failed_cutoff,),
         )
+        conn.execute(
+            "DELETE FROM task_queue WHERE status = 'COMPLETED' AND update_time < ?",
+            (completed_cutoff,),
+        )
+        conn.execute(
+            "DELETE FROM task_queue WHERE status = 'CANCELLED' AND update_time < ?",
+            (cancelled_cutoff,),
+        )
+        row = conn.execute(
+            "SELECT COUNT(*) as cnt FROM task_queue WHERE status = 'FAILED'"
+        ).fetchone()
+        if row and row["cnt"] > 50:
+            excess = row["cnt"] - 50
+            conn.execute(
+                "DELETE FROM task_queue WHERE task_id IN ("
+                "  SELECT task_id FROM task_queue WHERE status = 'FAILED'"
+                "  ORDER BY update_time ASC LIMIT ?"
+                ")",
+                (excess,),
+            )
 
-    return recovered_count
+        return recovered_count
+    finally:
+        conn.row_factory = old_factory
 
 
 async def notify_task_update(
