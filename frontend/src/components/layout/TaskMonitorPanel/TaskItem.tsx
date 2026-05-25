@@ -42,7 +42,9 @@ export const TaskItem = memo(function TaskItem({ task, onRetry, isExpanded, onTo
   const message = getTaskMessage(task);
   const error = getTaskError(task);
   const duration = getTaskDuration(task);
-  const [subtasksExpanded, setSubtasksExpanded] = useState(false);
+  // 默认展开：任务终态下用户最关心"哪些文件成功/失败"。
+  // 用户手动折叠后此状态保留，不会被强制再次展开。
+  const [subtasksExpanded, setSubtasksExpanded] = useState(true);
   const isRunning = state === 'running';
   const isPaused = state === 'paused';
   const isFailed = state === 'failed' || state === 'stale';
