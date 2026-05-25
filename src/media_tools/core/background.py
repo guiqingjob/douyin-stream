@@ -19,6 +19,22 @@ logger = logging.getLogger(__name__)
 
 _tasks: set[asyncio.Task[Any]] = set()
 
+# 主 FastAPI 事件循环引用，供 APScheduler 线程等"非主 loop 上下文"通过
+# `asyncio.run_coroutine_threadsafe(coro, get_main_loop())` 把协程派发回主 loop，
+# 这样产生的 Task 才能被 `_active_tasks` 注册的 cancel 路径正确取消。
+_main_loop: Optional[asyncio.AbstractEventLoop] = None
+
+
+def set_main_loop(loop: asyncio.AbstractEventLoop) -> None:
+    """在 FastAPI lifespan 启动期内调用一次，记录主事件循环。"""
+    global _main_loop
+    _main_loop = loop
+
+
+def get_main_loop() -> Optional[asyncio.AbstractEventLoop]:
+    """获取主事件循环；尚未初始化时返回 None，由调用方决定如何降级。"""
+    return _main_loop
+
 
 def register(task: asyncio.Task[Any]) -> asyncio.Task[Any]:
     """注册已存在的 Task；done 时自动从 registry 移除。"""

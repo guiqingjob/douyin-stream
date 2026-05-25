@@ -515,7 +515,7 @@ def retry_creator_transcribe_cleanup(req: CreatorTranscribeCleanupRetryRequest):
                 payload = parsed
 
         raw_failed = payload.get("cleanup_failed_paths")
-        failed_paths: list[Path] = []
+        failed_paths: list[_Path] = []
         if isinstance(raw_failed, list):
             for item in raw_failed:
                 if isinstance(item, str) and item:

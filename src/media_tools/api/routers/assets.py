@@ -403,7 +403,13 @@ def bulk_delete_assets(req: BulkAssetDeleteRequest):
     if failed_deletions:
         logger.warning(f"bulk_delete: {len(failed_deletions)} files failed to delete; sample={failed_deletions[:5]}")
 
-    return {"status": "success", "deleted": deleted, "file_cleanup_failed": len(failed_deletions)}
+    return {
+        "status": "success",
+        "deleted": deleted,
+        "file_cleanup_failed": len(failed_deletions),
+        # 返回具体路径让前端可以提示用户手动清理（DB 行已无，否则会形成孤儿文件泄漏磁盘空间）
+        "failed_paths": failed_deletions,
+    }
 
 
 @router.post("/cleanup")

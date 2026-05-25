@@ -40,7 +40,10 @@ export const deleteAsset = async (assetId: string, signal?: AbortSignal): Promis
   return response.data;
 };
 
-export const bulkDeleteAssets = async (ids: string[], signal?: AbortSignal): Promise<{ status: string; deleted: number }> => {
+export const bulkDeleteAssets = async (
+  ids: string[],
+  signal?: AbortSignal,
+): Promise<{ status: string; deleted: number; file_cleanup_failed?: number; failed_paths?: string[] }> => {
   const response = await apiClient.post('/assets/bulk_delete', { ids }, { signal });
   return response.data;
 };

@@ -29,6 +29,9 @@ async def lifespan(app: FastAPI):
 
     scheduler.startup_scheduler()
 
+    # 记录主 loop 引用，供 APScheduler 等线程通过 run_coroutine_threadsafe 派发协程回主 loop
+    background.set_main_loop(asyncio.get_running_loop())
+
     # Kick off the transcript preview backfill in the background
     from media_tools.transcribe.preview_backfill import start_backfill_once
     start_backfill_once()

@@ -127,6 +127,15 @@ def _register_system_jobs() -> None:
         from datetime import timezone, timedelta
         from media_tools.scheduler.repository import TaskRepository
         from media_tools.creators.sync import CreatorSyncWorker
+        from media_tools.core import background as _bg
+
+        # 派发到主 loop 上跑 worker，避免在 APScheduler 线程起子 loop 让
+        # `_active_tasks` 注册的 Task 对象绑定在已关闭的 loop 上（用户点 cancel 时
+        # 主 loop 调子 loop 的 task 行为未定义 → 静默失效）。
+        main_loop = _bg.get_main_loop()
+        if main_loop is None:
+            logger.error("[自动同步] 主 loop 未初始化，跳过本轮")
+            return
 
         with get_db_connection() as conn:
             conn.row_factory = sqlite3.Row
@@ -169,19 +178,24 @@ def _register_system_jobs() -> None:
                 continue
 
             try:
-                loop = asyncio.new_event_loop()
-                asyncio.set_event_loop(loop)
-                loop.run_until_complete(
-                    CreatorSyncWorker().execute(task_id, uid=uid, mode="incremental")
+                fut = asyncio.run_coroutine_threadsafe(
+                    CreatorSyncWorker().execute(task_id, uid=uid, mode="incremental"),
+                    main_loop,
                 )
+                # 同步等待单个 sync 完成，10 分钟硬上限避免 APScheduler 线程被卡住
+                fut.result(timeout=600)
                 synced_count += 1
-            except (RuntimeError, OSError, ValueError, asyncio.CancelledError) as e:
+            except (Exception, asyncio.CancelledError) as e:  # noqa: BLE001 - 兜底所有派发/执行异常
                 logger.error(f"[自动同步] 创作者同步失败 {uid}: {e}")
-            finally:
-                asyncio.set_event_loop(None)
+                # dispatch 阶段就抛错时 worker 自身的 _handle_exception 不会跑，DB 留 RUNNING orphan，
+                # 这里兜底回滚（WHERE status='RUNNING' 保护：worker 正常路径写过终态则 no-op）
                 try:
-                    loop.close()
-                except Exception:  # noqa: defensive – 关闭事件循环时忽略任何错误
+                    with get_db_connection() as conn:
+                        conn.execute(
+                            "UPDATE task_queue SET status='FAILED', error_msg=? WHERE task_id=? AND status='RUNNING'",
+                            (str(e)[:500], task_id),
+                        )
+                except sqlite3.Error:
                     pass
 
         if synced_count > 0:
