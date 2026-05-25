@@ -45,7 +45,9 @@ _RUNTIME_DEFAULTS: dict[str, str] = {
 import time
 
 _settings_cache: dict[str, tuple[str, float]] = {}  # key -> (value, expire_time)
-_settings_cache_ttl: int = 300  # 5分钟缓存过期时间
+_settings_cache_ttl: int = 5  # 5 秒：配置变更后最坏需要 5s 被新读取看到
+# 历史值 300（5 分钟）导致 DB 直接改 setting 后后端长时间感知不到新值；
+# API 路径走 _set_system_setting 会主动 invalidate 缓存，不受影响。
 
 
 def _get_system_setting(key: str) -> Optional[str]:
