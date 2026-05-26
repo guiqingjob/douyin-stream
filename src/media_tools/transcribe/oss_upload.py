@@ -1,14 +1,11 @@
 from __future__ import annotations
 
 import asyncio
-import threading
-import time
 from pathlib import Path
 from typing import Any, Callable, Optional
 
+import httpx
 import oss2
-import requests
-from requests.adapters import HTTPAdapter
 
 
 ProgressCallback = Callable[[dict[str, Any]], None]
@@ -17,25 +14,6 @@ ProgressCallback = Callable[[dict[str, Any]], None]
 # oss2.resumable_upload 写已传 part 状态的目录。网络中断 / 进程崩溃后下次同 fileKey
 # 上传时,oss2 读这里跳过已传 part 从断点继续。
 _OSS2_CHECKPOINT_DIR = Path("data/.upload_cp")
-
-
-# direct 模式(预签名 URL PUT)共享的 requests.Session。multipart 模式由 oss2 自己管。
-_SESSION: Optional[requests.Session] = None
-_SESSION_LOCK = threading.Lock()
-
-
-def _get_session() -> requests.Session:
-    """direct PUT 用的共享 Session,跨 asyncio.to_thread worker 复用连接池。"""
-    global _SESSION
-    if _SESSION is None:
-        with _SESSION_LOCK:
-            if _SESSION is None:
-                s = requests.Session()
-                adapter = HTTPAdapter(pool_connections=10, pool_maxsize=50, max_retries=0)
-                s.mount("https://", adapter)
-                s.mount("http://", adapter)
-                _SESSION = s
-    return _SESSION
 
 
 def normalize_oss_token(token: dict[str, Any]) -> dict[str, Any]:
@@ -62,29 +40,37 @@ def _resolve_part_size(file_size: int, override_mb: int) -> int:
     return 32 * 1024 * 1024
 
 
-def _direct_put(url: str, data: bytes, mime_type: str, timeout: int = 120) -> None:
-    """direct 模式:PUT 数据到千问预签名 URL。内置 3 次重试(指数退避 1s/2s/4s)。"""
+async def _direct_put(url: str, data: bytes, mime_type: str, timeout: int = 120) -> None:
+    """direct 模式:async PUT 数据到千问预签名 URL。
+    网络错误重试 3 次(指数退避 1s/2s/4s);HTTP 4xx/5xx 立即抛错不重试。
+    """
     last_error: Optional[BaseException] = None
-    for attempt in range(3):
-        try:
-            resp = _get_session().put(
-                url, data=data,
-                headers={"Content-Type": mime_type},
-                timeout=timeout,
-                allow_redirects=False,
-            )
+    async with httpx.AsyncClient(
+        timeout=httpx.Timeout(
+            connect=10.0,
+            read=float(timeout),
+            write=float(timeout),
+            pool=5.0,
+        ),
+        follow_redirects=False,
+    ) as client:
+        for attempt in range(3):
             try:
+                resp = await client.put(
+                    url,
+                    content=data,
+                    headers={"Content-Type": mime_type},
+                )
                 if 200 <= resp.status_code < 300:
                     return
+                # HTTP 错误立即抛,不进重试链路(retry 不会让 4xx 变 2xx)
                 detail = (resp.text or "")[:500]
                 raise RuntimeError(f"HTTP {resp.status_code}: {detail}")
-            finally:
-                resp.close()
-        except (requests.RequestException, OSError) as e:
-            last_error = e
-            if attempt < 2:
-                time.sleep(2 ** attempt)
-    raise RuntimeError(f"direct PUT 失败 (重试3次): {last_error}") from last_error
+            except (httpx.RequestError, OSError) as e:
+                last_error = e
+                if attempt < 2:
+                    await asyncio.sleep(2 ** attempt)
+        raise RuntimeError(f"direct PUT 失败 (重试3次): {last_error}") from last_error
 
 
 def _build_oss2_bucket(token: dict[str, Any]) -> oss2.Bucket:
@@ -215,7 +201,7 @@ async def upload_file_to_oss(
         try:
             data = file_path_obj.read_bytes() if use_file_path else file_buffer
             assert data is not None
-            await asyncio.to_thread(_direct_put, token["getLink"], data, mime_type)
+            await _direct_put(token["getLink"], data, mime_type)
             callback({"type": "direct-upload-complete"})
             return
         except (RuntimeError, OSError, ConnectionError, TimeoutError) as error:
