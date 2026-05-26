@@ -93,6 +93,18 @@
   - direct PUT timeout 30s → 120s(与 multipart 一致)
   - 移除 `multipart-started` 事件(没有真 uploadId 可报——oss2 自己管 uploadId 生命周期,我们不需要拿出来),`flow.py:600` 对应死 elif 同步删
   - 净效果:233/233 测试照过,代码量减半,oss2 是唯一 multipart 路径,没有"两套实现"心智负担
+- **C-1 HTTP 层统一到 `httpx`(替代 `requests` + `urllib` + 自写适配链的混用)**:`src/media_tools/transcribe/http.py` 重写。
+  - `RequestsApiContext` (基于 `requests.Session` + `asyncio.to_thread` 包同步成 async,~80 行) → `HttpxApiContext` (基于 `httpx.AsyncClient`,~30 行)
+  - `_download_file` (`urllib.request.urlopen` + 整文件读内存 + 手写 `time.sleep` 退避) → `httpx.AsyncClient.stream("GET", ...)` 流式落盘 + `await asyncio.sleep` 退避
+  - `oss_upload._direct_put` (`requests.Session.put` + `asyncio.to_thread` + `_get_session`/`_SESSION_LOCK` 整套基础设施) → `httpx.AsyncClient.put`,删除 session 池管理
+  - `httpx.Timeout(connect=10, read=N, write=N, pool=5)` 分别配 (旧版单一 timeout 一刀切)
+  - `download_file` 改 `follow_redirects=True` (export URL 可能 302 到 OSS 下载地址)
+  - 公开类名通过 `RequestsApiContext = HttpxApiContext` 别名保留,所有外部 import 零改动
+  - **cleanup 保障**: `flow.py:_do_flow` 失败兜底 `delete_record` 调用栈不动,云端孤儿清理逻辑完整保留;`tests/test_flow_cleanup_orphan_record.py` 3 条全过
+- **C-2 `scheduler/registry.py` 合并进 `base.py`**:`registry.py` 单独存在的唯一理由是"避免循环导入"(历史从 base.py 拆出去)。后续重构让 base 不再需要反向导入 registry,18 行的小文件徒增认知负担。
+  - `_WORKER_REGISTRY` + `register_worker` 装饰器搬进 `base.py` 顶部
+  - 外部 API 不变(`register_worker` 仍可从 `media_tools.scheduler` 直接 import)
+  - 诚实评估:C-2 真正有价值的合并只有这一个。`state.py`/`retry.py` 各有清晰责任且跨 api 边界用,贸然合并破坏边界,**不做**
 
 ---
 
