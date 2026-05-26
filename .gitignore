@@ -209,6 +209,7 @@ docs/*
 !scripts/
 scripts/*
 !scripts/health_check.py
+!scripts/cleanup_orphan_qwen_records.py
 
 !tests/
 tests/*
