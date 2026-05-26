@@ -21,11 +21,16 @@ class AccountPool:
     `_upload_locks: dict[account_id, asyncio.Lock]` 在客户端强制 per-account
     互斥；账号池 acquire 时优先返回 upload 锁空闲的账号，避免把视频压到忙账号
     的等待队列。失败/限流时 exclude 该账号，acquire 后续会跳过。
+
+    分配策略 (v2026-05-26 改进)：在 idle 优先的前提下，按 use_count（当前进程
+    内每个账号被派发的次数）升序选——即 LRU。替代之前的 `cursor % len`
+    方案，后者在 `candidates` 大小随并发 idle 数变化时容易把首位账号反复打。
     """
 
     def __init__(self, accounts: list[dict[str, Any]]):
         self._accounts = accounts
-        self._cursor = 0
+        # account_id -> 被 acquire 选中的次数，用于 LRU 排序
+        self._use_count: dict[str, int] = {}
         self._excluded: set[str] = set()
         # orchestrator 在创建账号池后注入 upload_locks 引用，acquire 用它判断空闲
         self._upload_locks_view: dict[str, asyncio.Lock] = {}
@@ -48,7 +53,7 @@ class AccountPool:
         return lock is None or not lock.locked()
 
     async def acquire(self, preferred_account_id: Optional[str] = None) -> Optional[dict[str, Any]]:
-        """选一个可用账号。preferred 命中直接返回；否则空闲账号优先 + round-robin。
+        """选一个可用账号。preferred 命中直接返回；否则空闲 + 用过次数最少（LRU）优先。
 
         acquire 后调用方还要 await upload_lock，hint 是空闲不保证拿到——但减少
         多个视频挤到同一账号 lock 队列的概率。
@@ -56,17 +61,27 @@ class AccountPool:
         if preferred_account_id and preferred_account_id not in self._excluded:
             for account in self._accounts:
                 if str(account.get("account_id", "")) == preferred_account_id:
+                    self._use_count[preferred_account_id] = (
+                        self._use_count.get(preferred_account_id, 0) + 1
+                    )
                     return account
 
         available = [a for a in self._accounts if str(a.get("account_id", "")) not in self._excluded]
         if not available:
             return None
 
-        idle = [a for a in available if self._is_idle(str(a.get("account_id", "")))]
-        candidates = idle if idle else available
+        # 排序键：(0 if idle else 1, use_count asc) → idle 账号在前，同 idle 状态下用过最少的在前
+        def _key(account: dict[str, Any]) -> tuple[int, int]:
+            acc_id = str(account.get("account_id", ""))
+            return (
+                0 if self._is_idle(acc_id) else 1,
+                self._use_count.get(acc_id, 0),
+            )
 
-        selected = candidates[self._cursor % len(candidates)]
-        self._cursor += 1
+        available.sort(key=_key)
+        selected = available[0]
+        selected_id = str(selected.get("account_id", ""))
+        self._use_count[selected_id] = self._use_count.get(selected_id, 0) + 1
         return selected
 
     def release(self, account_id: str) -> None:
@@ -98,6 +113,7 @@ class AccountPool:
             "available_accounts": self.available_count,
             "active_uploads": active,
             "excluded": sorted(self._excluded),
+            "use_count": dict(self._use_count),
         }
 
 

@@ -62,6 +62,12 @@
   - 同 filename 后续有 `md/docx/pdf saved:` 表示最后一个 recordId 已被成功路径清理，剔除
   - 默认 dry-run，`--apply` 才实际删；`--days N` 控制扫描窗口
   - **实战执行**：7 天窗口扫到 64 条孤儿，按账号分组 5 批调 `delete_record` 全部成功（qingyin 23 / guiqing 34 / addision 7 / qinggui 0），0 异常
+- **账号分配从 round-robin cursor 升级到 LRU**：`src/media_tools/transcribe/models.py` 的 `AccountPool.acquire` 之前用 `cursor % len(candidates)`，但 `candidates` 大小随并发 idle 账号数变化，cursor 不能保证轮转——多文件并发时第一位账号(本仓 `guiqing`)会被反复打中(实测 5 文件失败 4 个都打 `guiqing`)。
+  - 把 `_cursor: int` 换成 `_use_count: dict[account_id, int]`
+  - `acquire` 排序键：`(0 if idle else 1, use_count asc)` → idle 优先，同 idle 状态下用过最少的优先
+  - 保留 `preferred_account_id` 命中直接返回(resume 路径)、`exclude` 过滤(AUTH/QUOTA 错误后)
+  - `get_stats` 新增 `use_count` 字段供观测
+  - 新增 **`tests/test_account_pool_lru.py`** 5 条测试：均匀分配 / LRU 顺序 / preferred 优先 / excluded 跳过 / idle 优先级覆盖 LRU
 
 ---
 
