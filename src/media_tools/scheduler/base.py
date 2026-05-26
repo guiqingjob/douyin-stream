@@ -7,7 +7,7 @@ from __future__ import annotations
 
 import asyncio
 import logging
-from typing import Any, Optional
+from typing import Any, Optional, TypeVar
 
 from media_tools.core.logging_context import task_context
 from media_tools.scheduler.ops import (
@@ -17,9 +17,28 @@ from media_tools.scheduler.ops import (
     _mark_task_cancelled,
 )
 from media_tools.scheduler.state import _task_heartbeat
-from media_tools.scheduler.registry import register_worker
 
 logger = logging.getLogger(__name__)
+
+
+# ═════════════════════════════════════════════════════════════════
+# Worker 注册表(原 scheduler/registry.py,18 行,合并进来)
+# ═════════════════════════════════════════════════════════════════
+# 历史:为避免循环导入独立成文件。现在 base.py 不再需要从 registry 反向导入,
+# 二者依赖方向一致,合并简化文件数。
+T = TypeVar("T", bound="BaseWorker")
+
+_WORKER_REGISTRY: dict[str, type] = {}
+
+
+def register_worker(task_type: str):
+    """装饰器:将 Worker 类注册到全局注册表。"""
+
+    def decorator(cls: type[T]) -> type[T]:
+        _WORKER_REGISTRY[task_type] = cls
+        return cls
+
+    return decorator
 
 
 class BaseWorker:

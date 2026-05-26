@@ -12,5 +12,4 @@ from .state import (
 )
 from .retry import schedule_auto_retry
 from .progress import build_pipeline_progress
-from .base import BaseWorker
-from .registry import register_worker
+from .base import BaseWorker, register_worker
