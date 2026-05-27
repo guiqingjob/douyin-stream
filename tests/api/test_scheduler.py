@@ -7,8 +7,6 @@ from fastapi.testclient import TestClient
 from media_tools.api.app import app
 from media_tools.store.db import get_db_connection
 
-client = TestClient(app)
-
 
 def _clear_scheduled_tasks():
     """清理所有用户创建的调度任务（保留系统任务 __xxx__）"""
@@ -28,12 +26,14 @@ class TestSchedulerAPI:
 
     def test_list_schedules_empty(self):
         """空列表返回空数组"""
+        client = TestClient(app)
         response = client.get("/api/v1/scheduler")
         assert response.status_code == 200
         assert response.json() == []
 
     def test_add_schedule_success(self):
         """添加有效的 cron 调度任务"""
+        client = TestClient(app)
         response = client.post(
             "/api/v1/scheduler",
             json={
@@ -60,6 +60,7 @@ class TestSchedulerAPI:
 
     def test_add_schedule_invalid_cron(self):
         """无效的 cron 表达式返回 400"""
+        client = TestClient(app)
         response = client.post(
             "/api/v1/scheduler",
             json={
@@ -72,6 +73,7 @@ class TestSchedulerAPI:
 
     def test_toggle_schedule(self):
         """切换调度任务启用状态"""
+        client = TestClient(app)
         # 先创建
         create_resp = client.post(
             "/api/v1/scheduler",
@@ -107,11 +109,13 @@ class TestSchedulerAPI:
 
     def test_toggle_nonexistent_schedule(self):
         """切换不存在的任务返回 404"""
+        client = TestClient(app)
         response = client.put("/api/v1/scheduler/nonexistent-id/toggle", json={"enabled": False})
         assert response.status_code == 404
 
     def test_delete_schedule(self):
         """删除调度任务"""
+        client = TestClient(app)
         create_resp = client.post(
             "/api/v1/scheduler",
             json={
@@ -131,11 +135,13 @@ class TestSchedulerAPI:
 
     def test_delete_nonexistent_schedule(self):
         """删除不存在的任务返回 404"""
+        client = TestClient(app)
         response = client.delete("/api/v1/scheduler/nonexistent-id")
         assert response.status_code == 404
 
     def test_run_now(self):
         """触发立即运行返回成功"""
+        client = TestClient(app)
         with patch("media_tools.api.routers.scheduler._run_scan_all_following") as mock_run:
             response = client.post("/api/v1/scheduler/run_now")
             assert response.status_code == 200

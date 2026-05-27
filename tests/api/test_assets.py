@@ -7,10 +7,9 @@ from fastapi.testclient import TestClient
 
 from media_tools.api.app import app
 
-client = TestClient(app)
-
 
 def test_get_assets_by_creator():
+    client = TestClient(app)
     response = client.get("/api/v1/assets?creator_uid=123")
     assert response.status_code == 200
     assert isinstance(response.json(), list)
@@ -20,6 +19,7 @@ def test_bulk_delete_commits_db_before_file_delete():
     """新设计：先在事务里删除 DB 行（避免 partial failure 留下 DB-File 不一致），
     commit 后再尽力删除文件；文件删除失败仅记录日志，不影响 DB 提交。
     """
+    client = TestClient(app)
     from media_tools.api.routers import assets as assets_router
     from media_tools.store.db import init_db
 
@@ -103,6 +103,7 @@ def test_bulk_delete_commits_db_before_file_delete():
 
 
 def test_get_asset_transcript_missing_file_does_not_write_db() -> None:
+    client = TestClient(app)
     from media_tools.api.routers import assets as assets_router
     from media_tools.store.db import init_db
 

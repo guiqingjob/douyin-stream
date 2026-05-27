@@ -2,10 +2,9 @@ from fastapi.testclient import TestClient
 
 from media_tools.api.app import app
 
-client = TestClient(app)
-
 
 def test_metrics_endpoint_returns_expected_shape() -> None:
+    client = TestClient(app)
     resp = client.get("/api/v1/metrics")
     assert resp.status_code == 200
     body = resp.json()
@@ -33,6 +32,7 @@ def test_metrics_endpoint_returns_expected_shape() -> None:
 
 def test_health_returns_200() -> None:
     """验证 /api/health 正常响应（覆盖中间件不干扰正常路由）。"""
+    client = TestClient(app)
     resp = client.get("/api/health")
     assert resp.status_code == 200
     body = resp.json()

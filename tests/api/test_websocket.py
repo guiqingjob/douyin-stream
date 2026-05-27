@@ -5,19 +5,19 @@ from fastapi.testclient import TestClient
 from media_tools.api.app import app
 from media_tools.api.websocket_manager import manager
 
-client = TestClient(app)
-
 
 class TestWebSocket:
     """测试 WebSocket 连接和消息"""
 
     def test_websocket_connect(self):
         """WebSocket 连接成功建立"""
+        client = TestClient(app)
         with client.websocket_connect("/api/v1/tasks/ws"):
             pass  # 连接自动关闭
 
     def test_websocket_receive_ping(self):
         """WebSocket 收到服务端 ping 消息"""
+        client = TestClient(app)
         with client.websocket_connect("/api/v1/tasks/ws"):
             # 心跳间隔 20s，测试中不会收到
             # 这里主要验证连接不会立即断开
@@ -25,6 +25,7 @@ class TestWebSocket:
 
     def test_broadcast_message(self):
         """广播消息到所有活跃连接"""
+        client = TestClient(app)
 
         async def _test():
 
@@ -51,6 +52,7 @@ class TestWebSocket:
 
     def test_websocket_disconnect_cleanup(self):
         """断开连接后清理连接列表"""
+        client = TestClient(app)
         initial_count = len(manager.active_connections)
 
         with client.websocket_connect("/api/v1/tasks/ws"):

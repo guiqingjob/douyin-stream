@@ -4,8 +4,6 @@ from fastapi.testclient import TestClient
 
 from media_tools.api.app import app
 
-client = TestClient(app)
-
 
 @patch("media_tools.api.routers.douyin.SecUserIdFetcher.get_sec_user_id", new_callable=AsyncMock)
 @patch("media_tools.api.routers.douyin.DouyinHandler.fetch_user_profile", new_callable=AsyncMock)
@@ -33,6 +31,7 @@ def test_get_metadata(mock_fetch_user_post_videos, mock_fetch_user_profile, mock
 
     mock_fetch_user_post_videos.side_effect = mock_generator
 
+    client = TestClient(app)
     url = "https://douyin.com/user/MS4wLjABAAAAQ09FeL2ALZletbVLqDXBPDKuu76XXy6xvdkszy2PLiZR-SI5-VO3TEQSkzB92aKb"
     response = client.get(f"/api/v1/douyin/metadata?url={url}&max_counts=5")
     assert response.status_code == 200

@@ -6,10 +6,9 @@ from fastapi.testclient import TestClient
 
 from media_tools.api.app import app
 
-client = TestClient(app)
-
 
 def test_update_global_settings_supports_patch_semantics() -> None:
+    client = TestClient(app)
     calls: list[tuple[str, object]] = []
 
     def _set(key: str, value: object) -> None:
@@ -23,11 +22,13 @@ def test_update_global_settings_supports_patch_semantics() -> None:
 
 
 def test_update_global_settings_rejects_empty_patch() -> None:
+    client = TestClient(app)
     resp = client.post("/api/v1/settings/global", json={})
     assert resp.status_code == 400
 
 
 def test_update_global_settings_rejects_concurrency_below_1() -> None:
+    client = TestClient(app)
     with patch("media_tools.api.routers.settings.set_runtime_setting"):
         resp = client.post("/api/v1/settings/global", json={"concurrency": 0})
     assert resp.status_code == 400
@@ -35,6 +36,7 @@ def test_update_global_settings_rejects_concurrency_below_1() -> None:
 
 
 def test_update_global_settings_rejects_concurrency_above_100() -> None:
+    client = TestClient(app)
     with patch("media_tools.api.routers.settings.set_runtime_setting"):
         resp = client.post("/api/v1/settings/global", json={"concurrency": 101})
     assert resp.status_code == 400
@@ -42,6 +44,7 @@ def test_update_global_settings_rejects_concurrency_above_100() -> None:
 
 
 def test_update_global_settings_accepts_concurrency_in_range() -> None:
+    client = TestClient(app)
     calls: list[tuple[str, object]] = []
 
     def _set(key: str, value: object) -> None:

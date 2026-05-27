@@ -9,14 +9,13 @@ from media_tools.api.app import app
 from media_tools.transcribe.media_extensions import MEDIA_EXTENSIONS
 from media_tools.transcribe.worker import filter_supported_media_paths
 
-client = TestClient(app)
-
 
 def test_media_extensions_contains_mp3() -> None:
     assert ".mp3" in MEDIA_EXTENSIONS
 
 
 def test_scan_directory_returns_mp3_files() -> None:
+    client = TestClient(app)
     with tempfile.TemporaryDirectory(dir="/tmp") as temp_dir:
         mp3_path = Path(temp_dir) / "a.mp3"
         mp3_path.write_bytes(b"fake mp3 content")
