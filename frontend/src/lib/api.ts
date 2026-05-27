@@ -144,11 +144,14 @@ export {
 export type { DashboardData, HealthCheck } from '@/services/dashboard';
 
 // ── Transcripts ──
-export async function getTranscripts(status: 'all' | 'unread' | 'starred' = 'all', limit?: number) {
+export async function getTranscripts(status: 'all' | 'unread' | 'starred' = 'all', limitOrSignal?: number | AbortSignal) {
   const params: Record<string, string | number> = { status };
-  if (limit !== undefined) {
-    params.limit = limit;
+  let signal: AbortSignal | undefined;
+  if (typeof limitOrSignal === 'number') {
+    params.limit = limitOrSignal;
+  } else if (limitOrSignal instanceof AbortSignal) {
+    signal = limitOrSignal;
   }
-  const res = await apiClient.get('/transcripts', { params });
+  const res = await apiClient.get('/transcripts', { params, signal });
   return res.data;
 }

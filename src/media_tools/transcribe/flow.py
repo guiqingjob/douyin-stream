@@ -480,7 +480,7 @@ async def run_real_flow(
                     from media_tools.transcribe.repository import TranscribeRunRepository
                     TranscribeRunRepository.update_stage(run_id, "queued")
                 except Exception:  # noqa: defensive – stage 重置失败不影响主流程
-                    logger.debug("重置 stage 失败，但不影响 fallback 流程", exc_info=True)
+                    logger.warning("重置 stage 失败，但不影响 fallback 流程", exc_info=True)
             return None
 
     async def _try_resume_from_gen_record(api: Any) -> FlowResult | None:
@@ -544,7 +544,7 @@ async def run_real_flow(
                     from media_tools.transcribe.repository import TranscribeRunRepository
                     TranscribeRunRepository.update_stage(run_id, "queued")
                 except Exception:  # noqa: defensive – stage 重置失败不影响主流程
-                    logger.debug("重置 stage 失败，但不影响 fallback 流程", exc_info=True)
+                    logger.warning("重置 stage 失败，但不影响 fallback 流程", exc_info=True)
             return None
 
     # api 统一在最外层准备，两个 resume 函数和 _do_flow 共用同一个 context；

@@ -69,6 +69,12 @@ export const bulkMarkAssets = async (
 
 export const exportTranscripts = async (assetIds: string[], signal?: AbortSignal): Promise<void> => {
   const response = await apiClient.post('/assets/export', assetIds, { responseType: 'blob', signal });
+  const contentType = response.headers?.['content-type'] || '';
+  if (contentType.includes('application/json')) {
+    const text = await (response.data as Blob).text();
+    const err = JSON.parse(text);
+    throw new Error(err.detail || '导出失败');
+  }
   const url = window.URL.createObjectURL(new Blob([response.data]));
   const a = document.createElement('a');
   a.href = url;

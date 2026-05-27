@@ -559,8 +559,6 @@ async def run_batch_pipeline(video_urls: list[str], update_progress_fn, delete_a
     config = load_pipeline_config()
     orchestrator = create_orchestrator(config)
 
-    total = len(new_files)
-
     # 使用批量并发转写
     # 与 run_pipeline_for_user 同理：_fire_progress 按单视频语义上报，
     # 闭包内维护 done 计数，把进度平滑推进。

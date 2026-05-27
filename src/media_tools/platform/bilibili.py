@@ -346,7 +346,7 @@ def download_up_by_url(
                     uploader_info = UploaderInfo(nickname=nick, mid=str(mid), homepage_url=f"https://space.bilibili.com/{mid}")
                     ydl_opts_inner["outtmpl"] = _build_output_template(downloads_path, nick)
         except Exception:
-            pass  # 预提取失败不影响后续下载
+            logger.debug("预提取 UP 主信息失败，使用默认路径", exc_info=True)
 
         # 2) 执行实际下载
         with YoutubeDL(ydl_opts_inner) as ydl:

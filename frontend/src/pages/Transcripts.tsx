@@ -32,20 +32,15 @@ export default function Transcripts() {
 
   const lastCompletedTaskTime = useStore((state) => state.lastCompletedTaskTime);
 
-  const loadTranscripts = useCallback(async () => {
-    setLoading(true);
-    try {
-      const res = await getTranscripts(filter);
-      setItems(res.items || []);
-    } catch { /* ignore */ }
-    finally { setLoading(false); }
-  }, [filter]);
-
-  useEffect(() => { loadTranscripts(); }, [loadTranscripts]);
-
   useEffect(() => {
-    if (lastCompletedTaskTime > 0) loadTranscripts();
-  }, [lastCompletedTaskTime, loadTranscripts]);
+    const controller = new AbortController();
+    setLoading(true);
+    getTranscripts(filter, controller.signal)
+      .then((res) => { if (!controller.signal.aborted) setItems(res.items || []); })
+      .catch(() => { /* ignore */ })
+      .finally(() => { if (!controller.signal.aborted) setLoading(false); });
+    return () => { controller.abort(); };
+  }, [filter, lastCompletedTaskTime]);
 
   const handleOpenTranscript = useCallback(async (item: TranscriptItem) => {
     setSelectedId(item.asset_id);

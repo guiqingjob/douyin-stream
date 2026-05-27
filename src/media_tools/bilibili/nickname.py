@@ -10,6 +10,7 @@ logger = logging.getLogger(__name__)
 
 # 模块级初始化，避免 TOCTOU 竞态
 _bilibili_semaphore: asyncio.Semaphore = asyncio.Semaphore(5)
+_client_lock: asyncio.Lock = asyncio.Lock()
 
 # 共享 httpx 客户端，避免每次请求创建新的连接池和 TLS 上下文
 _shared_client: httpx.AsyncClient | None = None
@@ -20,19 +21,22 @@ _client_headers = {
 }
 
 
-def _get_shared_client() -> httpx.AsyncClient:
+async def _get_shared_client() -> httpx.AsyncClient:
     global _shared_client
     if _shared_client is None or _shared_client.is_closed:
-        _shared_client = httpx.AsyncClient(timeout=_client_timeout, follow_redirects=True)
+        async with _client_lock:
+            if _shared_client is None or _shared_client.is_closed:
+                _shared_client = httpx.AsyncClient(timeout=_client_timeout, follow_redirects=True)
     return _shared_client
 
 
 async def close_bilibili_client() -> None:
     """关闭共享 httpx 客户端，应在应用 shutdown 时调用。"""
     global _shared_client
-    if _shared_client is not None and not _shared_client.is_closed:
-        await _shared_client.aclose()
-        _shared_client = None
+    async with _client_lock:
+        if _shared_client is not None and not _shared_client.is_closed:
+            await _shared_client.aclose()
+            _shared_client = None
 
 
 async def fetch_bilibili_nickname(mid: str, retries: int = 3) -> str:
@@ -44,7 +48,7 @@ async def fetch_bilibili_nickname(mid: str, retries: int = 3) -> str:
     - 异常: 返回 mid 作为后备
     """
     url = f"https://api.bilibili.com/x/web-interface/card?mid={mid}"
-    client = _get_shared_client()
+    client = await _get_shared_client()
 
     for attempt in range(retries):
         try:

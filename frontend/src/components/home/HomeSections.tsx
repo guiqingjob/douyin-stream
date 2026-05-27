@@ -1,4 +1,5 @@
 import { type FailureSummary } from '@/services/tasks';
+import type { Asset } from '@/types';
 
 interface FailureSummarySectionProps {
   failureSummary: FailureSummary | null;
@@ -42,7 +43,7 @@ export function FailureSummarySection({ failureSummary }: FailureSummarySectionP
 }
 
 interface RecentTranscriptsSectionProps {
-  recentTranscripts: Array<Record<string, unknown>>;
+  recentTranscripts: Asset[];
   onNavigateToTranscripts: () => void;
 }
 

@@ -17,7 +17,7 @@ export interface Creator {
   disk_asset_count?: number;
   disk_transcript_completed_count?: number;
   disk_transcript_pending_count?: number;
-  auto_sync?: number | boolean;
+  auto_sync?: boolean | 0 | 1;
 }
 
 export interface Asset {

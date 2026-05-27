@@ -102,12 +102,15 @@ class CloudCleanupService:
                 logger_cc.warning("云端清理跳过：无法获取有效 cookie")
                 return
 
-            api = RequestsApiContext()
-            for record_id in record_ids:
-                try:
-                    await delete_record(record_id, api, cookie_string=cookie_string)
-                    logger_cc.info(f"已清理云端记录 {record_id}")
-                except Exception as e:
-                    logger_cc.warning(f"清理云端记录 {record_id} 失败: {e}")
+            api = RequestsApiContext(cookie_string=cookie_string)
+            try:
+                for record_id in record_ids:
+                    try:
+                        await delete_record(api, [record_id])
+                        logger_cc.info(f"已清理云端记录 {record_id}")
+                    except Exception as e:
+                        logger_cc.warning(f"清理云端记录 {record_id} 失败: {e}")
+            finally:
+                await api.dispose()
         except Exception as e:
             logger_cc.warning(f"云端清理整体失败: {e}")

@@ -1,7 +1,7 @@
 import { useState, useCallback } from 'react';
 import { Link2, Loader2, AlertCircle, Check, Download, FileAudio } from 'lucide-react';
 import { toast } from 'sonner';
-import { fetchMetadata, triggerPipeline, triggerDownloadBatch } from '@/lib/api';
+import { fetchMetadata, triggerBatchPipeline, triggerDownloadBatch } from '@/lib/api';
 import type { DouyinVideoMeta } from '@/types';
 import { LinkInfo, detectLinkType } from '@/components/discover/discoverUtils';
 import { DirectLinkCard } from '@/components/discover/DirectLinkCard';
@@ -105,7 +105,7 @@ export default function Discover() {
     const selectedUrls = videos.filter((v) => selectedIds.has(v.aweme_id)).map((v) => v.video_url);
     setSubmitting(true);
     try {
-      const res = await triggerPipeline(selectedUrls[0], selectedUrls.length);
+      const res = await triggerBatchPipeline(selectedUrls);
       toast.success('下载 + 转写任务已派发', { description: `id: ${res.task_id.slice(0, 8)}` });
       setSelectedIds(new Set());
     } catch { /* */ } finally { setSubmitting(false); }

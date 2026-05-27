@@ -279,11 +279,14 @@ export function useSettings() {
   }, [autoTranscribe, exportFormat, transcriptOutputDir]);
 
   const handleChangeExportFormat = useCallback(async (format: string) => {
+    const prev = exportFormat;
     setExportFormat(format);
     try {
       await updateGlobalSettings(autoDeleteVideo, autoTranscribe, format, transcriptOutputDir);
-    } catch { /* revert on error */ }
-  }, [autoDeleteVideo, autoTranscribe, transcriptOutputDir]);
+    } catch {
+      setExportFormat(prev);
+    }
+  }, [autoDeleteVideo, autoTranscribe, exportFormat, transcriptOutputDir]);
 
   const handleSaveTranscriptOutputDir = useCallback(async () => {
     try {
