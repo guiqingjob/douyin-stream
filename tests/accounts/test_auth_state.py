@@ -7,7 +7,7 @@ import unittest
 from pathlib import Path
 from unittest.mock import patch
 
-from media_tools.transcribe.auth_state import (
+from media_tools.accounts.auth_state import (
     build_qwen_storage_state,
     build_qwen_storage_state_from_cookie_string,
     has_qwen_auth_state,
@@ -87,7 +87,7 @@ class AuthStateTests(unittest.TestCase):
 
                 reset_config()
                 persist_qwen_auth_state(state, auth_path)
-                with patch("media_tools.transcribe.auth_state._get_active_qwen_cookie_from_pool", return_value=None):
+                with patch("media_tools.accounts.auth_state._get_active_qwen_cookie_from_pool", return_value=None):
                     resolved = resolve_qwen_auth_state(auth_path)
                 self.assertEqual(resolved.source, "file")
                 self.assertIsInstance(resolved.storage_state, dict)

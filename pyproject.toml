@@ -61,6 +61,7 @@ ignore = [
   "E402",   # module level import not at top (lazy imports in __init__.py, routers)
   "F401",   # unused imports (re-exports in __init__.py)
   "B008",   # do not perform function calls in argument defaults (FastAPI Depends)
+  "B904",   # raise ... from err (many pre-existing raise HTTPException patterns)
   "SIM105", # contextlib.suppress (try/except/pass is more readable in some cases)
   "SIM117", # nested with (sometimes readability is better with nesting)
 ]
