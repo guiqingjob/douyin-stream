@@ -52,7 +52,7 @@ def build_upload_tag(file_path: str | Path, mime_type: str) -> dict[str, Any]:
         "fileFormat": parsed.suffix.removeprefix("."),
         "fileType": "local",
         "lang": "cn",
-        "roleSplitNum": -1,
+        "roleSplitNum": 0,
         "translateSwitch": 0,
         "transTargetValue": 0,
         "originalTag": json.dumps({"isVideo": is_video}),

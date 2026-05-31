@@ -5,10 +5,21 @@ import unittest
 
 from media_tools.accounts.quota import QuotaSnapshot
 from media_tools.common.runtime import ExportConfig
-from media_tools.transcribe.flow import build_export_output_path, record_flow_quota_usage, save_debug_artifacts
+from media_tools.transcribe.flow import (
+    build_export_output_path,
+    build_upload_tag,
+    record_flow_quota_usage,
+    save_debug_artifacts,
+)
 
 
 class FlowTests(unittest.TestCase):
+    def test_build_upload_tag_defaults_to_multi_speaker_discussion(self) -> None:
+        tag = build_upload_tag("/tmp/demo/video.mp4", "video/mp4")
+
+        self.assertEqual(tag["roleSplitNum"], 0)
+        self.assertEqual(tag["originalTag"], '{"isVideo": 1}')
+
     def test_build_export_output_path_uses_stem_stamp_and_extension(self) -> None:
         output = build_export_output_path(
             input_path="/tmp/demo/video.mp4",
