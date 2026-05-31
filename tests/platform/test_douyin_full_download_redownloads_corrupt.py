@@ -4,6 +4,7 @@ from pathlib import Path
 
 from media_tools.platform.douyin import (
     MIN_VIDEO_BYTES,
+    _detect_incomplete_creator_fetch,
     _scan_local_aweme_files,
     _select_videos_to_download,
 )
@@ -44,3 +45,24 @@ def test_full_download_treats_corrupt_as_missing_and_overwrites(tmp_path: Path) 
     assert skipped == 1
     assert [v["aweme_id"] for v in new_videos] == [corrupt_id, new_id]
     assert not (user_path / f"{corrupt_id}.mp4").exists()
+
+
+def test_unlimited_fetch_warns_when_creator_count_is_obviously_incomplete() -> None:
+    error = _detect_incomplete_creator_fetch(
+        expected_aweme_count=432,
+        fetched_aweme_count=22,
+        max_counts=None,
+    )
+
+    assert "作品列表抓取不完整" in error
+    assert "更新 Cookie" in error
+
+
+def test_limited_fetch_does_not_require_creator_total_count() -> None:
+    error = _detect_incomplete_creator_fetch(
+        expected_aweme_count=432,
+        fetched_aweme_count=22,
+        max_counts=20,
+    )
+
+    assert error == ""

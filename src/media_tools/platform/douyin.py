@@ -254,6 +254,57 @@ def _save_single_video_metadata(video: dict, nickname: str = "") -> int:
         return 1
 
 
+def _get_user_info_from_db(sec_user_id: str) -> tuple[str, str, int]:
+    """Return uid, nickname and Douyin-reported aweme_count when available."""
+    try:
+        from media_tools.store.db import get_db_connection
+
+        with get_db_connection() as conn:
+            cursor = conn.cursor()
+            cursor.execute("PRAGMA table_info(user_info_web)")
+            columns = {str(row[1]) for row in cursor.fetchall()}
+            has_aweme_count = "aweme_count" in columns
+            select_columns = "uid, nickname, aweme_count" if has_aweme_count else "uid, nickname"
+
+            cursor.execute(
+                f"SELECT {select_columns} FROM user_info_web WHERE sec_user_id = ? LIMIT 1",
+                (sec_user_id,),
+            )
+            row = cursor.fetchone()
+
+            if not row:
+                cursor.execute(f"SELECT {select_columns} FROM user_info_web ORDER BY ROWID DESC LIMIT 1")
+                row = cursor.fetchone()
+
+            if not row:
+                return "", "", 0
+
+            uid = str(row[0] or "")
+            nickname = str(row[1] or "")
+            expected_count = int(row[2] or 0) if has_aweme_count and len(row) > 2 else 0
+            return uid, nickname, expected_count
+    except (sqlite3.Error, OSError, TypeError, ValueError):
+        return "", "", 0
+
+
+def _detect_incomplete_creator_fetch(
+    *,
+    expected_aweme_count: int,
+    fetched_aweme_count: int,
+    max_counts: int | None,
+) -> str:
+    if max_counts or expected_aweme_count < 50:
+        return ""
+    if fetched_aweme_count >= expected_aweme_count:
+        return ""
+    if fetched_aweme_count >= int(expected_aweme_count * 0.8):
+        return ""
+    return (
+        f"作品列表抓取不完整：主页显示约 {expected_aweme_count} 个作品，本次只获取到 {fetched_aweme_count} 个。"
+        "请先检查 Douyin Cookie 是否过期或安全会话失效，更新 Cookie 后重试全量重拉。"
+    )
+
+
 def _rename_videos_in_downloads(nickname: str, uid: str, downloads_path: Path) -> str | None:
     """重命名下载目录下的视频文件（包括已在目标子目录的情况）"""
     import re
@@ -612,37 +663,13 @@ async def _download_with_stats(
     async with AsyncUserDB(str(config.get_db_path())) as db:
         user_path = await handler.get_or_add_user_data(kwargs, sec_user_id, db)
 
-    # 从数据库获取用户信息（通过 sec_user_id 精确匹配）
-    config.get_db_path()
-    user_info = None
-    try:
-        from media_tools.store.db import get_db_connection
-
-        with get_db_connection() as conn:
-            cursor = conn.cursor()
-            cursor.execute("SELECT uid, nickname FROM user_info_web WHERE sec_user_id = ? LIMIT 1", (sec_user_id,))
-            user_info = cursor.fetchone()
-    except (sqlite3.Error, OSError):
-        pass
-
-    # 如果没找到，使用最新记录（向后兼容）
-    if not user_info:
-        try:
-            from media_tools.store.db import get_db_connection
-
-            with get_db_connection() as conn:
-                cursor = conn.cursor()
-                cursor.execute("SELECT uid, nickname FROM user_info_web ORDER BY ROWID DESC LIMIT 1")
-                user_info = cursor.fetchone()
-        except (sqlite3.Error, OSError):
-            pass
-
-    uid = user_info[0] if user_info else ""
-    nickname = user_info[1] if user_info else ""
+    uid, nickname, expected_aweme_count = _get_user_info_from_db(sec_user_id)
 
     if nickname:
         logger.info(f"博主: {nickname} (UID: {uid})")
         logger.info(info(f"[博主] {nickname} (UID: {uid})"))
+    if expected_aweme_count:
+        logger.info(info(f"[主页] 作品数约 {expected_aweme_count} 个"))
 
     # 统计本地已有视频（增量下载）
     existing_videos = set()
@@ -783,6 +810,17 @@ async def _download_with_stats(
     logger.info(f"保存了 {total_stats_saved} 条视频元数据")
     logger.info(success(f"[统计] 新增 {total_downloaded} 个，跳过 {total_skipped} 个已有"))
 
+    incomplete_fetch_error = _detect_incomplete_creator_fetch(
+        expected_aweme_count=expected_aweme_count,
+        fetched_aweme_count=all_videos_count,
+        max_counts=max_counts,
+    )
+    if incomplete_fetch_error:
+        logger.error(incomplete_fetch_error)
+        logger.info(error(f"[Cookie] {incomplete_fetch_error}"))
+        if task_id:
+            add_download_error(task_id, url, incomplete_fetch_error)
+
     # 更新状态为整理中
     if task_id:
         update_stage(task_id, Stage.AUDITING)
@@ -843,16 +881,18 @@ async def _download_with_stats(
         if task_id:
             add_download_error(task_id, url, silent_fail_error)
 
-    # 更新状态为完成
+    final_error = fetch_error or incomplete_fetch_error or silent_fail_error
     if task_id:
-        update_stage(task_id, Stage.COMPLETED)
+        update_stage(task_id, Stage.FAILED if final_error else Stage.COMPLETED)
 
     logger.info(f"下载完成: 共 {total_downloaded} 个视频")
-    logger.info(success(f"\n[完成] 共下载 {total_downloaded} 个视频"))
+    if final_error:
+        logger.info(error(f"\n[失败] {final_error}"))
+    else:
+        logger.info(success(f"\n[完成] 共下载 {total_downloaded} 个视频"))
     if folder_name:
         logger.info(info(f"[位置] {downloads_path / folder_name}"))
 
-    final_error = fetch_error or silent_fail_error
     return {
         "success": not final_error,
         "error": final_error,
