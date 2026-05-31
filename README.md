@@ -121,6 +121,8 @@ chmod +x run.sh   # 仅首次
 
 > **导出格式**：支持 `md`（Markdown）、`docx`（Word 文档）、`pdf`（PDF 文档）、`srt`（字幕文件）、`txt`（纯文本）五种格式，可在 Settings 页面切换。
 
+> **听悟转写参数**：当前默认使用多人讨论模式（`roleSplitNum=0`），导出原文（`docType=1`），并包含说话人和时间戳（`withSpeaker=true`、`withTimeStamp=true`）。Qwen/听悟 API 还支持单人演讲、两人对话、不区分发言人、导读/笔记等模式，当前尚未暴露为 Settings 配置项；参数对照见 `docs/references/API.md`。
+
 > **自动删除源视频**：此设置仅影响 Pipeline 流水线（下载→转写→清理）中下载的视频。本地文件扫描转写永远不会删除用户源视频，只清理临时文件。
 
 通义千问认证状态统一存储在 SQLite 数据库 `Accounts_Pool` 表中，通过 `CookieManager` 统一接口管理，支持三平台（抖音/B站/Qwen）账号轮换。运行时缓存在 `data/auth/` 目录下。通过 Settings 页面配置。

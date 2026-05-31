@@ -27,6 +27,101 @@ from media_tools.transcribe.worker import run_local_transcribe, run_pipeline_for
 
 `create_orchestrator()` 创建 `OrchestratorV2`，负责单文件转写、断点续传、重试和导出。`transcribe/worker.py` 是后台任务入口，负责本地文件转写、创作者/批量流水线任务拆分、任务进度汇总和前端进度推送。
 
+#### Qwen/听悟直调参数现状
+
+转写流程当前通过 Qwen/听悟 HTTP API 直调完成：先获取 OSS 上传 token，再上传文件、发送 heartbeat、启动转写、轮询完成，最后请求导出并下载结果。
+
+上传 token 接口：
+
+```http
+POST https://api.qianwen.com/assistant/api/record/oss/token/get?c=tongyi-web
+```
+
+当前项目构造的核心请求体：
+
+```json
+{
+  "taskType": "local",
+  "useSts": 1,
+  "fileSize": 12345678,
+  "dirIdStr": "",
+  "fileContentType": "video/mp4",
+  "bizTerminal": "web",
+  "tag": {
+    "showName": "video",
+    "fileFormat": "mp4",
+    "fileType": "local",
+    "lang": "cn",
+    "roleSplitNum": 0,
+    "translateSwitch": 0,
+    "transTargetValue": 0,
+    "originalTag": "{\"isVideo\":1}",
+    "client": "web"
+  }
+}
+```
+
+`roleSplitNum` 取值对照：
+
+| 值 | 模式 | 当前项目状态 |
+| :--- | :--- | :--- |
+| `0` | 多人讨论，自动识别多人 | 默认值 |
+| `1` | 单人演讲 | 已知 API 能力，暂未暴露配置 |
+| `2` | 两人对话 | 已知 API 能力，暂未暴露配置 |
+| `-1` | 暂不体验，不区分发言人 | 已知 API 能力，暂未暴露配置 |
+
+导出接口：
+
+```http
+POST https://audio-api.qianwen.com/api/export/request?c=tongyi-web
+```
+
+当前项目构造的核心请求体：
+
+```json
+{
+  "action": "exportTrans",
+  "transIds": ["genRecordId"],
+  "exportDetails": [
+    {
+      "docType": 1,
+      "fileType": 3,
+      "withSpeaker": true,
+      "withTimeStamp": true
+    }
+  ]
+}
+```
+
+`fileType` 导出格式映射：
+
+| 设置值 | `fileType` | 后缀 |
+| :--- | :--- | :--- |
+| `docx` | `0` | `.docx` |
+| `pdf` | `1` | `.pdf` |
+| `srt` | `2` | `.srt` |
+| `md` / `markdown` | `3` | `.md` |
+| `txt` | `7` | `.txt` |
+
+`docType` 已知取值：
+
+| 值 | 内容类型 | 当前项目状态 |
+| :--- | :--- | :--- |
+| `1` | 原文 | 固定使用 |
+| `7` | 导读 | 已知 API 能力，暂未暴露配置 |
+| `3` | 笔记 | 已知 API 能力，暂未暴露配置 |
+| `4` | 音视频 | 已知 API 能力，暂未暴露配置 |
+
+当前未暴露为产品配置的能力：
+
+- 发言人模式选择：`roleSplitNum=-1/0/1/2` 目前固定为 `0`。
+- 导出内容类型：`docType=1/3/4/7` 目前固定为 `1`。
+- 是否带说话人：`withSpeaker` 目前固定为 `true`。
+- 是否带时间戳：`withTimeStamp` 目前固定为 `true`。
+- 翻译开关与目标：`translateSwitch`、`transTargetValue` 目前固定为 `0`。
+- 识别语言：`lang` 目前固定为 `cn`。
+- `X-Platform: pc_tongyi` 请求头在抓包文档中出现，当前通用 HTTP 封装未固定添加。
+
 进度回调可能来自两个线程上下文：
 
 - 主事件循环：Qwen 轮询心跳、阶段切换等异步流程会直接在运行中的 asyncio loop 内触发。
